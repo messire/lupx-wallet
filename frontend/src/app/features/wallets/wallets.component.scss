@@ -1,0 +1,109 @@
+.page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+  font-family: sans-serif;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  h1 {
+    font-size: 1.4rem;
+    margin: 0;
+  }
+}
+
+.toolbar {
+  margin: 1.5rem 0;
+}
+
+button {
+  padding: 0.6rem 1rem;
+  border: none;
+  border-radius: 8px;
+  background: #2f6fed;
+  color: #fff;
+  font-size: 0.95rem;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  &.secondary {
+    background: #eceef1;
+    color: #333;
+  }
+}
+
+.wallet-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+  border: 1px solid #e2e4e8;
+  border-radius: 12px;
+  background: #fafbfc;
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  label {
+    font-size: 0.85rem;
+    color: #333;
+  }
+
+  input {
+    padding: 0.55rem 0.7rem;
+    border: 1px solid #d0d3d8;
+    border-radius: 8px;
+    font-size: 0.95rem;
+  }
+
+  .hint {
+    margin: 0;
+    font-size: 0.75rem;
+    color: #888;
+  }
+
+  .form-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+}
+
+.error {
+  color: #c0392b;
+  font-size: 0.9rem;
+}
+
+.empty {
+  color: #666;
+}
+
+.wallets-table {
+  width: 100%;
+  border-collapse: collapse;
+
+  th,
+  td {
+    text-align: left;
+    padding: 0.6rem 0.5rem;
+    border-bottom: 1px solid #e2e4e8;
+  }
+
+  th {
+    font-size: 0.8rem;
+    color: #666;
+    text-transform: uppercase;
+  }
+}

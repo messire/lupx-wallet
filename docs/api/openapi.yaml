@@ -1,0 +1,1115 @@
+openapi: "3.1.0"
+info:
+  title: LupexWallet API
+  version: "1.0.0"
+  description: >
+    REST API однопользовательского приложения учета личных финансов.
+    Технические идентификаторы — на английском, см. docs/architecture/ddd-model.md
+    для доменной модели и docs/database/schema.md для схемы БД.
+  license:
+    name: Proprietary — внутренний проект, не публикуется
+servers:
+  - url: /api/v1
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Auth
+    description: Вход по единому паролю приложения (без регистрации/ролей).
+  - name: Wallets
+    description: Управление кошельками, основной кошелек, текущий баланс.
+  - name: WalletTypes
+    description: Расширяемый справочник типов кошельков.
+  - name: OperationTypes
+    description: Расширяемый справочник типов операций.
+  - name: OperationBehaviorKinds
+    description: Системный справочник видов поведения операции (только чтение).
+  - name: Currencies
+    description: Расширяемый справочник валют, включая криптовалюты.
+  - name: Operations
+    description: Доходы, расходы и ручные корректировки баланса.
+  - name: Transfers
+    description: Переводы между кошельками одной валюты.
+  - name: BalanceHistory
+    description: Текущий и исторический баланс кошелька по слепкам.
+  - name: ExchangeRates
+    description: Курсы валют от Frankfurter, ручное и автоматическое обновление.
+  - name: Reporting
+    description: Общая сумма по всем кошелькам — текущая и историческая.
+  - name: Audit
+    description: Неизменяемый журнал изменений финансовых данных.
+
+paths:
+  # ---------- Auth ----------
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Вход по единому паролю приложения
+      operationId: login
+      security: []   # эндпоинт логина не требует токена
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Успешный вход
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  # ---------- Wallets ----------
+  /wallets:
+    get:
+      tags: [Wallets]
+      summary: Список кошельков
+      operationId: listWallets
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - name: includeArchived
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Страница кошельков, отсортированная по displayOrder
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WalletPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Wallets]
+      summary: Создать кошелек (UC-01)
+      operationId: createWallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WalletCreateRequest" }
+      responses:
+        "201":
+          description: Кошелек создан
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Wallet" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /wallets/{walletId}:
+    parameters:
+      - $ref: "#/components/parameters/WalletIdParam"
+    get:
+      tags: [Wallets]
+      summary: Получить кошелек
+      operationId: getWallet
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Wallet" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Wallets]
+      summary: Изменить атрибуты кошелька (UC-02, без валюты)
+      operationId: updateWallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WalletUpdateRequest" }
+      responses:
+        "200":
+          description: Обновлено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Wallet" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [Wallets]
+      summary: Удалить кошелек без истории (UC-04)
+      operationId: deleteWallet
+      responses:
+        "204": { description: Удален }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: >
+            Кошелек имеет историю операций/слепков (используйте /archive)
+            или является основным.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /wallets/{walletId}/archive:
+    parameters:
+      - $ref: "#/components/parameters/WalletIdParam"
+    post:
+      tags: [Wallets]
+      summary: Архивировать кошелек (UC-03)
+      operationId: archiveWallet
+      responses:
+        "200":
+          description: Архивирован
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Wallet" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Нельзя архивировать текущий основной кошелек (решено, Q7).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /wallets/{walletId}/set-primary:
+    parameters:
+      - $ref: "#/components/parameters/WalletIdParam"
+    post:
+      tags: [Wallets]
+      summary: Назначить кошелек основным (UC-05)
+      operationId: setPrimaryWallet
+      responses:
+        "200":
+          description: Назначен основным; include_in_total принудительно включен (Q8)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Wallet" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Нельзя назначить основным архивный кошелек.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /wallets/{walletId}/currency:
+    parameters:
+      - $ref: "#/components/parameters/WalletIdParam"
+    put:
+      tags: [Wallets]
+      summary: Сменить валюту кошелька — только если нет истории (решено, Q15)
+      operationId: changeWalletCurrency
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WalletChangeCurrencyRequest" }
+      responses:
+        "200":
+          description: Валюта изменена
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Wallet" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: У кошелька уже есть операции или слепки баланса.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /wallets/{walletId}/balance:
+    parameters:
+      - $ref: "#/components/parameters/WalletIdParam"
+    get:
+      tags: [BalanceHistory]
+      summary: Баланс кошелька на дату (UC-18, UC-20)
+      operationId: getWalletBalance
+      description: >
+        Без параметра date возвращает текущий баланс. Для даты раньше
+        accounting_start_date возвращает сумму 0 (решено, Q13).
+      parameters:
+        - name: date
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BalanceSnapshot" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /wallets/{walletId}/balance-history:
+    parameters:
+      - $ref: "#/components/parameters/WalletIdParam"
+    get:
+      tags: [BalanceHistory]
+      summary: История слепков баланса кошелька за период
+      operationId: listWalletBalanceHistory
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BalanceSnapshotPage" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ---------- Reference data ----------
+  /wallet-types:
+    get:
+      tags: [WalletTypes]
+      summary: Список типов кошельков
+      operationId: listWalletTypes
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - name: includeInactive
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReferenceItemPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [WalletTypes]
+      summary: Добавить тип кошелька (UC-28, раздел 7)
+      operationId: createWalletType
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReferenceItemCreateRequest" }
+      responses:
+        "201":
+          description: Создан
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReferenceItem" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /wallet-types/{id}/deactivate:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    post:
+      tags: [WalletTypes]
+      summary: Деактивировать тип кошелька (решено, Q11)
+      operationId: deactivateWalletType
+      responses:
+        "200":
+          description: Деактивирован
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReferenceItem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /wallet-types/{id}:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    delete:
+      tags: [WalletTypes]
+      summary: Удалить неиспользуемый тип кошелька
+      operationId: deleteWalletType
+      responses:
+        "204": { description: Удален }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Тип уже используется хотя бы одним кошельком — используйте деактивацию.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /operation-types:
+    get:
+      tags: [OperationTypes]
+      summary: Список типов операций
+      operationId: listOperationTypes
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - name: includeInactive
+          in: query
+          schema: { type: boolean, default: false }
+        - name: behaviorKindId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationTypePage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [OperationTypes]
+      summary: Добавить тип операции (UC-15)
+      operationId: createOperationType
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OperationTypeCreateRequest" }
+      responses:
+        "201":
+          description: Создан
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationType" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /operation-types/{id}/deactivate:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    post:
+      tags: [OperationTypes]
+      summary: Деактивировать тип операции
+      operationId: deactivateOperationType
+      responses:
+        "200":
+          description: Деактивирован
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationType" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /operation-types/{id}:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    delete:
+      tags: [OperationTypes]
+      summary: Удалить неиспользуемый тип операции
+      operationId: deleteOperationType
+      responses:
+        "204": { description: Удален }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Тип уже используется хотя бы одной операцией — используйте деактивацию.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /operation-behavior-kinds:
+    get:
+      tags: [OperationBehaviorKinds]
+      summary: Системный справочник видов поведения операции (только чтение)
+      operationId: listOperationBehaviorKinds
+      description: >
+        Income | Expense | Transfer | Adjustment. Без create/update/delete —
+        набор фиксирован при развертывании (ddd-model.md, §2.3).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/OperationBehaviorKind" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /currencies:
+    get:
+      tags: [Currencies]
+      summary: Список валют
+      operationId: listCurrencies
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - name: includeInactive
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurrencyPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Currencies]
+      summary: Добавить валюту (в т.ч. криптовалюту, решено при проектировании домена)
+      operationId: createCurrency
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CurrencyCreateRequest" }
+      responses:
+        "201":
+          description: Создана
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Currency" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          description: Код валюты уже занят.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /currencies/{id}/deactivate:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    post:
+      tags: [Currencies]
+      summary: Деактивировать валюту
+      operationId: deactivateCurrency
+      responses:
+        "200":
+          description: Деактивирована
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Currency" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /currencies/{id}:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    delete:
+      tags: [Currencies]
+      summary: Удалить неиспользуемую валюту
+      operationId: deleteCurrency
+      responses:
+        "204": { description: Удалена }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Валюта уже используется — используйте деактивацию.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  # ---------- Operations ----------
+  /operations:
+    get:
+      tags: [Operations]
+      summary: Список операций (UC-11, UC-12)
+      operationId: listOperations
+      parameters:
+        - name: walletId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: operationTypeId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: dateFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: dateTo
+          in: query
+          schema: { type: string, format: date }
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Operations]
+      summary: Создать операцию дохода/расхода/корректировки (UC-11, UC-12, UC-24)
+      operationId: createOperation
+      description: Для перевода используйте POST /transfers, а не этот эндпоинт (раздел 4).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OperationCreateRequest" }
+      responses:
+        "201":
+          description: Создана
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operation" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /operations/{operationId}:
+    parameters:
+      - $ref: "#/components/parameters/OperationIdParam"
+    get:
+      tags: [Operations]
+      summary: Получить операцию
+      operationId: getOperation
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operation" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Operations]
+      summary: Редактировать операцию (UC-13) — каскадный пересчет истории (Q4)
+      operationId: updateOperation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OperationUpdateRequest" }
+      responses:
+        "200":
+          description: Обновлена
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operation" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Operations]
+      summary: Удалить операцию (UC-14)
+      operationId: deleteOperation
+      responses:
+        "204": { description: Удалена }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: >
+            Операция — часть перевода (удалите через DELETE /transfers/{id}) либо
+            её дата ≤ дате последнего слепка баланса кошелька — отредактируйте
+            вместо удаления (ADR-0002).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  # ---------- Transfers ----------
+  /transfers:
+    get:
+      tags: [Transfers]
+      summary: Список переводов
+      operationId: listTransfers
+      parameters:
+        - name: walletId
+          in: query
+          schema: { type: string, format: uuid }
+          description: Кошелек как источник ИЛИ получатель.
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TransferPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Transfers]
+      summary: Создать перевод между кошельками одной валюты (UC-16)
+      operationId: createTransfer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TransferCreateRequest" }
+      responses:
+        "201":
+          description: Перевод создан (атомарно с двумя операциями)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Transfer" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          description: Валюты кошельков не совпадают (раздел 4) либо кошельки совпадают.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /transfers/{transferId}:
+    parameters:
+      - name: transferId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Transfers]
+      summary: Получить перевод
+      operationId: getTransfer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Transfer" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Transfers]
+      summary: Удалить перевод (обе операции атомарно, UC-16)
+      operationId: deleteTransfer
+      responses:
+        "204": { description: Удален }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Дата перевода ≤ дате последнего слепка баланса одного из кошельков.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  # ---------- Exchange rates ----------
+  /exchange-rates/latest:
+    get:
+      tags: [ExchangeRates]
+      summary: Последние известные курсы к текущей основной валюте (UC-08, UC-10)
+      operationId: getLatestExchangeRates
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LatestExchangeRates" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /exchange-rates/refresh:
+    post:
+      tags: [ExchangeRates]
+      summary: Ручное обновление курсов (UC-09) — сбрасывает суточный таймер
+      operationId: refreshExchangeRates
+      responses:
+        "200":
+          description: Обновлено (или использован последний успешный курс при ошибке Frankfurter)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LatestExchangeRates" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "502":
+          description: Frankfurter недоступен; возвращены последние известные курсы.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LatestExchangeRates" }
+
+  # ---------- Reporting ----------
+  /reporting/total-amount:
+    get:
+      tags: [Reporting]
+      summary: Общая сумма — текущая или на дату (UC-19, UC-21)
+      operationId: getTotalAmount
+      parameters:
+        - name: date
+          in: query
+          description: Без параметра — текущая сумма (UC-19); с параметром — историческая (UC-21).
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TotalAmount" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  # ---------- Audit ----------
+  /audit-entries:
+    get:
+      tags: [Audit]
+      summary: История изменений записи (UC-25)
+      operationId: listAuditEntries
+      parameters:
+        - name: entityType
+          in: query
+          required: true
+          schema: { type: string }
+        - name: entityId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+      responses:
+        "200":
+          description: OK, отсортировано по occurred_at по убыванию
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditEntryPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+components:
+  parameters:
+    WalletIdParam:
+      name: walletId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    OperationIdParam:
+      name: operationId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdParam:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CursorParam:
+      name: cursor
+      in: query
+      description: Непрозрачный курсор для постраничной навигации.
+      schema: { type: string }
+    LimitParam:
+      name: limit
+      in: query
+      schema: { type: integer, default: 20, maximum: 100, minimum: 1 }
+
+  schemas:
+    # ---- Общие ----
+    Money:
+      type: object
+      required: [amount, currencyId]
+      properties:
+        amount:
+          type: string
+          format: decimal
+          description: Произвольная точность (ADR-0005); передается строкой, чтобы не терять точность в JSON-числах.
+          example: "1234.56789012"
+        currencyId: { type: string, format: uuid }
+        currencyCode: { type: string, readOnly: true, example: "USD" }
+
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string, format: uri }
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+    CursorPageMeta:
+      type: object
+      required: [nextCursor, hasMore]
+      properties:
+        nextCursor: { type: [string, "null"] }
+        hasMore: { type: boolean }
+
+    # ---- Auth ----
+    LoginRequest:
+      type: object
+      required: [password]
+      properties:
+        password: { type: string, format: password }
+    LoginResponse:
+      type: object
+      required: [token, expiresAt]
+      properties:
+        token: { type: string }
+        expiresAt: { type: string, format: date-time }
+
+    # ---- Wallets ----
+    Wallet:
+      type: object
+      required:
+        [id, name, walletTypeId, currencyId, initialBalance, accountingStartDate,
+         currentBalance, includeInTotal, isPrimary, isArchived, displayOrder,
+         createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        name: { type: string, maxLength: 200 }
+        walletTypeId: { type: string, format: uuid }
+        purposeDescription: { type: [string, "null"] }
+        currencyId: { type: string, format: uuid }
+        initialBalance: { $ref: "#/components/schemas/Money" }
+        accountingStartDate: { type: string, format: date }
+        currentBalance: { $ref: "#/components/schemas/Money", readOnly: true }
+        includeInTotal: { type: boolean }
+        isPrimary: { type: boolean, readOnly: true, description: "Меняется только через POST /wallets/{id}/set-primary" }
+        isArchived: { type: boolean, readOnly: true }
+        displayOrder: { type: integer }
+        color: { type: [string, "null"] }
+        icon: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+    WalletCreateRequest:
+      type: object
+      required: [name, walletTypeId, currencyId, initialBalanceAmount, accountingStartDate]
+      properties:
+        name: { type: string, maxLength: 200 }
+        walletTypeId: { type: string, format: uuid }
+        purposeDescription: { type: [string, "null"] }
+        currencyId: { type: string, format: uuid }
+        initialBalanceAmount: { type: string, format: decimal }
+        accountingStartDate: { type: string, format: date }
+        includeInTotal: { type: boolean, default: true }
+        displayOrder: { type: integer, default: 0 }
+        color: { type: [string, "null"] }
+        icon: { type: [string, "null"] }
+    WalletUpdateRequest:
+      type: object
+      properties:
+        name: { type: string, maxLength: 200 }
+        walletTypeId: { type: string, format: uuid }
+        purposeDescription: { type: [string, "null"] }
+        includeInTotal:
+          type: boolean
+          description: Игнорируется (остается true), если кошелек основной (Q8).
+        displayOrder: { type: integer }
+        color: { type: [string, "null"] }
+        icon: { type: [string, "null"] }
+    WalletChangeCurrencyRequest:
+      type: object
+      required: [currencyId]
+      properties:
+        currencyId: { type: string, format: uuid }
+    WalletPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Wallet" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+
+    # ---- Reference data ----
+    ReferenceItem:
+      type: object
+      required: [id, name, isActive]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        name: { type: string, maxLength: 200 }
+        isActive: { type: boolean, readOnly: true }
+    ReferenceItemCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 200 }
+    ReferenceItemPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/ReferenceItem" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+
+    OperationBehaviorKind:
+      type: object
+      required: [id, code, name]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        code:
+          type: string
+          enum: [Income, Expense, Transfer, Adjustment]
+        name: { type: string }
+
+    OperationType:
+      type: object
+      required: [id, name, behaviorKindId, isActive]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        name: { type: string, maxLength: 200 }
+        behaviorKindId: { type: string, format: uuid }
+        isActive: { type: boolean, readOnly: true }
+    OperationTypeCreateRequest:
+      type: object
+      required: [name, behaviorKindId]
+      properties:
+        name: { type: string, maxLength: 200 }
+        behaviorKindId: { type: string, format: uuid }
+    OperationTypePage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/OperationType" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+
+    Currency:
+      type: object
+      required: [id, code, name, isActive]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        code: { type: string, maxLength: 16, example: "BTC" }
+        name: { type: string, maxLength: 200, example: "Bitcoin" }
+        isActive: { type: boolean, readOnly: true }
+    CurrencyCreateRequest:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, maxLength: 16 }
+        name: { type: string, maxLength: 200 }
+    CurrencyPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Currency" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+
+    # ---- Operations ----
+    Operation:
+      type: object
+      required: [id, walletId, operationTypeId, amount, operationDate, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        walletId: { type: string, format: uuid }
+        operationTypeId: { type: string, format: uuid }
+        amount: { $ref: "#/components/schemas/Money" }
+        operationDate: { type: string, format: date }
+        adjustmentMode:
+          type: [string, "null"]
+          enum: [Absolute, Delta, null]
+          description: Заполнено только когда operationType ссылается на behaviorKind = Adjustment (Q3).
+        transferId: { type: [string, "null"], format: uuid, readOnly: true }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+    OperationCreateRequest:
+      type: object
+      required: [walletId, operationTypeId, amount, operationDate]
+      properties:
+        walletId: { type: string, format: uuid }
+        operationTypeId: { type: string, format: uuid }
+        amount: { type: string, format: decimal }
+        operationDate: { type: string, format: date }
+        adjustmentMode: { type: string, enum: [Absolute, Delta] }
+    OperationUpdateRequest:
+      type: object
+      properties:
+        operationTypeId: { type: string, format: uuid }
+        amount: { type: string, format: decimal }
+        operationDate: { type: string, format: date }
+        adjustmentMode: { type: string, enum: [Absolute, Delta] }
+    OperationPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Operation" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+
+    # ---- Transfers ----
+    Transfer:
+      type: object
+      required: [id, sourceWalletId, targetWalletId, sourceOperationId, targetOperationId, amount, transferDate, createdAt]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        sourceWalletId: { type: string, format: uuid }
+        targetWalletId: { type: string, format: uuid }
+        sourceOperationId: { type: string, format: uuid, readOnly: true }
+        targetOperationId: { type: string, format: uuid, readOnly: true }
+        amount: { $ref: "#/components/schemas/Money" }
+        transferDate: { type: string, format: date }
+        createdAt: { type: string, format: date-time, readOnly: true }
+    TransferCreateRequest:
+      type: object
+      required: [sourceWalletId, targetWalletId, amount, transferDate]
+      properties:
+        sourceWalletId: { type: string, format: uuid }
+        targetWalletId: { type: string, format: uuid }
+        amount: { type: string, format: decimal }
+        transferDate: { type: string, format: date }
+    TransferPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Transfer" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+
+    # ---- Balance history ----
+    BalanceSnapshot:
+      type: object
+      required: [walletId, date, balance]
+      properties:
+        walletId: { type: string, format: uuid }
+        date: { type: string, format: date }
+        balance: { $ref: "#/components/schemas/Money" }
+    BalanceSnapshotPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/BalanceSnapshot" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+
+    # ---- Exchange rates ----
+    ExchangeRateQuote:
+      type: object
+      required: [fromCurrencyId, toCurrencyId, rate]
+      properties:
+        fromCurrencyId: { type: string, format: uuid }
+        toCurrencyId: { type: string, format: uuid }
+        rate: { type: string, format: decimal }
+    LatestExchangeRates:
+      type: object
+      required: [lastSuccessfulUpdate, rates]
+      properties:
+        lastSuccessfulUpdate:
+          type: [string, "null"]
+          format: date-time
+          description: null, если ни одно обновление еще не было успешным.
+        rates:
+          type: array
+          items: { $ref: "#/components/schemas/ExchangeRateQuote" }
+
+    # ---- Reporting ----
+    TotalAmount:
+      type: object
+      required: [amount, ratesAsOfDate]
+      properties:
+        date:
+          type: [string, "null"]
+          format: date
+          description: Запрошенная дата; null означает «текущая сумма» (UC-19).
+        amount: { $ref: "#/components/schemas/Money" }
+        ratesAsOfDate:
+          type: string
+          format: date
+          description: Дата курса, реально примененного при конвертации (может отличаться от запрошенной, если точного курса нет — раздел 5).
+
+    # ---- Audit ----
+    AuditFieldChange:
+      type: object
+      required: [field]
+      properties:
+        field: { type: string }
+        oldValue: { type: [string, "null"] }
+        newValue: { type: [string, "null"] }
+    AuditEntry:
+      type: object
+      required: [id, entityType, entityId, action, occurredAt, actorKind]
+      properties:
+        id: { type: string, format: uuid }
+        entityType: { type: string }
+        entityId: { type: string, format: uuid }
+        action: { type: string }
+        occurredAt: { type: string, format: date-time }
+        actorKind: { type: string, enum: [User, System] }
+        actorSystemProcess: { type: [string, "null"] }
+        changes:
+          type: array
+          items: { $ref: "#/components/schemas/AuditFieldChange" }
+    AuditEntryPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/AuditEntry" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+
+  responses:
+    BadRequest:
+      description: Некорректные параметры запроса
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Unauthorized:
+      description: Отсутствует или неверен токен доступа
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    NotFound:
+      description: Запись не найдена
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Conflict:
+      description: Конфликт с текущим состоянием (нарушение инварианта)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    TooManyRequests:
+      description: Слишком много попыток входа
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

@@ -1,0 +1,24 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+
+# Angular / Node
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+npm-debug.log*
+
+# IDE
+.vs/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — не должны попадать в репозиторий
+appsettings.Production.json
+*.pfx

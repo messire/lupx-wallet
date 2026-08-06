@@ -1,0 +1,79 @@
+<div class="page">
+  <header class="page-header">
+    <h1>LupexWallet — Кошельки</h1>
+    <button type="button" class="secondary" (click)="logout()">Выйти</button>
+  </header>
+
+  <section class="toolbar">
+    <button type="button" (click)="openForm()" [disabled]="isFormOpen()">Добавить кошелек</button>
+  </section>
+
+  @if (isFormOpen()) {
+    <form class="wallet-form" [formGroup]="form" (ngSubmit)="submit()">
+      <div class="field">
+        <label for="name">Название</label>
+        <input id="name" type="text" formControlName="name" />
+      </div>
+
+      <div class="field">
+        <label for="walletTypeId">Тип кошелька (UUID)</label>
+        <input id="walletTypeId" type="text" formControlName="walletTypeId" placeholder="00000000-0000-0000-0000-000000000000" />
+        <p class="hint">Временно — до реализации справочника типов кошельков (модуль ReferenceData).</p>
+      </div>
+
+      <div class="field">
+        <label for="currencyId">Валюта (UUID)</label>
+        <input id="currencyId" type="text" formControlName="currencyId" placeholder="00000000-0000-0000-0000-000000000000" />
+        <p class="hint">Временно — до реализации справочника валют (модуль ReferenceData).</p>
+      </div>
+
+      <div class="field">
+        <label for="initialBalanceAmount">Начальный баланс</label>
+        <input id="initialBalanceAmount" type="number" step="0.01" formControlName="initialBalanceAmount" />
+      </div>
+
+      <div class="field">
+        <label for="accountingStartDate">Дата начала учета</label>
+        <input id="accountingStartDate" type="date" formControlName="accountingStartDate" />
+      </div>
+
+      @if (submitError()) {
+        <p class="error">{{ submitError() }}</p>
+      }
+
+      <div class="form-actions">
+        <button type="submit" [disabled]="form.invalid || isSubmitting()">
+          {{ isSubmitting() ? 'Сохранение…' : 'Создать' }}
+        </button>
+        <button type="button" class="secondary" (click)="cancelForm()">Отмена</button>
+      </div>
+    </form>
+  }
+
+  @if (isLoading()) {
+    <p>Загрузка…</p>
+  } @else if (loadError()) {
+    <p class="error">{{ loadError() }}</p>
+  } @else if (wallets().length === 0) {
+    <p class="empty">Пока нет ни одного кошелька — добавьте первый.</p>
+  } @else {
+    <table class="wallets-table">
+      <thead>
+        <tr>
+          <th>Название</th>
+          <th>Текущий баланс</th>
+          <th>Основной</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (wallet of wallets(); track wallet.id) {
+          <tr>
+            <td>{{ wallet.name }}</td>
+            <td>{{ wallet.currentBalance.amount }}</td>
+            <td>{{ wallet.isPrimary ? 'да' : '' }}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</div>

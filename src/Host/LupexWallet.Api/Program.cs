@@ -1,0 +1,168 @@
+using System.Text;
+using LupexWallet.Api.Auth;
+using LupexWallet.Audit.Api;
+using LupexWallet.Audit.Infrastructure;
+using LupexWallet.BalanceHistory.Api;
+using LupexWallet.BalanceHistory.Infrastructure;
+using LupexWallet.BuildingBlocks.Infrastructure;
+using LupexWallet.ExchangeRates.Api;
+using LupexWallet.ExchangeRates.Infrastructure;
+using LupexWallet.Operations.Api;
+using LupexWallet.Operations.Infrastructure;
+using LupexWallet.ReferenceData.Api;
+using LupexWallet.ReferenceData.Infrastructure;
+using LupexWallet.Reporting.Api;
+using LupexWallet.Reporting.Infrastructure;
+using LupexWallet.Wallets.Api;
+using LupexWallet.Wallets.Infrastructure;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// ---- Auth (Host — сквозная забота, не DDD-модуль: high-level-architecture.md, §8) ----
+builder.Services
+    .AddOptions<AuthOptions>()
+    .Bind(builder.Configuration.GetSection(AuthOptions.SectionName))
+    .ValidateDataAnnotations();
+
+if (!builder.Environment.IsDevelopment())
+{
+    var authSection = builder.Configuration.GetSection(AuthOptions.SectionName);
+    if (string.IsNullOrWhiteSpace(authSection["PasswordHash"]) || string.IsNullOrWhiteSpace(authSection["JwtSigningKey"]))
+    {
+        throw new InvalidOperationException(
+            "Auth:PasswordHash и Auth:JwtSigningKey обязательны вне Development — задайте их через " +
+            "переменные окружения (Auth__PasswordHash, Auth__JwtSigningKey) или secret manager. См. README.md.");
+    }
+
+    if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("LupexWallet")))
+    {
+        throw new InvalidOperationException(
+            "ConnectionStrings:LupexWallet обязательна вне Development — задайте через переменную окружения " +
+            "ConnectionStrings__LupexWallet или secret manager. См. README.md.");
+    }
+}
+
+builder.Services.AddSingleton<TokenService>();
+builder.Services.AddLupexWalletRateLimiting();
+
+var jwtSigningKey = builder.Configuration[$"{AuthOptions.SectionName}:JwtSigningKey"] ?? string.Empty;
+var jwtIssuer = builder.Configuration[$"{AuthOptions.SectionName}:JwtIssuer"] ?? "LupexWallet";
+var jwtAudience = builder.Configuration[$"{AuthOptions.SectionName}:JwtAudience"] ?? "LupexWallet";
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = jwtIssuer,
+            ValidateAudience = true,
+            ValidAudience = jwtAudience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(
+                string.IsNullOrEmpty(jwtSigningKey) ? "development-only-placeholder-key-not-secure!!" : jwtSigningKey)),
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromMinutes(1),
+        };
+    });
+builder.Services.AddAuthorization();
+
+// ---- MediatR + сквозные behaviors (high-level-architecture.md, §4) ----
+builder.Services.AddMediatR(cfg =>
+{
+    cfg.RegisterServicesFromAssemblies(
+        typeof(LupexWallet.Wallets.Application.AssemblyMarker).Assembly,
+        typeof(LupexWallet.ReferenceData.Application.AssemblyMarker).Assembly,
+        typeof(LupexWallet.Operations.Application.AssemblyMarker).Assembly,
+        typeof(LupexWallet.BalanceHistory.Application.AssemblyMarker).Assembly,
+        typeof(LupexWallet.ExchangeRates.Application.AssemblyMarker).Assembly,
+        typeof(LupexWallet.Audit.Application.AssemblyMarker).Assembly,
+        typeof(LupexWallet.Reporting.Application.AssemblyMarker).Assembly);
+
+    cfg.AddOpenBehavior(typeof(TransactionBehavior<,>));
+});
+builder.Services.AddScoped<IDomainEventDispatcher, MediatRDomainEventDispatcher>();
+
+// ---- Композиция модулей (ddd-model.md bounded contexts = модули) ----
+builder.Services.AddWalletsModule(builder.Configuration);
+builder.Services.AddReferenceDataModule(builder.Configuration);
+builder.Services.AddOperationsModule(builder.Configuration);
+builder.Services.AddBalanceHistoryModule(builder.Configuration);
+builder.Services.AddExchangeRatesModule(builder.Configuration);
+builder.Services.AddAuditModule(builder.Configuration);
+builder.Services.AddReportingModule(builder.Configuration);
+
+// ---- CORS для локальной разработки Angular (ng serve на 4200) ----
+const string DevCorsPolicy = "DevCors";
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy(DevCorsPolicy, policy => policy
+            .WithOrigins("http://localhost:4200")
+            .AllowAnyHeader()
+            .AllowAnyMethod());
+    });
+}
+
+// ---- API-инфраструктура ----
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo { Title = "LupexWallet API", Version = "v1" });
+    options.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+    });
+    options.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+    {
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference { Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme, Id = "Bearer" }
+            },
+            []
+        }
+    });
+});
+
+var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseHttpsRedirection();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseCors(DevCorsPolicy);
+}
+
+app.UseRateLimiter();
+app.UseAuthentication();
+app.UseAuthorization();
+
+// /auth/login — единственный анонимный эндпоинт; все остальные требуют Bearer-токен
+// (docs/api/api-design.md, §"Аутентификация").
+app.MapAuthEndpoints();
+
+var api = app.MapGroup("/api/v1").RequireAuthorization();
+api.MapWalletsEndpoints();
+api.MapReferenceDataEndpoints();
+api.MapOperationsEndpoints();
+api.MapBalanceHistoryEndpoints();
+api.MapExchangeRatesEndpoints();
+api.MapAuditEndpoints();
+api.MapReportingEndpoints();
+
+app.Run();
+
+public partial class Program;

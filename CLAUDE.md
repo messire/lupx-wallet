@@ -1,0 +1,8 @@
+- Read docs before making changes.
+- Documentation is part of the project and must be updated with code changes.
+- Do not invent requirements.
+- Ask the user about ambiguity before implementation.
+- Code and technical identifiers are in English.
+- Documentation and user communication are in Russian.
+- Do not modify business requirements silently.
+- Record significant architectural decisions as ADRs.

@@ -1,0 +1,29 @@
+using LupexWallet.SharedKernel;
+using LupexWallet.Wallets.Domain;
+using MediatR;
+
+namespace LupexWallet.Wallets.Application;
+
+/// <summary>
+/// UC-03 (docs/api/openapi.yaml: POST /wallets/{id}/archive). Основной кошелек
+/// архивировать нельзя (решено, Q7) — Wallet.Archive сам бросает
+/// CannotArchivePrimaryWalletException, здесь это не дублируется.
+/// </summary>
+public sealed record ArchiveWalletCommand(Guid Id) : IRequest<WalletDto>, ICommand<WalletDto>;
+
+public sealed class ArchiveWalletCommandHandler(
+    IWalletRepository repository,
+    IWalletsUnitOfWork unitOfWork) : IRequestHandler<ArchiveWalletCommand, WalletDto>
+{
+    public async Task<WalletDto> Handle(ArchiveWalletCommand request, CancellationToken cancellationToken)
+    {
+        var wallet = await repository.GetByIdAsync(new WalletId(request.Id), cancellationToken)
+            ?? throw new WalletNotFoundException(request.Id);
+
+        wallet.Archive();
+
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return WalletDto.FromDomain(wallet);
+    }
+}

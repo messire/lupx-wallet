@@ -1,0 +1,77 @@
+<div class="page">
+  <h1>Переводы</h1>
+
+  <form class="filters" [formGroup]="filterForm" (ngSubmit)="applyFilters()">
+    <div class="field">
+      <label for="filterWalletId">Кошелек</label>
+      <select id="filterWalletId" formControlName="walletId">
+        <option value="">— все —</option>
+        @for (wallet of wallets(); track wallet.id) {
+          <option [value]="wallet.id">{{ wallet.name }}</option>
+        }
+      </select>
+    </div>
+
+    <div class="filter-actions">
+      <button type="submit">Применить</button>
+      <button type="button" class="secondary" (click)="resetFilters()">Сбросить</button>
+    </div>
+  </form>
+
+  <section class="toolbar">
+    <button type="button" (click)="openCreateForm()" [disabled]="isFormOpen()">Добавить перевод</button>
+  </section>
+
+  @if (isFormOpen()) {
+    <app-transfer-form
+      [wallets]="walletOptions()"
+      [isSubmitting]="isSubmitting()"
+      [errorMessage]="submitError()"
+      (save)="saveTransfer($event)"
+      (cancel)="cancelForm()"
+    />
+  }
+
+  @if (deleteError()) {
+    <p class="error">{{ deleteError() }}</p>
+  }
+
+  @if (isLoading() && transfers().length === 0) {
+    <p>Загрузка…</p>
+  } @else if (loadError()) {
+    <p class="error">{{ loadError() }}</p>
+  } @else if (transfers().length === 0) {
+    <p class="empty">Переводов пока нет.</p>
+  } @else {
+    <table class="transfers-table">
+      <thead>
+        <tr>
+          <th>Дата</th>
+          <th>Источник</th>
+          <th>Получатель</th>
+          <th>Сумма</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (transfer of transfers(); track transfer.id) {
+          <tr>
+            <td>{{ transfer.transferDate }}</td>
+            <td>{{ walletName(transfer.sourceWalletId) }}</td>
+            <td>{{ walletName(transfer.targetWalletId) }}</td>
+            <td>{{ formatMoney(transfer.amount) }}</td>
+            <td class="actions">
+              <button type="button" class="link danger" (click)="deleteTransfer(transfer)">Удалить</button>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+
+    @if (hasMore()) {
+      <button type="button" class="secondary" (click)="loadMore()" [disabled]="isLoading()">
+        {{ isLoading() ? 'Загрузка…' : 'Загрузить еще' }}
+      </button>
+    }
+  }
+</div>

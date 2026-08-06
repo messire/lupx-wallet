@@ -1,4 +1,5 @@
 using LupexWallet.BuildingBlocks.Infrastructure;
+using LupexWallet.ReferenceData.Application;
 using LupexWallet.Wallets.Application;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -31,6 +32,13 @@ public static class WalletsModuleExtensions
         services.AddScoped<IWalletRepository, WalletRepository>();
         services.AddScoped<IWalletsUnitOfWork, WalletsUnitOfWork>();
         services.AddScoped<PrimaryWalletPolicy>();
+        services.AddScoped<IWalletBalanceGateway, WalletBalanceGateway>();
+        services.AddScoped<IWalletDirectory, WalletDirectory>();
+        services.AddScoped<IWalletCurrencySet, WalletCurrencySet>();
+        services.AddScoped<IWalletTotalsSource, WalletTotalsSource>();
+
+        // ADR-0009, случай c: одна из реализаций ReferenceData.Application.IReferenceItemUsageProbe.
+        services.AddScoped<IReferenceItemUsageProbe, WalletsReferenceItemUsageProbe>();
 
         return services;
     }

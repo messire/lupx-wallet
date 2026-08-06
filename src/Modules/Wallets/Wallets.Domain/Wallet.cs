@@ -168,9 +168,36 @@ public sealed class Wallet : AggregateRoot<WalletId>
         Raise(new WalletCurrencyChanged(Id, oldCurrencyId, newCurrencyId));
     }
 
-    /// <summary>Проверка перед физическим удалением — само решение принимает Application-слой.</summary>
+    /// <summary>
+    /// Применяет знаковую дельту к текущему балансу — вызывается через
+    /// IWalletBalanceGateway (ADR-0007) из команд модуля Operations.
+    /// </summary>
+    public void ApplyBalanceDelta(Money delta)
+    {
+        if (delta.CurrencyId != CurrencyId)
+        {
+            throw new WalletCurrencyMismatchException();
+        }
+
+        _currentBalanceAmount += delta.Amount;
+        Touch();
+        Raise(new WalletBalanceChanged(Id, delta));
+    }
+
+    /// <summary>
+    /// Проверка перед физическим удалением — сама история (hasHistory) вычисляется
+    /// Application-слоем (ADR-0009, IWalletHistorySource), т.к. агрегат не может знать
+    /// об Operation/BalanceSnapshot других модулей. IsPrimary — собственное состояние
+    /// агрегата, проверяется здесь напрямую (тот же прием, что и в Archive()): удаление
+    /// основного кошелька оставило бы систему без основного, что запрещено (Q7).
+    /// </summary>
     public void EnsureCanBeDeleted(bool hasHistory)
     {
+        if (IsPrimary)
+        {
+            throw new CannotDeletePrimaryWalletException(Id.Value);
+        }
+
         if (hasHistory)
         {
             throw new WalletDeletionNotAllowedException(Id.Value);

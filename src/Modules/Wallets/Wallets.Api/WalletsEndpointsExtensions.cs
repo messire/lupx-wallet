@@ -1,3 +1,4 @@
+using System.Globalization;
 using LupexWallet.Wallets.Application;
 using LupexWallet.Wallets.Domain;
 using MediatR;
@@ -11,9 +12,8 @@ namespace LupexWallet.Wallets.Api;
 /// <summary>
 /// HTTP-эндпоинты модуля Wallets (docs/api/openapi.yaml, тег Wallets) — вызывается из
 /// Host/Program.cs внутри группы /api/v1, уже защищенной RequireAuthorization().
-/// В этом срезе реализованы только создание и список кошельков (UC-01, UC-07);
-/// остальные эндпоинты контракта (archive, set-primary, currency, delete, balance)
-/// — предмет последующих срезов.
+/// UC-01…UC-06, UC-07 реализованы здесь; balance/balance-history — модуль BalanceHistory
+/// (тег BalanceHistory в openapi.yaml).
 /// </summary>
 public static class WalletsEndpointsExtensions
 {
@@ -70,8 +70,135 @@ public static class WalletsEndpointsExtensions
             })
             .WithName("createWallet");
 
+        group.MapGet("/{walletId:guid}", async (Guid walletId, ISender sender, CancellationToken cancellationToken) =>
+            {
+                var dto = await sender.Send(new GetWalletQuery(walletId), cancellationToken);
+                return dto is null ? Results.NotFound() : Results.Ok(ToResponse(dto));
+            })
+            .WithName("getWallet");
+
+        group.MapPatch("/{walletId:guid}", async (
+                Guid walletId,
+                [FromBody] WalletUpdateRequest request,
+                ISender sender,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    var command = new UpdateWalletCommand(
+                        walletId,
+                        request.Name,
+                        request.WalletTypeId,
+                        request.PurposeDescription,
+                        request.IncludeInTotal,
+                        request.DisplayOrder,
+                        request.Color,
+                        request.Icon);
+
+                    var dto = await sender.Send(command, cancellationToken);
+                    return Results.Ok(ToResponse(dto));
+                }
+                catch (WalletNotFoundException)
+                {
+                    return Results.NotFound();
+                }
+                catch (WalletDomainException ex)
+                {
+                    return ValidationProblem(ex);
+                }
+            })
+            .WithName("updateWallet");
+
+        group.MapPost("/{walletId:guid}/archive", async (Guid walletId, ISender sender, CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    var dto = await sender.Send(new ArchiveWalletCommand(walletId), cancellationToken);
+                    return Results.Ok(ToResponse(dto));
+                }
+                catch (WalletNotFoundException)
+                {
+                    return Results.NotFound();
+                }
+                catch (CannotArchivePrimaryWalletException ex)
+                {
+                    return ConflictProblem(ex);
+                }
+            })
+            .WithName("archiveWallet");
+
+        group.MapPost("/{walletId:guid}/set-primary", async (Guid walletId, ISender sender, CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    var dto = await sender.Send(new SetPrimaryWalletCommand(walletId), cancellationToken);
+                    return Results.Ok(ToResponse(dto));
+                }
+                catch (WalletNotFoundException)
+                {
+                    return Results.NotFound();
+                }
+                catch (CannotSetArchivedWalletAsPrimaryException ex)
+                {
+                    return ConflictProblem(ex);
+                }
+            })
+            .WithName("setPrimaryWallet");
+
+        group.MapPut("/{walletId:guid}/currency", async (
+                Guid walletId,
+                [FromBody] WalletChangeCurrencyRequest request,
+                ISender sender,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    var dto = await sender.Send(new ChangeWalletCurrencyCommand(walletId, request.CurrencyId), cancellationToken);
+                    return Results.Ok(ToResponse(dto));
+                }
+                catch (WalletNotFoundException)
+                {
+                    return Results.NotFound();
+                }
+                catch (WalletCurrencyChangeNotAllowedException ex)
+                {
+                    return ConflictProblem(ex);
+                }
+            })
+            .WithName("changeWalletCurrency");
+
+        group.MapDelete("/{walletId:guid}", async (Guid walletId, ISender sender, CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    await sender.Send(new DeleteWalletCommand(walletId), cancellationToken);
+                    return Results.NoContent();
+                }
+                catch (WalletNotFoundException)
+                {
+                    return Results.NotFound();
+                }
+                catch (WalletDomainException ex) when (ex is WalletDeletionNotAllowedException or CannotDeletePrimaryWalletException)
+                {
+                    return ConflictProblem(ex);
+                }
+            })
+            .WithName("deleteWallet");
+
         return app;
     }
+
+    private static IResult ValidationProblem(WalletDomainException ex) => Results.Problem(
+        statusCode: StatusCodes.Status400BadRequest,
+        title: "Wallet validation failed",
+        detail: ex.Message,
+        type: "https://lupexwallet/errors/wallet-validation-error");
+
+    private static IResult ConflictProblem(WalletDomainException ex) => Results.Problem(
+        statusCode: StatusCodes.Status409Conflict,
+        title: "Wallet conflict",
+        detail: ex.Message,
+        type: "https://lupexwallet/errors/wallet-conflict");
 
     private static WalletPageResponse ToResponse(WalletPageDto page) => new(
         page.Data.Select(ToResponse).ToList(),
@@ -83,9 +210,9 @@ public static class WalletsEndpointsExtensions
         dto.WalletTypeId,
         dto.PurposeDescription,
         dto.CurrencyId,
-        new MoneyResponse(dto.InitialBalanceAmount.ToString("G29"), dto.CurrencyId),
+        new MoneyResponse(dto.InitialBalanceAmount.ToString(CultureInfo.InvariantCulture), dto.CurrencyId),
         dto.AccountingStartDate,
-        new MoneyResponse(dto.CurrentBalanceAmount.ToString("G29"), dto.CurrencyId),
+        new MoneyResponse(dto.CurrentBalanceAmount.ToString(CultureInfo.InvariantCulture), dto.CurrencyId),
         dto.IncludeInTotal,
         dto.IsPrimary,
         dto.IsArchived,

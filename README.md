@@ -44,6 +44,34 @@ npm start
 
 По умолчанию открывается на `http://localhost:4200` и обращается к API на `http://localhost:5199` (см. `src/environments/environment.development.ts`). CORS для `localhost:4200` включен в backend только в Development-режиме.
 
+## PostgreSQL для локальной разработки
+
+```bash
+docker compose up -d
+```
+
+Требует заранее созданную внешнюю docker-сеть `docker-network-shared` (`docker network create docker-network-shared`, если её ещё нет).
+
+Поднимает `postgres` на `localhost:5432` (БД `postgres`, пользователь/пароль `postgres-user`/`postgres-pwd` — совпадает со строкой подключения в `appsettings.Development.json`), данные сохраняются в именованном томе между перезапусками. Дополнительно поднимается `pgadmin4` на `http://localhost:5050` (вход `pgadmin4@pgadmin.org` / `admin`) для просмотра БД через UI.
+
+## Тесты
+
+Backend (`tests/`):
+
+```bash
+dotnet test tests/LupexWallet.UnitTests/LupexWallet.UnitTests.csproj        # unit — домен/application, без внешних зависимостей
+dotnet test tests/LupexWallet.IntegrationTests/LupexWallet.IntegrationTests.csproj  # integration — реальный Postgres через Testcontainers (нужен запущенный Docker), реальный Host через WebApplicationFactory
+```
+
+Интеграционные тесты поднимают собственный одноразовый контейнер Postgres (не зависят от `docker compose up`), сами применяют все EF Core-миграции и сбрасывают данные между тестами через Respawn — `docker compose`-инстанс им не нужен.
+
+Frontend:
+
+```bash
+cd frontend
+npm test
+```
+
 ## Текущий статус реализации
 
-Реализован первый вертикальный срез — аутентификация по единому паролю (`POST /api/v1/auth/login`), end-to-end: backend (JWT, PBKDF2, rate limiting на попытки входа) + frontend (форма входа, guard, интерцептор, хранение токена). Остальные модули (Wallets, Operations, BalanceHistory, ExchangeRates, ReferenceData, Audit, Reporting) присутствуют в решении как скелет (собираются, зарегистрированы в композиции), но без доменной логики — она добавляется последующими вертикальными срезами.
+Актуальный статус по срезам, известные упрощения и инфраструктурный TODO — в [docs/PROGRESS.md](docs/PROGRESS.md) (единственный источник правды по прогрессу, этот README не дублирует таблицу).

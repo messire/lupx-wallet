@@ -37,3 +37,20 @@ public sealed record WalletCreateRequest(
 public sealed record CursorPageMeta(string? NextCursor, bool HasMore);
 
 public sealed record WalletPageResponse(IReadOnlyList<WalletResponse> Data, CursorPageMeta Pagination);
+
+/// <summary>
+/// UC-02 (PATCH /wallets/{id}) — не частичный merge несмотря на глагол PATCH: все поля
+/// передаются целиком (см. UpdateWalletCommand). IncludeInTotal игнорируется (остается
+/// true) для основного кошелька — решено, Q8.
+/// </summary>
+public sealed record WalletUpdateRequest(
+    string Name,
+    Guid WalletTypeId,
+    string? PurposeDescription,
+    bool IncludeInTotal,
+    int DisplayOrder,
+    string? Color,
+    string? Icon);
+
+/// <summary>UC-06 (PUT /wallets/{id}/currency) — решено, Q15.</summary>
+public sealed record WalletChangeCurrencyRequest(Guid CurrencyId);

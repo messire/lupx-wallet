@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Workspace\\5.agents\\claude\\lupex-wallet\\.claude\\hooks\\pretooluse-guard.ps1\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Workspace\\5.agents\\claude\\lupex-wallet\\.claude\\hooks\\stop-continue-pipeline.ps1\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

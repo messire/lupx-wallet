@@ -556,6 +556,13 @@ paths:
               schema: { $ref: "#/components/schemas/Operation" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: >
+            Операция — часть перевода; редактируется/удаляется только через перевод
+            целиком (раздел 4 требований).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
     delete:
       tags: [Operations]
       summary: Удалить операцию (UC-14)
@@ -566,8 +573,8 @@ paths:
         "409":
           description: >
             Операция — часть перевода (удалите через DELETE /transfers/{id}) либо
-            её дата ≤ дате последнего слепка баланса кошелька — отредактируйте
-            вместо удаления (ADR-0002).
+            её дата строго раньше сегодняшнего дня — уже отражена в истории баланса,
+            отредактируйте вместо удаления (ADR-0002, ADR-0009).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -639,7 +646,7 @@ paths:
         "204": { description: Удален }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: Дата перевода ≤ дате последнего слепка баланса одного из кошельков.
+          description: Дата перевода строго раньше сегодняшнего дня (ADR-0009).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -694,6 +701,14 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/TotalAmount" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Нет основного кошелька (общую сумму считать не к чему).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+      # 404 здесь — штатный случай (нет основного кошелька), не только "запись не найдена по
+      # id"; схема ответа та же, что у components/responses/NotFound (application/problem+json,
+      # Problem), описание переопределено под конкретный смысл этого эндпоинта.
 
   # ---------- Audit ----------
   /audit-entries:
@@ -838,6 +853,7 @@ components:
         icon: { type: [string, "null"] }
     WalletUpdateRequest:
       type: object
+      required: [name, walletTypeId, includeInTotal, displayOrder]
       properties:
         name: { type: string, maxLength: 200 }
         walletTypeId: { type: string, format: uuid }
@@ -961,6 +977,14 @@ components:
     OperationUpdateRequest:
       type: object
       properties:
+        walletId:
+          type: string
+          format: uuid
+          description: >
+            Кошелек операции (UC-13, решение пользователя от 2026-09-11). Если отличается
+            от текущего WalletId операции — операция переносится на другой кошелек: дельта
+            реверсируется на исходном кошельке и заново применяется на новом (с учетом его
+            валюты и AccountingStartDate). Недоступно для операций — частей перевода (409).
         operationTypeId: { type: string, format: uuid }
         amount: { type: string, format: decimal }
         operationDate: { type: string, format: date }
@@ -1038,7 +1062,7 @@ components:
     # ---- Reporting ----
     TotalAmount:
       type: object
-      required: [amount, ratesAsOfDate]
+      required: [amount, ratesAsOfDate, excludedWallets]
       properties:
         date:
           type: [string, "null"]
@@ -1049,6 +1073,20 @@ components:
           type: string
           format: date
           description: Дата курса, реально примененного при конвертации (может отличаться от запрошенной, если точного курса нет — раздел 5).
+        excludedWallets:
+          type: array
+          description: >-
+            Кошельки, исключенные из amount из-за отсутствия курса для их валюты
+            (валюта не поддерживается/не получена источником курсов) — решение по риску №6
+            (docs/PROGRESS.md, П.5.1): исключение из суммы с явной пометкой является основным
+            путем, не запасным; не 409, не курс 1:1.
+          items: { $ref: "#/components/schemas/ExcludedWallet" }
+    ExcludedWallet:
+      type: object
+      required: [walletId, reason]
+      properties:
+        walletId: { type: string, format: uuid }
+        reason: { type: string, description: "Человекочитаемая причина исключения кошелька из суммы." }
 
     # ---- Audit ----
     AuditFieldChange:

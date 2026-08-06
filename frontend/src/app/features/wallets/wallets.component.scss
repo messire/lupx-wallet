@@ -1,31 +1,35 @@
 .page {
   max-width: 720px;
   margin: 0 auto;
-  padding: 2rem 1.5rem;
-  font-family: sans-serif;
+  padding: 2rem 0;
 }
 
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-
-  h1 {
-    font-size: 1.4rem;
-    margin: 0;
-  }
+.page > h1 {
+  font-size: 1.4rem;
+  margin: 0;
 }
 
 .toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
   margin: 1.5rem 0;
+}
+
+.show-archived {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  color: var(--color-secondary-text);
 }
 
 button {
   padding: 0.6rem 1rem;
   border: none;
-  border-radius: 8px;
-  background: #2f6fed;
-  color: #fff;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
   font-size: 0.95rem;
   cursor: pointer;
 
@@ -35,8 +39,8 @@ button {
   }
 
   &.secondary {
-    background: #eceef1;
-    color: #333;
+    background: var(--color-secondary-bg);
+    color: var(--color-secondary-text);
   }
 }
 
@@ -46,9 +50,9 @@ button {
   gap: 0.75rem;
   padding: 1.25rem;
   margin-bottom: 1.5rem;
-  border: 1px solid #e2e4e8;
-  border-radius: 12px;
-  background: #fafbfc;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-alt);
 
   .field {
     display: flex;
@@ -58,20 +62,66 @@ button {
 
   label {
     font-size: 0.85rem;
-    color: #333;
+    color: var(--color-secondary-text);
   }
 
-  input {
+  input,
+  select {
     padding: 0.55rem 0.7rem;
-    border: 1px solid #d0d3d8;
-    border-radius: 8px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
     font-size: 0.95rem;
+    font-family: inherit;
   }
 
   .hint {
     margin: 0;
     font-size: 0.75rem;
-    color: #888;
+    color: var(--color-muted-light);
+
+    &.error {
+      color: var(--color-error);
+    }
+  }
+
+  .link {
+    align-self: flex-start;
+    padding: 0;
+    margin-top: 0.2rem;
+    background: none;
+    color: var(--color-primary);
+    font-size: 0.8rem;
+    text-decoration: underline;
+  }
+
+  .checkbox-field {
+    label {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      color: inherit;
+      font-size: 0.95rem;
+    }
+  }
+
+  h2 {
+    margin: 0;
+    font-size: 1rem;
+  }
+
+  .quick-add {
+    display: flex;
+    gap: 0.4rem;
+    margin-top: 0.3rem;
+
+    input {
+      flex: 1;
+    }
+
+    button {
+      padding: 0.4rem 0.75rem;
+      font-size: 0.85rem;
+    }
   }
 
   .form-actions {
@@ -82,12 +132,12 @@ button {
 }
 
 .error {
-  color: #c0392b;
+  color: var(--color-error);
   font-size: 0.9rem;
 }
 
 .empty {
-  color: #666;
+  color: var(--color-muted);
 }
 
 .wallets-table {
@@ -98,12 +148,40 @@ button {
   td {
     text-align: left;
     padding: 0.6rem 0.5rem;
-    border-bottom: 1px solid #e2e4e8;
+    border-bottom: 1px solid var(--color-border-light);
   }
 
   th {
     font-size: 0.8rem;
-    color: #666;
+    color: var(--color-muted);
     text-transform: uppercase;
+  }
+
+  tr.archived-row {
+    color: var(--color-muted);
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .link {
+    padding: 0;
+    background: none;
+    color: var(--color-primary);
+    font-size: 0.85rem;
+    text-decoration: underline;
+
+    &.danger {
+      color: var(--color-error);
+    }
+  }
+
+  .confirm-text {
+    font-size: 0.85rem;
+    color: var(--color-error);
   }
 }

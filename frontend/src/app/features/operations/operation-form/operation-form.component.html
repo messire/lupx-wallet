@@ -1,0 +1,61 @@
+<form class="entity-form" [formGroup]="form" (ngSubmit)="submit()">
+  <div class="field">
+    <label for="walletId">Кошелек</label>
+    <select id="walletId" formControlName="walletId">
+      <option value="" disabled>— выберите кошелек —</option>
+      @for (wallet of wallets(); track wallet.id) {
+        <option [value]="wallet.id">{{ wallet.name }}</option>
+      }
+    </select>
+  </div>
+
+  <div class="field">
+    <label for="operationTypeId">Тип операции</label>
+    <select id="operationTypeId" formControlName="operationTypeId">
+      <option value="" disabled>— выберите тип —</option>
+      @for (type of operationTypes(); track type.id) {
+        <option [value]="type.id">{{ type.name }}</option>
+      }
+    </select>
+  </div>
+
+  @if (isAdjustment()) {
+    <div class="field">
+      <label>Способ корректировки</label>
+      <div class="radio-group">
+        <label>
+          <input type="radio" formControlName="adjustmentMode" value="Delta" />
+          Дельта (+/-)
+        </label>
+        <label>
+          <input type="radio" formControlName="adjustmentMode" value="Absolute" />
+          Новое значение баланса
+        </label>
+      </div>
+    </div>
+  }
+
+  <div class="field">
+    <label for="amount">{{ isAdjustment() && form.controls.adjustmentMode.value === 'Absolute' ? 'Новый баланс' : 'Сумма' }}</label>
+    <input id="amount" type="text" inputmode="decimal" placeholder="0.00" formControlName="amount" />
+    @if (form.controls.amount.errors?.['amount']) {
+      <p class="hint error">Сумма — число с точкой в качестве разделителя (например, 1234.56)</p>
+    }
+  </div>
+
+  <div class="field">
+    <label for="operationDate">Дата</label>
+    <input id="operationDate" type="date" formControlName="operationDate" />
+  </div>
+
+  @if (errorMessage()) {
+    <p class="error">{{ errorMessage() }}</p>
+  }
+
+  <div class="form-actions">
+    <button type="submit" [disabled]="form.invalid || isSubmitting()">
+      {{ isSubmitting() ? 'Сохранение…' : (isEditMode() ? 'Сохранить' : 'Создать') }}
+    </button>
+    <button type="button" class="secondary" (click)="onCancel()">Отмена</button>
+  </div>
+</form>

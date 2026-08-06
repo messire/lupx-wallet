@@ -1,9 +1,9 @@
 // Соответствует docs/api/openapi.yaml (схемы Wallet, WalletCreateRequest, WalletPage, Money).
 
-export interface Money {
-  amount: string;
-  currencyId: string;
-}
+import { CursorPage } from '../../core/api/cursor-page';
+import { Money } from '../../core/money/money';
+
+export type { Money };
 
 export interface Wallet {
   id: string;
@@ -24,25 +24,39 @@ export interface Wallet {
   updatedAt: string;
 }
 
-export interface CursorPageMeta {
-  nextCursor: string | null;
-  hasMore: boolean;
-}
-
-export interface WalletPage {
-  data: Wallet[];
-  pagination: CursorPageMeta;
-}
+export type WalletPage = CursorPage<Wallet>;
 
 export interface CreateWalletRequest {
   name: string;
   walletTypeId: string;
   currencyId: string;
-  initialBalanceAmount: number;
+  /** Строка с точкой, произвольная точность (ADR-0005) — см. core/money/money.ts. */
+  initialBalanceAmount: string;
   accountingStartDate: string;
   purposeDescription?: string;
   includeInTotal?: boolean;
   displayOrder?: number;
   color?: string;
   icon?: string;
+}
+
+/**
+ * PATCH /wallets/{id} (UC-02) — без валюты (валюта меняется отдельным
+ * эндпоинтом, см. {@link ChangeWalletCurrencyRequest}). includeInTotal
+ * игнорируется бэкендом (остается true), если кошелек основной (Q8) —
+ * не 409, тихое игнорирование.
+ */
+export interface UpdateWalletRequest {
+  name?: string;
+  walletTypeId?: string;
+  purposeDescription?: string | null;
+  includeInTotal?: boolean;
+  displayOrder?: number;
+  color?: string | null;
+  icon?: string | null;
+}
+
+/** PUT /wallets/{id}/currency (UC-06) — 409, если у кошелька уже есть история (Q15). */
+export interface ChangeWalletCurrencyRequest {
+  currencyId: string;
 }

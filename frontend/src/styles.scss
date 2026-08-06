@@ -1,1 +1,23 @@
-/* You can add global styles to this file, and also import other style files */
+/* Общие дизайн-токены приложения (W0.2) — переиспользуются в layout/shell и
+   feature-компонентах вместо хардкода цветов/радиусов (см. wallets.component.scss). */
+:root {
+  --color-primary: #2f6fed;
+  --color-primary-contrast: #ffffff;
+  --color-secondary-bg: #eceef1;
+  --color-secondary-text: #333333;
+  --color-border: #d0d3d8;
+  --color-border-light: #e2e4e8;
+  --color-error: #c0392b;
+  --color-muted: #666666;
+  --color-muted-light: #888888;
+  --color-surface: #ffffff;
+  --color-surface-alt: #fafbfc;
+  --color-background: #f4f5f7;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+}
+
+body {
+  margin: 0;
+  font-family: sans-serif;
+}

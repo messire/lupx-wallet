@@ -200,7 +200,7 @@ Wallets, ReferenceData, Operations, BalanceHistory, ExchangeRates ──собы
 | Команда | Событие | Побочные эффекты |
 |---|---|---|
 | `CreateOperation` (Income/Expense/Adjustment) | `OperationCreated` | Audit. Wallets: обновление `CurrentBalance`. BalanceHistory: пересчет слепков с даты операции (ADR-0003/ADR-0004). |
-| `UpdateOperation` | `OperationUpdated` | Audit (до/после). Wallets: пересчет `CurrentBalance`. BalanceHistory: каскадный пересчет с наименьшей из старой/новой даты операции (Q4). |
+| `UpdateOperation` | `OperationUpdated` | Audit (до/после, включая смену `walletId`). Wallets: пересчет `CurrentBalance`. BalanceHistory: каскадный пересчет с наименьшей из старой/новой даты операции (Q4) — если `walletId` не изменился; при смене кошелька (UC-13, решение пользователя от 2026-09-11) пересчитываются ОБА кошелька независимо (`PreviousWalletId` события) — старый с прежней даты операции, новый с новой. |
 | `DeleteOperation` | `OperationDeleted` | Audit (значение до удаления). Wallets: пересчет `CurrentBalance`. BalanceHistory: каскадный пересчет с даты удаленной операции. Отклоняется, если `TransferId` заполнен ИЛИ дата операции ≤ дате последнего существующего слепка кошелька (см. инвариант Operation, ADR-0002). |
 | `CreateTransfer` | `TransferCreated` (+ два `OperationCreated`) | То же, что `OperationCreated`, но для обоих кошельков одновременно, в одной транзакции. |
 | `DeleteTransfer` | `TransferDeleted` (+ два `OperationDeleted`) | То же, что `OperationDeleted`, но для обоих кошельков одновременно. |

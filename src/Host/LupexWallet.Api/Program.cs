@@ -16,6 +16,7 @@ using LupexWallet.Reporting.Infrastructure;
 using LupexWallet.Wallets.Api;
 using LupexWallet.Wallets.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -85,6 +86,9 @@ builder.Services.AddMediatR(cfg =>
     cfg.AddOpenBehavior(typeof(TransactionBehavior<,>));
 });
 builder.Services.AddScoped<IDomainEventDispatcher, MediatRDomainEventDispatcher>();
+// ADR-0010: кто выполняет текущую цепочку обработки (User/System) — читают обработчики
+// Audit.Infrastructure и фоновые сервисы BalanceHistory/ExchangeRates.
+builder.Services.AddScoped<IAuditActorAccessor, AuditActorAccessor>();
 
 // ---- Композиция модулей (ddd-model.md bounded contexts = модули) ----
 builder.Services.AddWalletsModule(builder.Configuration);
@@ -132,6 +136,21 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 var app = builder.Build();
+
+// ---- Применение EF Core-миграций всех модулей при старте (каждый — своя схема, ADR-0006) ----
+// До этого места ни одна миграция не применялась к реальной БД в продакшен-хосте (только в
+// тестах через LupexWalletApiFactory.MigrateAllAsync) — без этого блока приложение падало бы
+// на первом же запросе с "relation ... does not exist".
+using (var migrationScope = app.Services.CreateScope())
+{
+    var services = migrationScope.ServiceProvider;
+    await services.GetRequiredService<LupexWallet.Wallets.Infrastructure.WalletsDbContext>().Database.MigrateAsync();
+    await services.GetRequiredService<LupexWallet.ReferenceData.Infrastructure.ReferenceDataDbContext>().Database.MigrateAsync();
+    await services.GetRequiredService<LupexWallet.Operations.Infrastructure.OperationsDbContext>().Database.MigrateAsync();
+    await services.GetRequiredService<LupexWallet.BalanceHistory.Infrastructure.BalanceHistoryDbContext>().Database.MigrateAsync();
+    await services.GetRequiredService<LupexWallet.ExchangeRates.Infrastructure.ExchangeRatesDbContext>().Database.MigrateAsync();
+    await services.GetRequiredService<LupexWallet.Audit.Infrastructure.AuditDbContext>().Database.MigrateAsync();
+}
 
 if (app.Environment.IsDevelopment())
 {

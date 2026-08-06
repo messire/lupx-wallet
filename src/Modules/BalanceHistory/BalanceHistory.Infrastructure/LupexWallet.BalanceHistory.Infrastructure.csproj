@@ -3,10 +3,14 @@
   <ItemGroup>
     <ProjectReference Include="..\BalanceHistory.Application\LupexWallet.BalanceHistory.Application.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.Infrastructure\LupexWallet.BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Operations\Operations.Domain\LupexWallet.Operations.Domain.csproj" />
+    <ProjectReference Include="..\..\Wallets\Wallets.Application\LupexWallet.Wallets.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="EFCore.NamingConventions" />
+    <PackageReference Include="MediatR" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />

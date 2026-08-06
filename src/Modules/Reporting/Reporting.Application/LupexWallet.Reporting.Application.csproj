@@ -2,6 +2,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\BuildingBlocks\SharedKernel\LupexWallet.SharedKernel.csproj" />
+    <ProjectReference Include="..\..\Wallets\Wallets.Application\LupexWallet.Wallets.Application.csproj" />
+    <ProjectReference Include="..\..\BalanceHistory\BalanceHistory.Application\LupexWallet.BalanceHistory.Application.csproj" />
+    <ProjectReference Include="..\..\ExchangeRates\ExchangeRates.Application\LupexWallet.ExchangeRates.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>

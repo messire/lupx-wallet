@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ExchangeRates.Domain\LupexWallet.ExchangeRates.Domain.csproj" />
+    <ProjectReference Include="..\..\Wallets\Wallets.Application\LupexWallet.Wallets.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>

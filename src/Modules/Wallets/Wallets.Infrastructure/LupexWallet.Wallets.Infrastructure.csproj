@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Wallets.Application\LupexWallet.Wallets.Application.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.Infrastructure\LupexWallet.BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\ReferenceData\ReferenceData.Application\LupexWallet.ReferenceData.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>

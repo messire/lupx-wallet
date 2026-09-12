@@ -37,7 +37,7 @@
 ## 2. Структура решения (.NET)
 
 ```
-src/
+backend/src/
   BuildingBlocks/
     LupexWallet.SharedKernel            — Money, CurrencyId и др. общие VO, IAggregateRoot, IDomainEvent, базовые типизированные Id
     LupexWallet.BuildingBlocks.Infrastructure — MediatR pipeline behaviors (транзакция + диспетчер событий), общие абстракции репозиториев

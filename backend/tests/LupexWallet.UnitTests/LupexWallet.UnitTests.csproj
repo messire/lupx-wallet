@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="NSubstitute" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BuildingBlocks\SharedKernel\LupexWallet.SharedKernel.csproj" />
+    <ProjectReference Include="..\..\src\BuildingBlocks\Infrastructure\LupexWallet.BuildingBlocks.Infrastructure.csproj" />
+
+    <ProjectReference Include="..\..\src\Modules\Wallets\Domain\LupexWallet.Wallets.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Wallets\Application\LupexWallet.Wallets.Application.csproj" />
+
+    <ProjectReference Include="..\..\src\Modules\ReferenceData\Domain\LupexWallet.ReferenceData.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\ReferenceData\Application\LupexWallet.ReferenceData.Application.csproj" />
+
+    <ProjectReference Include="..\..\src\Modules\Operations\Domain\LupexWallet.Operations.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Operations\Application\LupexWallet.Operations.Application.csproj" />
+
+    <ProjectReference Include="..\..\src\Modules\BalanceHistory\Domain\LupexWallet.BalanceHistory.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\BalanceHistory\Application\LupexWallet.BalanceHistory.Application.csproj" />
+
+    <ProjectReference Include="..\..\src\Modules\ExchangeRates\Domain\LupexWallet.ExchangeRates.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\ExchangeRates\Application\LupexWallet.ExchangeRates.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\ExchangeRates\Infrastructure\LupexWallet.ExchangeRates.Infrastructure.csproj" />
+
+    <ProjectReference Include="..\..\src\Modules\Reporting\Application\LupexWallet.Reporting.Application.csproj" />
+
+    <ProjectReference Include="..\..\src\Modules\Audit\Domain\LupexWallet.Audit.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Audit\Application\LupexWallet.Audit.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Audit\Infrastructure\LupexWallet.Audit.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

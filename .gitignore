@@ -8,6 +8,7 @@ obj/
 frontend/node_modules/
 frontend/dist/
 frontend/.angular/
+.angular/
 npm-debug.log*
 
 # IDE

@@ -119,8 +119,7 @@
     @if (activeTab() === 'currencies') {
       <section class="tab-panel">
         <form class="quick-form" [formGroup]="currencyForm" (ngSubmit)="submitCurrency()">
-          <input type="text" placeholder="Код (напр. USD)" formControlName="code" />
-          <input type="text" placeholder="Название" formControlName="name" />
+          <app-currency-select [currencies]="availableIsoCurrencies()" formControlName="isoCode" />
           <button type="submit" [disabled]="currencyForm.invalid || isSubmittingCurrency()">
             {{ isSubmittingCurrency() ? 'Сохранение…' : 'Добавить' }}
           </button>

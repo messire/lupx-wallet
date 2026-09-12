@@ -16,6 +16,7 @@ using LupexWallet.Reporting.Infrastructure;
 using LupexWallet.Wallets.Api;
 using LupexWallet.Wallets.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
@@ -99,18 +100,22 @@ builder.Services.AddExchangeRatesModule(builder.Configuration);
 builder.Services.AddAuditModule(builder.Configuration);
 builder.Services.AddReportingModule(builder.Configuration);
 
-// ---- CORS для локальной разработки Angular (ng serve на 4200) ----
-const string DevCorsPolicy = "DevCors";
+// ---- CORS: разрешённые origin'ы фронтенда — из конфига (Cors:AllowedOrigins), +
+// localhost:4200 в Development. Список пуст в проде, пока не задан деплойментом
+// (Railway/Vercel — разные origin для prod/staging) через Cors__AllowedOrigins__0 и т.д.
+const string FrontendCorsPolicy = "FrontendCors";
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 if (builder.Environment.IsDevelopment())
 {
-    builder.Services.AddCors(options =>
-    {
-        options.AddPolicy(DevCorsPolicy, policy => policy
-            .WithOrigins("http://localhost:4200")
-            .AllowAnyHeader()
-            .AllowAnyMethod());
-    });
+    allowedOrigins = [.. allowedOrigins, "http://localhost:4200"];
 }
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(FrontendCorsPolicy, policy => policy
+        .WithOrigins(allowedOrigins)
+        .AllowAnyHeader()
+        .AllowAnyMethod());
+});
 
 // ---- API-инфраструктура ----
 builder.Services.AddEndpointsApiExplorer();
@@ -137,6 +142,14 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
+// ---- За обратным прокси (Railway) исходный протокол/хост приходят в заголовках,
+// а не в самом запросе — без этого UseHttpsRedirection примет проксированный HTTP
+// за нешифрованный и уйдёт в редирект-петлю.
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+});
+
 // ---- Применение EF Core-миграций всех модулей при старте (каждый — своя схема, ADR-0006) ----
 // До этого места ни одна миграция не применялась к реальной БД в продакшен-хосте (только в
 // тестах через LupexWalletApiFactory.MigrateAllAsync) — без этого блока приложение падало бы
@@ -158,12 +171,15 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+// /health исключён из HTTPS-редиректа: Railway опрашивает его напрямую по HTTP внутри
+// приватной сети, минуя edge-прокси, где не будет X-Forwarded-Proto.
+app.UseWhen(
+    context => context.Request.Path != "/health",
+    branch => branch.UseHttpsRedirection());
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseCors(DevCorsPolicy);
-}
+app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+
+app.UseCors(FrontendCorsPolicy);
 
 app.UseRateLimiter();
 app.UseAuthentication();

@@ -114,7 +114,8 @@ button {
     gap: 0.4rem;
     margin-top: 0.3rem;
 
-    input {
+    input,
+    app-currency-select {
       flex: 1;
     }
 

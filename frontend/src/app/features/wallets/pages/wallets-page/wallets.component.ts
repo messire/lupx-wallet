@@ -1,8 +1,10 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { FormBuilder, FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { extractErrorMessage } from '../../../../core/http/problem-details';
 import { amountValidator, formatMoney } from '../../../../shared/money/money';
+import { ISO_CURRENCIES } from '../../../../shared/currencies/iso-currencies';
+import { CurrencySelectComponent } from '../../../../shared/currencies/currency-select/currency-select.component';
 import { Currency, ReferenceItem } from '../../../../data-access/reference-data/reference-data-api.models';
 import { ReferenceDataApiService } from '../../../../data-access/reference-data/reference-data-api.service';
 import { UpdateWalletRequest, Wallet } from '../../../../data-access/wallets/wallets-api.models';
@@ -24,7 +26,7 @@ interface PendingWalletAction {
 @Component({
   selector: 'app-wallets',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink],
+  imports: [ReactiveFormsModule, RouterLink, CurrencySelectComponent],
   templateUrl: './wallets.component.html',
   styleUrl: './wallets.component.scss',
 })
@@ -53,8 +55,13 @@ export class WalletsComponent implements OnInit {
   readonly isAddingWalletType = signal(false);
   readonly newWalletTypeName = signal('');
   readonly isAddingCurrency = signal(false);
-  readonly newCurrencyCode = signal('');
-  readonly newCurrencyName = signal('');
+  readonly newCurrencyIsoCode = new FormControl<string | null>(null);
+
+  /** ISO_CURRENCIES без кодов, уже присутствующих в справочнике — не предлагать дубликаты. */
+  readonly availableIsoCurrencies = computed(() => {
+    const existingCodes = new Set(this.currencies().map((currency) => currency.code));
+    return ISO_CURRENCIES.filter((currency) => !existingCodes.has(currency.code));
+  });
 
   readonly form = this.formBuilder.nonNullable.group({
     name: ['', Validators.required],
@@ -180,23 +187,20 @@ export class WalletsComponent implements OnInit {
 
   toggleAddCurrency(): void {
     this.isAddingCurrency.set(!this.isAddingCurrency());
-    this.newCurrencyCode.set('');
-    this.newCurrencyName.set('');
+    this.newCurrencyIsoCode.reset(null);
   }
 
   submitNewCurrency(): void {
-    const code = this.newCurrencyCode().trim();
-    const name = this.newCurrencyName().trim();
-    if (!code || !name) {
+    const isoCurrency = ISO_CURRENCIES.find((currency) => currency.code === this.newCurrencyIsoCode.value);
+    if (!isoCurrency) {
       return;
     }
 
-    this.referenceDataService.createCurrency(code, name).subscribe((created) => {
+    this.referenceDataService.createCurrency(isoCurrency.code, isoCurrency.name).subscribe((created) => {
       this.loadCurrencies();
       this.form.patchValue({ currencyId: created.id });
       this.isAddingCurrency.set(false);
-      this.newCurrencyCode.set('');
-      this.newCurrencyName.set('');
+      this.newCurrencyIsoCode.reset(null);
     });
   }
 

@@ -1,0 +1,18 @@
+# Только для локальной разработки через docker-compose (см. docker-compose.frontend.yml
+# в корне репозитория) — не используется для production-деплоя, который идёт через
+# Vercel по vercel.json (см. ADR-0013). Исходники монтируются volume'ом поверх образа,
+# поэтому COPY . . здесь нужен только для первого запуска без volume.
+FROM node:22-alpine
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+
+# Файловые события из volume-мониторов на Windows/macOS не всегда долетают в chokidar —
+# явный polling чинит live-reload ценой небольшой нагрузки на CPU.
+ENV CHOKIDAR_USEPOLLING=true
+
+EXPOSE 4200
+CMD ["npm", "start", "--", "--host", "0.0.0.0"]

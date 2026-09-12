@@ -1,6 +1,22 @@
 # Прогресс проекта
 
-Последнее обновление: 2026-09-12 — структурный рефакторинг по ADR-0012 завершён (backend перенесён в `backend/`, единый шаблон модуля применён ко всем 7 модулям, frontend разделён на `data-access`/`features`/`shared`, добавлена проверка границ features). Исторические записи ниже сохраняют статусы на момент соответствующих этапов.
+Последнее обновление: 2026-09-12 — структурный рефакторинг по ADR-0012 завершён (backend перенесён в `backend/`, единый шаблон модуля применён ко всем 7 модулям, frontend разделён на `data-access`/`features`/`shared`, добавлена проверка границ features); подготовлена конфигурация деплоя по ADR-0013 (Railway + Vercel, два окружения). Исторические записи ниже сохраняют статусы на момент соответствующих этапов.
+
+## ПЛАН: подготовка к деплою (Railway + Vercel, 2026-09-12)
+
+Топология и обоснование решений — [ADR-0013](architecture/adr/0013-deployment-topology.md). Ветки: `master` → production (пользователь сознательно оставил её ранней, без рефакторинга — не наше решение продвигать), `release-candidates/v0.1.0` → development/staging (содержит весь текущий функционал).
+
+- [x] `backend/Dockerfile` + `backend/.dockerignore` — собран и проверен локально (`docker build`), контейнер реально стартует, применяет миграции к реальному Postgres, слушает `$PORT`.
+- [x] CORS переведён с Development-only на конфигурируемый список origin (`Cors:AllowedOrigins`) — проверено локально: разрешённый origin получает `Access-Control-Allow-Origin`, неразрешённый — нет.
+- [x] `ForwardedHeaders` (X-Forwarded-For/Proto) — без него `UseHttpsRedirection` не видит, что публичный запрос уже HTTPS через прокси Railway.
+- [x] `/health` — анонимный эндпоинт для health-check Railway, явно исключён из HTTPS-редиректа (сам health-check идёт по HTTP внутри приватной сети Railway, минуя edge). Проверено: `curl` возвращает 200 без редиректа.
+- [x] `frontend/scripts/write-env.mjs` + `npm run build:deploy` — подставляет `API_BASE_URL` в `environment.ts` при сборке на Vercel (прямые CORS-запросы, не прокси — решение пользователя). Проверено: собранный бандл содержит переданный URL.
+- [x] `frontend/vercel.json` — build command, output directory, SPA-rewrite для клиентского роутинга.
+- [x] `docs/architecture/adr/0013-deployment-topology.md` создан и принят.
+- [x] `backend/README.md`, `frontend/README.md` — добавлены разделы про деплой и обязательные переменные окружения.
+- [ ] Push в `https://github.com/messire/lupx-wallet.git`, создание Railway-сервисов/окружений, Vercel-проекта — ручные шаги пользователя через дашборды (нет MCP-интеграции с Railway/Vercel), см. чек-лист в чате.
+
+**Не входит в этот этап:** обновление ветки `master` (решение пользователя — оставить как есть, продвинет сам когда решит), собственно первый деплой (создание аккаунтов/сервисов на Railway/Vercel), кастомные домены.
 
 ## Пройденные этапы
 

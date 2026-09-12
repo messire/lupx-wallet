@@ -2,6 +2,8 @@ import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 import { extractErrorMessage } from '../../../../core/http/problem-details';
+import { ISO_CURRENCIES } from '../../../../shared/currencies/iso-currencies';
+import { CurrencySelectComponent } from '../../../../shared/currencies/currency-select/currency-select.component';
 import { Currency, OperationBehaviorKind, OperationType, ReferenceItem } from '../../../../data-access/reference-data/reference-data-api.models';
 import { ReferenceDataApiService } from '../../../../data-access/reference-data/reference-data-api.service';
 
@@ -19,7 +21,7 @@ export type ReferenceTab = 'wallet-types' | 'operation-types' | 'currencies';
 @Component({
   selector: 'app-reference-data',
   standalone: true,
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, CurrencySelectComponent],
   templateUrl: './reference-data.component.html',
   styleUrl: './reference-data.component.scss',
 })
@@ -42,6 +44,12 @@ export class ReferenceDataComponent implements OnInit {
    */
   readonly creatableBehaviorKinds = computed(() => this.behaviorKinds().filter((kind) => kind.code !== 'Transfer'));
 
+  /** ISO_CURRENCIES без кодов, уже присутствующих в справочнике — не предлагать дубликаты. */
+  readonly availableIsoCurrencies = computed(() => {
+    const existingCodes = new Set(this.currencies().map((currency) => currency.code));
+    return ISO_CURRENCIES.filter((currency) => !existingCodes.has(currency.code));
+  });
+
   readonly isLoading = signal(false);
   readonly loadError = signal<string | null>(null);
   readonly actionError = signal<string | null>(null);
@@ -54,8 +62,7 @@ export class ReferenceDataComponent implements OnInit {
     behaviorKindId: ['', Validators.required],
   });
   readonly currencyForm = this.formBuilder.nonNullable.group({
-    code: ['', Validators.required],
-    name: ['', Validators.required],
+    isoCode: ['', Validators.required],
   });
 
   readonly isSubmittingWalletType = signal(false);
@@ -184,14 +191,18 @@ export class ReferenceDataComponent implements OnInit {
       return;
     }
 
+    const isoCurrency = ISO_CURRENCIES.find((currency) => currency.code === this.currencyForm.getRawValue().isoCode);
+    if (!isoCurrency) {
+      return;
+    }
+
     this.actionError.set(null);
     this.isSubmittingCurrency.set(true);
-    const { code, name } = this.currencyForm.getRawValue();
 
-    this.referenceDataService.createCurrency(code, name).subscribe({
+    this.referenceDataService.createCurrency(isoCurrency.code, isoCurrency.name).subscribe({
       next: () => {
         this.isSubmittingCurrency.set(false);
-        this.currencyForm.reset({ code: '', name: '' });
+        this.currencyForm.reset({ isoCode: '' });
         this.reloadCurrencies();
       },
       error: (error: unknown) => {

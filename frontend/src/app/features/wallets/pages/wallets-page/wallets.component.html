@@ -53,19 +53,8 @@
         </button>
         @if (isAddingCurrency()) {
           <div class="quick-add">
-            <input
-              type="text"
-              placeholder="Код (напр. USD)"
-              [value]="newCurrencyCode()"
-              (input)="newCurrencyCode.set($any($event.target).value)"
-            />
-            <input
-              type="text"
-              placeholder="Название"
-              [value]="newCurrencyName()"
-              (input)="newCurrencyName.set($any($event.target).value)"
-            />
-            <button type="button" (click)="submitNewCurrency()">Добавить</button>
+            <app-currency-select [currencies]="availableIsoCurrencies()" [formControl]="newCurrencyIsoCode" />
+            <button type="button" [disabled]="!newCurrencyIsoCode.value" (click)="submitNewCurrency()">Добавить</button>
           </div>
         }
       </div>

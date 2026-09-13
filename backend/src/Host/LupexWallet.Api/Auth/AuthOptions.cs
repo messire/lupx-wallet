@@ -1,9 +1,10 @@
 namespace LupexWallet.Api.Auth;
 
 /// <summary>
-/// Конфигурация единого пароля и JWT (секция "Auth" в appsettings/переменных окружения).
-/// PasswordHash задается оператором при развертывании через PasswordHasher.Hash(...) —
-/// регистрации через API не предусмотрено (раздел "Цель" бизнес-требований).
+/// Configuration for the single application password and JWT (the "Auth" section in
+/// appsettings/environment variables). PasswordHash is set by the operator at deployment
+/// time via PasswordHasher.Hash(...) — there is no API-based registration (see the "Goal"
+/// section of the business requirements).
 /// </summary>
 public sealed class AuthOptions
 {

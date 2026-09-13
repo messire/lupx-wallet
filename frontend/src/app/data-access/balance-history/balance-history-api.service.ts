@@ -6,9 +6,9 @@ import { CursorPageOptions, toCursorParams } from '../../shared/pagination/curso
 import { BalanceSnapshot, BalanceSnapshotPage } from './balance-history-api.models';
 
 /**
- * GET /wallets/{id}/balance (UC-18/UC-20 — баланс на дату, без параметра date —
- * текущий баланс) и GET /wallets/{id}/balance-history (курсорная пагинация,
- * UC-23 отражается здесь просто как уже пересчитанный бэкендом результат).
+ * GET /wallets/{id}/balance (UC-18/UC-20 — balance as of a date; without the
+ * date param, the current balance) and GET /wallets/{id}/balance-history
+ * (cursor-based pagination; UC-23's recalculation is already applied by the backend).
  */
 @Injectable({ providedIn: 'root' })
 export class BalanceHistoryApiService {

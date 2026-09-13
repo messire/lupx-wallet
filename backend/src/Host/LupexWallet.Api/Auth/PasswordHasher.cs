@@ -3,12 +3,12 @@ using System.Security.Cryptography;
 namespace LupexWallet.Api.Auth;
 
 /// <summary>
-/// Хеширование единого пароля приложения (high-level-architecture.md, §8: однопользовательское
-/// приложение, без регистрации, но с единым паролем). PBKDF2-HMACSHA256 через встроенный
-/// Rfc2898DeriveBytes — без сторонних пакетов.
+/// Hashes the application's single password (high-level-architecture.md, §8: single-user
+/// application, no registration, but a single shared password). Uses PBKDF2-HMACSHA256 via
+/// the built-in Rfc2898DeriveBytes — no third-party packages.
 ///
-/// Формат хеша: "{iterations}.{salt-base64}.{hash-base64}" — самодостаточен, не требует
-/// хранить параметры отдельно.
+/// Hash format: "{iterations}.{salt-base64}.{hash-base64}" — self-contained, no need to
+/// store parameters separately.
 /// </summary>
 public static class PasswordHasher
 {

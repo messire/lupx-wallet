@@ -1,9 +1,16 @@
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, output, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { amountValidator } from '../../../../shared/money/money';
+import { amountValidator } from '@shared/money/money';
+import { fieldError } from '@shared/forms/field-error';
 import { AdjustmentMode, CreateOperationRequest, Operation, UpdateOperationRequest } from '../../../../data-access/operations/operations-api.models';
 import { OperationTypeOption } from '../../operations.models';
+import { ButtonComponent } from '@shared/ui/button/button.component';
+import { CardComponent } from '@shared/ui/card/card.component';
+import { FieldComponent } from '@shared/ui/field/field.component';
+import { FieldControlDirective } from '@shared/ui/field/field-control.directive';
+import { RadioGroupComponent } from '@shared/ui/radio/radio-group.component';
+import { RadioOptionComponent } from '@shared/ui/radio/radio-option.component';
 
 export interface WalletOption {
   id: string;
@@ -11,19 +18,26 @@ export interface WalletOption {
 }
 
 /**
- * Форма создания/редактирования операции (UC-11 доход, UC-12 расход, UC-13
- * редактирование, UC-24 корректировка). Режим корректировки (Absolute/Delta,
- * Q3) показывается только когда выбранный тип операции имеет
- * behaviorKind = Adjustment.
+ * Operation create/edit form (UC-11 income, UC-12 expense, UC-13 edit, UC-24
+ * adjustment). The adjustment mode (Absolute/Delta, Q3) is shown only when the
+ * selected operation type has behaviorKind = Adjustment.
  *
- * Поле кошелька доступно и в режиме редактирования (UC-13, решение пользователя от
- * 2026-09-11) — смена кошелька операции переносит ее на другой кошелек с пересчетом
- * баланса обоих (OperationUpdateRequest.walletId, openapi.yaml).
+ * The wallet field is also available in edit mode (UC-13) — changing the
+ * operation's wallet moves it to another wallet with both balances
+ * recalculated (OperationUpdateRequest.walletId, openapi.yaml).
  */
 @Component({
   selector: 'app-operation-form',
   standalone: true,
-  imports: [ReactiveFormsModule],
+  imports: [
+    ReactiveFormsModule,
+    ButtonComponent,
+    CardComponent,
+    FieldComponent,
+    FieldControlDirective,
+    RadioGroupComponent,
+    RadioOptionComponent,
+  ],
   templateUrl: './operation-form.component.html',
   styleUrl: './operation-form.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -33,7 +47,7 @@ export class OperationFormComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly wallets = input.required<WalletOption[]>();
-  /** Только активные типы, допустимые для прямого создания через /operations (без behaviorKind = Transfer). */
+  /** Only active types allowed for direct creation via /operations (excludes behaviorKind = Transfer). */
   readonly operationTypes = input.required<OperationTypeOption[]>();
   readonly editingOperation = input<Operation | null>(null);
   readonly isSubmitting = input(false);
@@ -106,6 +120,25 @@ export class OperationFormComponent {
 
   onCancel(): void {
     this.cancel.emit();
+  }
+
+  walletError(): string | null {
+    return fieldError(this.form.controls.walletId, 'Выберите кошелек');
+  }
+
+  operationTypeError(): string | null {
+    return fieldError(this.form.controls.operationTypeId, 'Выберите тип операции');
+  }
+
+  operationDateError(): string | null {
+    return fieldError(this.form.controls.operationDate, 'Укажите дату');
+  }
+
+  amountError(): string | null {
+    return fieldError(this.form.controls.amount, {
+      required: 'Укажите сумму',
+      amount: 'Сумма — число с точкой в качестве разделителя (например, 1234.56)',
+    });
   }
 
   private updateSelectedBehaviorKind(typeId: string | null): void {

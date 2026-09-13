@@ -1,0 +1,20 @@
+<button
+  class="app-button"
+  [class.app-button--primary]="variant() === 'primary'"
+  [class.app-button--secondary]="variant() === 'secondary'"
+  [class.app-button--ghost]="variant() === 'ghost'"
+  [class.app-button--danger]="variant() === 'danger'"
+  [class.app-button--icon]="iconOnly()"
+  [class.app-button--full]="fullWidth()"
+  [type]="type()"
+  [disabled]="disabled() || loading()"
+  [attr.aria-busy]="loading() ? 'true' : null"
+  [attr.aria-label]="ariaLabel()"
+>
+  <span class="app-button__content" [class.app-button__content--hidden]="loading()">
+    <ng-content></ng-content>
+  </span>
+  @if (loading()) {
+    <span class="app-button__loading">{{ loadingText() }}</span>
+  }
+</button>

@@ -1,8 +1,8 @@
 import { HttpErrorResponse } from '@angular/common/http';
 
 /**
- * Тело ошибки `application/problem+json` (docs/api/openapi.yaml, схема Problem,
- * RFC 7807 + расширение `errors[]` для постатейных ошибок валидации).
+ * `application/problem+json` error body (docs/api/openapi.yaml, Problem schema,
+ * RFC 7807 + an `errors[]` extension for per-field validation errors).
  */
 export interface ProblemDetails {
   type?: string;
@@ -14,12 +14,11 @@ export interface ProblemDetails {
 }
 
 /**
- * Извлекает читаемое пользователю сообщение об ошибке из `HttpErrorResponse`.
+ * Extracts a user-readable error message from an `HttpErrorResponse`.
  *
- * Приоритет (совпадает с ранее продублированным паттерном `error.error?.detail`
- * из wallets.component.ts, расширенным резервными вариантами для случаев, когда
- * бэкенд не заполнил `detail`, а вернул только постатейные `errors[]`/`title`):
- * `detail` → первое сообщение из `errors[]` → `title` → `fallback`.
+ * Priority, with fallbacks for when the backend did not fill in `detail` and
+ * only returned per-field `errors[]`/`title`:
+ * `detail` -> first message from `errors[]` -> `title` -> `fallback`.
  */
 export function extractErrorMessage(error: unknown, fallback: string): string {
   if (!(error instanceof HttpErrorResponse)) {

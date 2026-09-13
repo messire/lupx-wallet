@@ -6,7 +6,7 @@ import { CursorPageOptions, toCursorParams } from '../../shared/pagination/curso
 import { CreateTransferRequest, Transfer, TransferPage } from './transfers-api.models';
 
 export interface TransferListFilters extends CursorPageOptions {
-  /** Кошелек как источник ИЛИ получатель (openapi.yaml). */
+  /** Wallet as the source OR the target (openapi.yaml). */
   walletId?: string;
 }
 

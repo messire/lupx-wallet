@@ -1,0 +1,16 @@
+<label class="app-checkbox" [for]="inputId" [class.app-checkbox--disabled]="disabled()">
+  <span class="app-checkbox__box">
+    <input
+      [id]="inputId"
+      type="checkbox"
+      [checked]="checked()"
+      [disabled]="disabled()"
+      (change)="onInputChange($any($event.target).checked)"
+      (blur)="onBlur()"
+    />
+    <svg class="app-checkbox__mark" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+  </span>
+  <span class="app-checkbox__label">{{ label() }}</span>
+</label>

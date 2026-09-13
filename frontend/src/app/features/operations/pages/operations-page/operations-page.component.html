@@ -1,0 +1,144 @@
+<div class="page">
+  <h1>Операции</h1>
+
+  @if (successMessage(); as message) {
+    <app-toast class="page-toast" [message]="message" tone="success" (dismissed)="successMessage.set(null)" />
+  }
+
+  <app-card class="filters-card">
+    <form class="filters" [formGroup]="filterForm" (ngSubmit)="applyFilters()">
+      <app-field label="Кошелек" class="filters__field">
+        <select appFieldControl formControlName="walletId">
+          <option value="">— все —</option>
+          @for (wallet of wallets(); track wallet.id) {
+            <option [value]="wallet.id">{{ wallet.name }}</option>
+          }
+        </select>
+      </app-field>
+
+      <app-field label="Тип операции" class="filters__field">
+        <select appFieldControl formControlName="operationTypeId">
+          <option value="">— все —</option>
+          @for (type of allOperationTypeOptions(); track type.id) {
+            <option [value]="type.id">{{ type.name }}</option>
+          }
+        </select>
+      </app-field>
+
+      <app-field label="С даты" class="filters__field">
+        <input appFieldControl type="date" formControlName="dateFrom" />
+      </app-field>
+
+      <app-field label="По дату" class="filters__field">
+        <input appFieldControl type="date" formControlName="dateTo" />
+      </app-field>
+
+      <div class="filter-actions app-field-align">
+        <app-button type="submit" variant="secondary">Применить</app-button>
+        <app-button type="button" variant="ghost" (click)="resetFilters()">Сбросить</app-button>
+      </div>
+    </form>
+  </app-card>
+
+  <section class="toolbar">
+    <app-button variant="primary" (click)="openCreateForm()" [disabled]="isFormOpen()">Добавить операцию</app-button>
+  </section>
+
+  @if (isFormOpen()) {
+    <app-operation-form
+      [wallets]="walletOptions()"
+      [operationTypes]="creatableOperationTypeOptions()"
+      [editingOperation]="editingOperation()"
+      [isSubmitting]="isSubmitting()"
+      [errorMessage]="submitError()"
+      (save)="saveOperation($event)"
+      (cancel)="cancelForm()"
+    />
+  }
+
+  @if (deleteError()) {
+    <app-error-state [message]="deleteError()!" [showRetry]="false" />
+  }
+
+  @if (isLoading() && operations().length === 0) {
+    <app-loading-state label="Загрузка…">
+      <app-skeleton height="56px" />
+      <app-skeleton height="56px" />
+      <app-skeleton height="56px" />
+    </app-loading-state>
+  } @else if (loadError()) {
+    <app-error-state [message]="loadError()!" (retry)="loadOperations()" />
+  } @else if (operations().length === 0) {
+    <app-empty-state title="Операций пока нет" description="Добавьте первую операцию, чтобы начать учёт">
+      <app-button variant="primary" (click)="openCreateForm()">Добавить операцию</app-button>
+    </app-empty-state>
+  } @else {
+    <div class="table-card">
+      <div class="table-scroll" role="region" aria-label="Список операций" tabindex="0">
+        <table class="app-table operations-table">
+          <thead>
+            <tr>
+              <th>Дата</th>
+              <th>Кошелек</th>
+              <th>Тип</th>
+              <th class="amount-col">Сумма</th>
+              <th>Корректировка</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (operation of operations(); track operation.id) {
+              <tr [class.transfer-part]="operation.transferId">
+                <td>{{ operation.operationDate }}</td>
+                <td>{{ walletName(operation.walletId) }}</td>
+                <td>
+                  <app-badge [tone]="operationTone(operationBehaviorKindCode(operation.operationTypeId))">
+                    {{ operationTypeName(operation.operationTypeId) }}
+                  </app-badge>
+                </td>
+                <td class="amount-col">
+                  <span
+                    class="amount"
+                    [class.amount--income]="operationBehaviorKindCode(operation.operationTypeId) === 'Income'"
+                    [class.amount--expense]="operationBehaviorKindCode(operation.operationTypeId) === 'Expense'"
+                  >
+                    {{ amountSign(operationBehaviorKindCode(operation.operationTypeId)) }}{{ formatMoney(operation.amount) }}
+                  </span>
+                  @if (amountCategoryLabel(operationBehaviorKindCode(operation.operationTypeId)); as categoryLabel) {
+                    <span class="amount-category">{{ categoryLabel }}</span>
+                  }
+                </td>
+                <td>{{ operation.adjustmentMode ?? '' }}</td>
+                <td class="actions">
+                  @if (operation.transferId) {
+                    <app-badge tone="neutral" title="Часть перевода — управляется со экрана «Переводы»">часть перевода</app-badge>
+                  } @else {
+                    <app-button variant="ghost" (click)="openEditForm(operation)">Изменить</app-button>
+                    <app-button variant="danger" (click)="deleteOperation(operation)">Удалить</app-button>
+                  }
+                  <a class="history-link" [routerLink]="['/audit']" [queryParams]="{ entityType: 'Operation', entityId: operation.id }">
+                    История изменений
+                  </a>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    @if (hasMore()) {
+      <div class="load-more">
+        <app-button
+          variant="secondary"
+          (click)="loadMore()"
+          [disabled]="isLoading()"
+          [loading]="isLoading()"
+          loadingText="Загрузка…"
+        >
+          Загрузить ещё
+        </app-button>
+      </div>
+    }
+  }
+</div>

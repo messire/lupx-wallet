@@ -6,10 +6,10 @@ import { CursorPageOptions, toCursorParams } from '../../shared/pagination/curso
 import { AuditEntryPage } from './audit-api.models';
 
 /**
- * GET /audit-entries (UC-25, docs/api/openapi.yaml) — курсорная пагинация,
- * сортировка occurred_at DESC. Единственная точка HTTP-доступа к аудиту:
- * переиспользуется самостоятельным экраном `/audit` и ссылками "История
- * изменений" из features/wallets и features/operations (docs/PROGRESS.md, W3.2).
+ * GET /audit-entries (UC-25, docs/api/openapi.yaml) — cursor-based pagination,
+ * sorted by occurred_at DESC. Single HTTP access point for audit data,
+ * reused by the standalone `/audit` screen and the "change history" links
+ * in features/wallets and features/operations.
  */
 @Injectable({ providedIn: 'root' })
 export class AuditApiService {

@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LupexWallet · UI kit v0.2</title>
+  <title>LupexWallet · UI kit v0.3</title>
   <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="preview.css">
 </head>
 <body>
 <a href="#content" class="skip">К содержимому</a>
 <header class="kit-header">
-  <div class="brand">Lupex<span>Wallet</span> <span class="small">/ UI kit 0.2</span></div>
+  <div class="brand">Lupex<span>Wallet</span> <span class="small">/ UI kit 0.3</span></div>
   <nav class="kit-nav" aria-label="Разделы UI kit">
-    <a href="#foundations" aria-current="location">Направление</a><a href="#wallets">Форма и карточка</a><a href="#controls">Компоненты</a><a href="#transactions">Данные</a>
+    <a href="wallets.html">Кошельки</a><a href="wallet-form.html">Полная форма</a><a href="operations.html">Операции</a><a href="#foundations" aria-current="location">Направление</a><a href="#wallets">Форма и карточка</a><a href="#controls">Компоненты</a><a href="#transactions">Данные</a>
   </nav>
 </header>
 <main id="content">
@@ -32,7 +32,7 @@
   </header>
   <div class="reference-note">
     <a href="assets/visual-reference.png" aria-label="Открыть исходный визуальный референс"><img src="assets/visual-reference.png" width="1332" height="753" style="height:auto" alt="Исходный референс: прозрачная терраса, сине-фиолетовый городской пейзаж и розовые отражения"></a>
-    <div><h3>Исходный референс → материал интерфейса</h3><p>Изображение сохранено без изменений. Выше — форма на его фоне; ниже — карточка и поля в том же освещении. В таблицах фон плотнее, но сохраняет оттенок индиго.</p><p><a href="ui-kit.md">Спецификация v0.2</a> · <a href="tokens.css">Токены</a> · Все данные в витрине вымышлены.</p></div>
+    <div><h3>Исходный референс → материал интерфейса</h3><p>Изображение сохранено без изменений. Арт используется на Login; рабочие карточки, поля и таблицы — на спокойном CSS-фоне. В v0.3 отключено декоративное свечение и приглушены края поверхностей.</p><p><a href="ui-kit.md">Спецификация v0.3</a> · <a href="tokens.css">Токены</a> · <a href="wallets.html">Полный экран кошельков</a> · Все данные вымышлены.</p></div>
   </div>
   <section id="wallets"><h2>01 / Карточка и форма в одном пространстве</h2>
     <div class="specimen-stage"><div class="grid">
@@ -92,7 +92,7 @@
     <svg class="chart" viewBox="0 0 700 190" role="img" aria-labelledby="chart-title chart-desc"><title id="chart-title">Образец стиля графика баланса</title><desc id="chart-desc">Вымышленные значения: 1800, 2050, 1960, 2300 и 2480,50 EUR. Все значения доступны в таблице ниже.</desc><g stroke="var(--lw-border)" stroke-width="1"><path d="M65 30H680 M65 85H680 M65 140H680"/></g><g fill="var(--lw-text-muted)" font-size="12"><text x="0" y="34">2 500</text><text x="0" y="89">2 000</text><text x="0" y="144">1 500</text><text x="65" y="178">09 сен</text><text x="350" y="178">11 сен</text><text x="630" y="178">13 сен</text></g><path d="M65 107L219 79.5L373 89.4L526 52L680 32.15" fill="none" stroke="currentColor" stroke-width="2"/></svg>
     <details><summary>Показать значения графика</summary><div class="table-wrap"><table><thead><tr><th scope="col">Дата</th><th scope="col" class="amount">Баланс</th></tr></thead><tbody><tr><td>09.09.2026</td><td class="amount">1 800,00 EUR</td></tr><tr><td>10.09.2026</td><td class="amount">2 050,00 EUR</td></tr><tr><td>11.09.2026</td><td class="amount">1 960,00 EUR</td></tr><tr><td>12.09.2026</td><td class="amount">2 300,00 EUR</td></tr><tr><td>13.09.2026</td><td class="amount">2 480,50 EUR</td></tr></tbody></table></div></details>
   </div></section>
-  <footer class="small" style="margin-top:48px">v0.2 · Переработано по приложенному референсу. Точные параметры — для согласования. Это витрина компонентов, не готовый экран приложения. <a href="ui-kit.md">Правила и следующий этап</a></footer>
+  <footer class="small" style="margin-top:48px">v0.3 · Исходная палитра, спокойные поверхности, без декоративного свечения. <a href="wallets.html">Экранный макет</a> · <a href="ui-kit.md">Правила и следующий этап</a></footer>
 </main>
 <dialog id="confirm-dialog" aria-labelledby="dialog-title" aria-describedby="dialog-description"><h2 id="dialog-title">Удалить «Тестовый кошелёк»?</h2><p id="dialog-description">Пример подтверждения для пустого кошелька без истории. В витрине реальные данные не изменяются.</p><form method="dialog" class="row" style="margin-top:24px"><button value="cancel" autofocus>Отмена</button><button value="delete" class="danger">Удалить</button></form></dialog>
 <div class="toast" role="status" aria-live="polite" id="feedback"></div>

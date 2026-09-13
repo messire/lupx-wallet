@@ -1,0 +1,23 @@
+:host {
+  display: block;
+}
+
+.app-empty-state {
+  text-align: center;
+  padding: 32px 16px;
+}
+
+.app-empty-state__title {
+  margin: 0 0 8px;
+  font-size: var(--lw-type-section);
+  font-weight: 500;
+}
+
+.app-empty-state__description {
+  margin: 0 0 20px;
+  color: var(--lw-text-secondary);
+}
+
+.app-empty-state__action:empty {
+  display: none;
+}

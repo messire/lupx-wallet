@@ -5,47 +5,75 @@
 }
 
 input {
+  display: block;
   width: 100%;
-  padding: 0.55rem 0.7rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: 0.95rem;
-  font-family: inherit;
+  min-height: var(--lw-control-height, 44px);
+  height: 48px;
   box-sizing: border-box;
+  padding: 11px 14px;
+  border: 1px solid var(--lw-control-border);
+  border-radius: var(--lw-radius-sm);
+  background: var(--lw-field);
+  color: var(--lw-text);
+  font: inherit;
+  box-shadow: inset 0 2px 8px rgb(13 17 53 / 12%);
+  transition:
+    border-color var(--lw-motion-fast) ease-out,
+    box-shadow var(--lw-motion-fast) ease-out;
+
+  &::placeholder {
+    color: var(--lw-text-muted);
+  }
+
+  &:hover:not(:disabled):not(:focus) {
+    border-color: var(--lw-accent-secondary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--lw-accent);
+    outline-offset: 2px;
+  }
 
   &:disabled {
-    opacity: 0.6;
+    background: var(--lw-disabled-bg);
+    color: var(--lw-disabled-text);
+    cursor: not-allowed;
   }
 }
 
 .options {
   position: absolute;
   z-index: 10;
-  top: calc(100% + 4px);
+  top: calc(100% + var(--lw-space-1));
   left: 0;
   right: 0;
   max-height: 260px;
   overflow-y: auto;
   margin: 0;
-  padding: 0.25rem;
+  padding: var(--lw-space-1);
   list-style: none;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-light);
-  border-radius: var(--radius-sm);
-  box-shadow: 0 8px 16px rgb(0 0 0 / 12%);
+  background: var(--lw-glass-strong);
+  backdrop-filter: blur(var(--lw-blur));
+  border: 1px solid var(--lw-border);
+  border-top-color: var(--lw-border-light);
+  border-radius: var(--lw-radius-sm);
+  box-shadow: var(--lw-shadow);
 
   li {
-    padding: 0.5rem 0.6rem;
-    border-radius: var(--radius-sm);
-    font-size: 0.9rem;
+    padding: var(--lw-space-2) var(--lw-space-3);
+    border-radius: var(--lw-radius-sm);
+    color: var(--lw-text);
+    font-size: var(--lw-type-small);
     cursor: pointer;
+    transition: background var(--lw-motion-fast) ease-out;
 
     &.highlighted {
-      background: var(--color-secondary-bg);
+      background: var(--lw-accent-soft);
+      color: var(--lw-accent);
     }
 
     &.empty {
-      color: var(--color-muted);
+      color: var(--lw-text-muted);
       cursor: default;
     }
   }

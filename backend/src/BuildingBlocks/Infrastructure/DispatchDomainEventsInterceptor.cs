@@ -8,51 +8,53 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 namespace LupexWallet.BuildingBlocks.Infrastructure;
 
 /// <summary>
-/// EF Core SaveChanges-перехватчик: собирает доменные события со всех отслеживаемых
-/// агрегатов (IHasDomainEvents) и публикует их через IDomainEventDispatcher. Подключается
-/// в OnConfiguring/AddInterceptors каждого DbContext модуля — единая точка диспетчеризации,
-/// не дублируется в каждом модуле (high-level-architecture.md, §4).
+/// EF Core SaveChanges interceptor: collects domain events from all tracked aggregates
+/// (IHasDomainEvents) and publishes them via IDomainEventDispatcher. Registered in
+/// OnConfiguring/AddInterceptors of each module's DbContext — a single dispatch point,
+/// not duplicated per module (high-level-architecture.md, §4).
 ///
-/// Сбор происходит в SavingChangesAsync (ДО физического сохранения) — для удаляемых
-/// агрегатов запись становится Detached сразу после успешного сохранения, и её события
-/// были бы потеряны, если собирать их постфактум. Диспетчеризация (вызов подписчиков)
-/// происходит в SavedChangesAsync (ПОСЛЕ физического сохранения, ADR-0008) — это
-/// обязательно для подписчиков, которые сами читают данные, только что записанные текущим
-/// SaveChangesAsync, через собственный DbContext того же DI-scope (например, BalanceHistory
-/// читает Operations через IWalletOperationsLookup при пересчете истории баланса, ADR-0003):
-/// если бы диспетчеризация происходила до отправки SQL в БД (как раньше), запрос
-/// подписчика их бы еще не увидел, даже через тот же экземпляр DbContext, — SaveChanges
-/// на момент SavingChangesAsync еще не отправил команды в БД.
+/// Collection happens in SavingChangesAsync (BEFORE the physical save) — for deleted
+/// aggregates, the entry becomes Detached right after a successful save, so its events
+/// would be lost if collected afterwards. Dispatch (calling subscribers) happens in
+/// SavedChangesAsync (AFTER the physical save, ADR-0008) — this is required for
+/// subscribers that read data just written by the current SaveChangesAsync through their
+/// own DbContext in the same DI scope (e.g. BalanceHistory reads Operations via
+/// IWalletOperationsLookup when recalculating balance history, ADR-0003): if dispatch
+/// happened before the SQL was sent to the database, a subscriber's query would not see
+/// it yet, even through the same DbContext instance — at SavingChangesAsync time,
+/// SaveChanges has not sent commands to the database yet.
 ///
-/// Диспетчеризация все равно происходит внутри той же System.Transactions.TransactionScope,
-/// что и сам SaveChanges (см. TransactionBehavior), поэтому откат физического сохранения
-/// (или сохранения подписчика) по-прежнему откатывает весь набор побочных эффектов.
+/// Dispatch still runs inside the same System.Transactions.TransactionScope as SaveChanges
+/// itself (see TransactionBehavior), so rolling back the physical save (or a subscriber's
+/// save) still rolls back the whole set of side effects.
 ///
-/// Экземпляр интерцептора — общий на весь DI-scope (каждый модуль регистрирует
-/// AddScoped&lt;DispatchDomainEventsInterceptor&gt;, но в рамках одного HTTP-запроса
-/// GetRequiredService возвращает один и тот же экземпляр для всех DbContext'ов модулей).
-/// Буфер событий поэтому ключуется по конкретному экземпляру DbContext
-/// (ConditionalWeakTable), а не хранится в обычном поле интерцептора — иначе вложенный
-/// SaveChanges на другом DbContext (ровно то, что делает BalanceHistory-подписчик) затер
-/// бы буфер, пока внешний SaveChanges еще не дошел до диспетчеризации.
+/// The interceptor instance is shared across the whole DI scope (each module registers
+/// AddScoped&lt;DispatchDomainEventsInterceptor&gt;, but within one HTTP request
+/// GetRequiredService returns the same instance for all module DbContexts). The event
+/// buffer is therefore keyed by the specific DbContext instance (ConditionalWeakTable)
+/// rather than stored in a plain interceptor field — otherwise a nested SaveChanges on
+/// another DbContext (exactly what the BalanceHistory subscriber does) would overwrite
+/// the buffer while the outer SaveChanges has not reached dispatch yet.
 ///
-/// ADR-0010: помимо сбора событий, CollectEvents теперь же (SavingChangesAsync, пока
-/// OriginalValues/CurrentValues еще различаются) вычисляет diff old/new по каждому
-/// изменившемуся полю агрегата и кладет его в отдельный словарь по EventId — подписчик
-/// Audit.Infrastructure забирает его в момент диспетчеризации через TakeChanges(eventId),
-/// не читая ChangeTracker напрямую (на момент SavedChangesAsync состояние уже "принято").
+/// ADR-0010: besides collecting events, CollectEvents also computes an old/new diff for
+/// each changed aggregate field while OriginalValues/CurrentValues still differ
+/// (SavingChangesAsync) and stores it in a separate dictionary keyed by EventId — the
+/// Audit.Infrastructure subscriber retrieves it at dispatch time via TakeChanges(eventId)
+/// instead of reading the ChangeTracker directly (by SavedChangesAsync time, the state is
+/// already "accepted").
 /// </summary>
 public sealed class DispatchDomainEventsInterceptor(IDomainEventDispatcher dispatcher) : SaveChangesInterceptor
 {
     private readonly ConditionalWeakTable<DbContext, List<IDomainEvent>> _pendingEventsByContext = new();
 
     /// <summary>
-    /// Diff old/new по каждому событию (ADR-0010), ключ — IDomainEvent.EventId. Не привязан
-    /// к конкретному DbContext (в отличие от _pendingEventsByContext) — подписчики
-    /// (Audit.Infrastructure) читают его в SavedChangesAsync того же DbContext, что вычислил
-    /// diff в предшествующем SavingChangesAsync, но сам интерцептор общий на весь DI-scope
-    /// (см. класс-комментарий), поэтому простого Dictionary достаточно: в пределах одной
-    /// команды SaveChanges разных DbContext выполняются последовательно, не параллельно.
+    /// Old/new diff per event (ADR-0010), keyed by IDomainEvent.EventId. Not tied to a
+    /// specific DbContext (unlike _pendingEventsByContext) — subscribers
+    /// (Audit.Infrastructure) read it in SavedChangesAsync of the same DbContext that
+    /// computed the diff in the preceding SavingChangesAsync, but the interceptor itself
+    /// is shared across the DI scope (see class summary), so a plain Dictionary is
+    /// sufficient: within one command, SaveChanges calls on different DbContexts run
+    /// sequentially, not in parallel.
     /// </summary>
     private readonly Dictionary<Guid, IReadOnlyList<EntityFieldChange>> _changesByEventId = new();
 
@@ -88,11 +90,11 @@ public sealed class DispatchDomainEventsInterceptor(IDomainEventDispatcher dispa
     }
 
     /// <summary>
-    /// Если SaveChangesAsync упал, буфер для этого DbContext больше не нужен — иначе он
-    /// "прилипнет" к следующему, не связанному с ним успешному SaveChangesAsync на том же
-    /// экземпляре DbContext (сценарий из реальной практики: IWalletBalanceGateway.
-    /// ApplyDeltaAsync вызывает SaveChangesAsync несколько раз за одну команду, например
-    /// при переводе — по разу на кошелек, оба раза на одном экземпляре WalletsDbContext).
+    /// If SaveChangesAsync fails, the buffer for this DbContext is no longer needed —
+    /// otherwise it would "stick" to the next, unrelated successful SaveChangesAsync on the
+    /// same DbContext instance (a real scenario: IWalletBalanceGateway.ApplyDeltaAsync
+    /// calls SaveChangesAsync multiple times per command, e.g. for a transfer — once per
+    /// wallet, both times on the same WalletsDbContext instance).
     /// </summary>
     public override Task SaveChangesFailedAsync(DbContextErrorEventData eventData, CancellationToken cancellationToken = default)
     {
@@ -105,10 +107,10 @@ public sealed class DispatchDomainEventsInterceptor(IDomainEventDispatcher dispa
     }
 
     /// <summary>
-    /// Синхронный SaveChanges не поддерживается — диспетчеризация событий реализована
-    /// только для async-пути (ADR-0008). Защитная проверка: если бы синхронный путь
-    /// использовался, события собирались бы (агрегаты очищались бы от них), но никогда не
-    /// диспетчеризовались — тихая потеря истории баланса вместо явной ошибки при разработке.
+    /// Synchronous SaveChanges is not supported — event dispatch is implemented only for
+    /// the async path (ADR-0008). This is a guard: if the sync path were used, events
+    /// would still be collected (aggregates cleared of them) but never dispatched — a
+    /// silent loss of balance history instead of a clear error during development.
     /// </summary>
     public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result) =>
         throw new NotSupportedException(
@@ -154,10 +156,10 @@ public sealed class DispatchDomainEventsInterceptor(IDomainEventDispatcher dispa
     }
 
     /// <summary>
-    /// Забирает (и удаляет) diff, вычисленный для конкретного события — вызывается
-    /// подписчиками Audit.Infrastructure (ADR-0010) в момент диспетчеризации
-    /// (SavedChangesAsync). Удаление сразу после чтения не даёт словарю расти сверх
-    /// количества ещё не обработанных в рамках текущей команды событий.
+    /// Retrieves (and removes) the diff computed for a specific event — called by
+    /// Audit.Infrastructure subscribers (ADR-0010) at dispatch time (SavedChangesAsync).
+    /// Removing it right after reading keeps the dictionary from growing beyond the number
+    /// of events not yet processed within the current command.
     /// </summary>
     public IReadOnlyList<EntityFieldChange> TakeChanges(Guid eventId)
     {
@@ -170,10 +172,10 @@ public sealed class DispatchDomainEventsInterceptor(IDomainEventDispatcher dispa
     }
 
     /// <summary>
-    /// Diff по собственным (не навигационным) свойствам сущности — ключевые свойства
-    /// исключены (они идентичность записи, а не "изменившееся значение"; см. ADR-0010,
-    /// раздел про BalanceSnapshot, где это исключение оказалось значимым и потребовало
-    /// точечного обогащения событий на стороне Audit).
+    /// Diff over the entity's own (non-navigation) properties — key properties are
+    /// excluded (they identify the record rather than represent a "changed value"; see
+    /// ADR-0010, the BalanceSnapshot section, where this exclusion turned out to matter
+    /// and required targeted event enrichment on the Audit side).
     /// </summary>
     private static IReadOnlyList<EntityFieldChange> ComputeFieldChanges(EntityEntry entry)
     {

@@ -1,0 +1,52 @@
+<div class="page">
+  <h1>Курсы валют</h1>
+
+  <app-card class="update-bar-card">
+    <div class="update-bar">
+      <span class="update-label">Последнее обновление: {{ lastUpdateLabel() }}</span>
+      <app-button variant="secondary" [loading]="isRefreshing()" loadingText="Обновление…" (click)="refresh()">
+        Обновить сейчас
+      </app-button>
+    </div>
+  </app-card>
+
+  @if (sourceUnavailable(); as message) {
+    <p class="warning">{{ message }}</p>
+  }
+
+  @if (isLoading()) {
+    <app-loading-state label="Загрузка…">
+      <app-skeleton height="40px" />
+      <app-skeleton height="40px" />
+      <app-skeleton height="40px" />
+    </app-loading-state>
+  } @else if (loadError(); as error) {
+    <app-error-state [message]="error" (retry)="loadAll()" />
+  } @else if (rows().length === 0) {
+    <app-empty-state
+      title="Курсы валют ещё не загружены"
+      description="Нажмите «Обновить сейчас», чтобы получить актуальные курсы."
+    />
+  } @else {
+    <div class="table-scroll" role="region" tabindex="0" aria-label="Таблица курсов валют">
+      <table class="app-table rates-table">
+        <thead>
+          <tr>
+            <th>Валюта</th>
+            <th>Основная валюта</th>
+            <th class="amount-col">Курс</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of rows(); track row.fromCurrencyCode + row.toCurrencyCode) {
+            <tr>
+              <td>{{ row.fromCurrencyCode }}</td>
+              <td>{{ row.toCurrencyCode }}</td>
+              <td class="amount-col money">{{ row.rate }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</div>

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Новый кошелёк — Lupex Wallet · UI kit v0.3</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="wallets.css">
+  <link rel="stylesheet" href="screens.css">
+  <script src="specimen.js" defer></script>
+  <script src="wallet-form.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Перейти к содержимому</a>
+  <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="wallet" viewBox="0 0 24 24"><path d="M20 8V5a2 2 0 0 0-2-2H5a3 3 0 0 0 0 6h16v11H5a3 3 0 0 1-3-3V6m19 7h-6v4h6"/></symbol>
+    <symbol id="list" viewBox="0 0 24 24"><path d="M8 5h13M8 12h13M8 19h13M3 5h.01M3 12h.01M3 19h.01"/></symbol>
+    <symbol id="transfer" viewBox="0 0 24 24"><path d="M3 7h17l-4-4m5 14H4l4 4M20 7l-4 4M4 17l4-4"/></symbol>
+    <symbol id="history" viewBox="0 0 24 24"><path d="M4 20V9m8 11V3m8 17V13"/></symbol>
+    <symbol id="rates" viewBox="0 0 24 24"><path d="m2 17 6-9 6 6 8-11"/></symbol>
+    <symbol id="report" viewBox="0 0 24 24"><path d="M5 2h10l5 5v15H5zM14 2v6h6M9 12h7M9 16h7"/></symbol>
+    <symbol id="book" viewBox="0 0 24 24"><path d="M12 5C8 2 4 3 2 4v16c4-2 7-1 10 1 3-2 6-3 10-1V4c-2-1-6-2-10 1v16"/></symbol>
+    <symbol id="audit" viewBox="0 0 24 24"><path d="m12 2 9 4v6c0 5-5 8-9 10-4-2-9-5-9-10V6zM8 12l3 3 5-6"/></symbol>
+    <symbol id="exit" viewBox="0 0 24 24"><path d="M10 3h10v18H10M3 12h12m-4-4 4 4-4 4"/></symbol>
+    <symbol id="home" viewBox="0 0 24 24"><path d="m3 10 9-8 9 8v12H3z"/></symbol>
+    <symbol id="menu" viewBox="0 0 24 24"><path d="M3 5h18M3 12h18M3 19h18"/></symbol>
+  </svg>
+  <div class="app-shell">
+    <aside class="sidebar" id="navigation">
+      <a class="wordmark" href="wallets.html">Lupex Wallet</a>
+      <nav aria-label="Разделы приложения">
+        <a class="nav-item current" href="wallets.html" aria-current="page"><svg><use href="#wallet"/></svg>Кошельки</a>
+        <a class="nav-item" href="operations.html"><svg><use href="#list"/></svg>Операции</a>
+        <button class="nav-item" data-preview="Переводы"><svg><use href="#transfer"/></svg>Переводы</button>
+        <button class="nav-item" data-preview="История баланса"><svg><use href="#history"/></svg>История баланса</button>
+        <button class="nav-item" data-preview="Курсы валют"><svg><use href="#rates"/></svg>Курсы валют</button>
+        <button class="nav-item" data-preview="Отчёт"><svg><use href="#report"/></svg>Отчёт</button>
+        <button class="nav-item" data-preview="Справочники"><svg><use href="#book"/></svg>Справочники</button>
+        <button class="nav-item" data-preview="Аудит"><svg><use href="#audit"/></svg>Аудит</button>
+      </nav>
+      <button class="nav-item sign-out" data-preview="Выйти"><svg><use href="#exit"/></svg>Выйти</button>
+    </aside>
+    <div class="workspace">
+      <header class="topbar">
+        <button class="menu-toggle" aria-expanded="false" aria-controls="navigation"><svg><use href="#menu"/></svg><span>Меню</span></button>
+        <span class="context"><svg><use href="#home"/></svg>Личные финансы</span>
+      </header>
+      <main id="main" tabindex="-1">
+  <div class="form-page">
+    <a class="text-action back-link" href="wallets.html" data-leave>← К кошелькам</a>
+    <div class="page-heading"><h1 id="form-title">Новый кошелёк</h1></div>
+    <form id="wallet-form" class="glass entity-form" novalidate>
+      <p class="form-intro metadata">Обязательные поля отмечены *</p>
+      <fieldset id="wallet-fields">
+        <div class="field"><label for="wallet-name">Название <span aria-hidden="true">*</span></label><input id="wallet-name" name="name" required placeholder="Например, Путешествия" autocomplete="off" aria-describedby="wallet-name-error"><p class="field-error" id="wallet-name-error" hidden></p></div>
+        <div class="field"><label for="wallet-type">Тип кошелька <span aria-hidden="true">*</span></label><select id="wallet-type" name="walletTypeId" required aria-describedby="type-error"><option value="">Выберите тип</option><option value="personal">Личный кошелёк</option><option value="savings">Сбережения</option></select><p class="field-error" id="type-error" hidden></p>
+          <details class="quick-add" id="add-type"><summary>Добавить тип</summary><label for="new-type">Название нового типа</label><div class="inline-add"><input id="new-type" autocomplete="off" aria-describedby="new-type-error"><button type="button" class="secondary" id="save-type">Добавить</button></div><p id="new-type-error" class="field-error" hidden></p></details>
+        </div>
+        <div class="field create-only"><label for="wallet-currency">Валюта <span aria-hidden="true">*</span></label><select id="wallet-currency" name="currencyId" required aria-describedby="currency-error"><option value="">Выберите валюту</option><option value="EUR">EUR — евро</option></select><p class="field-error" id="currency-error" hidden></p>
+          <details class="quick-add" id="add-currency"><summary>Добавить валюту</summary><label for="new-currency">Новая валюта</label><div class="inline-add"><select id="new-currency" aria-describedby="new-currency-error"><option value="">Выберите валюту</option><option value="USD">USD — доллар США</option><option value="RSD">RSD — сербский динар</option><option value="GBP">GBP — фунт стерлингов</option></select><button type="button" class="secondary" id="save-currency">Добавить</button></div><p id="new-currency-error" class="field-error" hidden></p></details>
+        </div>
+        <div class="reference-feedback" id="reference-feedback" hidden><p id="reference-message" role="status"></p><button type="button" class="secondary" id="retry-references" hidden>Повторить загрузку справочников</button></div>
+        <div class="field create-only"><label for="initial-balance">Начальный баланс <span aria-hidden="true">*</span></label><div class="input-suffix"><input id="initial-balance" name="initialBalanceAmount" required inputmode="decimal" value="0.00" aria-describedby="amount-help initial-balance-error"><span id="currency-suffix">EUR</span></div><p id="amount-help" class="helper">Число с точкой, например 1250.50. Точность суммы сохраняется.</p><p class="field-error" id="initial-balance-error" hidden></p></div>
+        <div class="field create-only"><label for="start-date">Дата начала учёта <span aria-hidden="true">*</span></label><input type="date" id="start-date" name="accountingStartDate" required value="2026-09-14" aria-describedby="date-help start-date-error"><p id="date-help" class="helper">Дата, с которой начинается учёт баланса кошелька.</p><p class="field-error" id="start-date-error" hidden></p></div>
+        <p class="readonly-note edit-only" hidden>EUR · Начальный баланс 0,00 € · Учёт с 01.09.2026<br><span class="metadata">Валюта меняется отдельным действием. Начальный баланс и дата начала учёта здесь не редактируются.</span></p>
+        <details class="advanced-fields" id="advanced-fields"><summary>Дополнительные настройки</summary>
+          <div class="field"><label for="purpose">Описание <span class="optional">необязательно</span></label><textarea id="purpose" name="purposeDescription" rows="3" placeholder="Для чего нужен кошелёк"></textarea></div>
+          <div class="field"><label class="checkbox-label" for="include-total"><input type="checkbox" id="include-total" name="includeInTotal" checked>Учитывать в общей сумме</label><p class="helper" id="primary-note" hidden>Основной кошелёк всегда учитывается в общей сумме.</p></div>
+          <div class="field"><label for="display-order">Порядок отображения</label><input type="number" id="display-order" name="displayOrder" step="1" value="0" aria-describedby="display-order-error"><p class="field-error" id="display-order-error" hidden></p></div>
+          <div class="form-grid"><div class="field"><label for="wallet-color">Цвет <span class="optional">необязательно</span></label><input id="wallet-color" name="color" placeholder="#RRGGBB"></div><div class="field"><label for="wallet-icon">Иконка <span class="optional">необязательно</span></label><input id="wallet-icon" name="icon" placeholder="Название иконки"></div></div>
+        </details>
+      </fieldset>
+      <p class="form-message negative" id="save-error" role="alert" hidden></p>
+      <p class="form-message positive" id="save-success" role="status" tabindex="-1" hidden></p>
+      <div class="form-actions"><button type="submit" class="primary action" id="save-wallet">Создать кошелёк</button><a class="secondary" href="wallets.html" data-leave>Отмена</a></div>
+    </form>
+  </div>
+</main>
+      <footer class="review-tools"><details><summary>Проверка макета</summary><div class="review-controls">
+<p>UI kit v0.3 · Автономный макет. Все сохранения и добавления справочников выполняются только в памяти этой страницы; после обновления исчезают.</p>
+<label for="form-mode">Режим формы</label><select id="form-mode"><option value="create">Создание</option><option value="edit">Редактирование</option><option value="primary">Редактирование основного кошелька</option></select>
+<label for="form-state">Состояние</label><select id="form-state"><option value="default">Обычное</option><option value="invalid">Ошибки полей</option><option value="reference-loading">Загрузка справочников</option><option value="reference-error">Ошибка справочников</option><option value="saving">Сохранение</option><option value="save-error">Ошибка сохранения</option><option value="success">Успешное сохранение</option><option value="long">Длинные значения</option></select>
+<p><a href="wallets.html">Кошельки</a> · <a href="operations.html">Операции</a> · <a href="ui-kit.md">UI kit v0.3</a></p></div></details></footer>
+    </div>
+  </div>
+  <dialog id="screen-note" aria-labelledby="screen-note-title"><h2 id="screen-note-title"></h2><p>Этот раздел показан в навигации. Его отдельный экран ещё не подготовлен в макете.</p><form method="dialog"><button class="secondary" autofocus>Закрыть</button></form></dialog>
+  <dialog id="discard-dialog" aria-labelledby="discard-title"><h2 id="discard-title">Отменить изменения?</h2><p>Введённые данные будут потеряны.</p><form method="dialog" class="form-actions"><button class="secondary" value="stay" autofocus>Продолжить заполнение</button><button class="ghost-action" value="discard">Отменить изменения</button></form></dialog>
+  <p class="sr-only" id="announcement" role="status" aria-live="polite"></p>
+</body>
+</html>
+

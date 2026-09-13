@@ -1,0 +1,82 @@
+<div class="page">
+  <h1>Отчёт</h1>
+
+  <app-card class="section">
+    <h2>Текущая сумма</h2>
+
+    @if (currentLoading()) {
+      <app-loading-state label="Загрузка…">
+        <app-skeleton width="240px" height="48px" />
+      </app-loading-state>
+    } @else if (currentNoPrimaryWallet()) {
+      <app-empty-state title="Сумма не может быть посчитана" description="В системе не назначен основной кошелек." />
+    } @else if (currentError(); as error) {
+      <app-error-state [message]="error" (retry)="loadCurrent()" />
+    } @else if (currentTotal(); as total) {
+      <p class="amount-widget money">
+        {{ formatMoney(total.amount, currencyCode(total.amount.currencyId)) }}
+      </p>
+      @if (ratesNote(total); as note) {
+        <p class="hint">Курс по состоянию на {{ note }}.</p>
+      }
+      @if (total.excludedWallets.length > 0) {
+        <div class="excluded-wallets">
+          <app-badge tone="warning">Не учтено кошельков: {{ total.excludedWallets.length }}</app-badge>
+          <ul>
+            @for (excluded of total.excludedWallets; track excluded.walletId) {
+              <li>{{ walletName(excluded.walletId) }} — {{ excluded.reason }}</li>
+            }
+          </ul>
+        </div>
+      }
+    }
+  </app-card>
+
+  <app-card class="section">
+    <h2>Сумма на дату</h2>
+
+    <form class="inline-form" [formGroup]="dateForm" (ngSubmit)="showHistorical()">
+      <app-field label="Дата">
+        <input appFieldControl type="date" formControlName="date" />
+      </app-field>
+      <app-button
+        type="submit"
+        variant="secondary"
+        class="app-field-align"
+        [disabled]="!dateForm.controls.date.value"
+        [loading]="historicalLoading()"
+        loadingText="Загрузка…"
+      >
+        Показать
+      </app-button>
+    </form>
+
+    @if (historicalNoPrimaryWallet()) {
+      <app-empty-state title="Сумма не может быть посчитана" description="В системе не назначен основной кошелек." />
+    } @else if (historicalError(); as error) {
+      <app-error-state [message]="error" (retry)="showHistorical()" />
+    } @else if (historicalTotal(); as total) {
+      <p class="amount-widget amount-widget--secondary money">
+        {{ formatMoney(total.amount, currencyCode(total.amount.currencyId)) }}
+      </p>
+      @if (ratesNote(total); as note) {
+        <p class="hint">Курс по состоянию на {{ note }}.</p>
+      }
+      @if (total.excludedWallets.length > 0) {
+        <div class="excluded-wallets">
+          <app-badge tone="warning">Не учтено кошельков: {{ total.excludedWallets.length }}</app-badge>
+          <ul>
+            @for (excluded of total.excludedWallets; track excluded.walletId) {
+              <li>{{ walletName(excluded.walletId) }} — {{ excluded.reason }}</li>
+            }
+          </ul>
+        </div>
+      }
+    } @else {
+      <app-empty-state
+        title="Выберите дату"
+        description="Чтобы увидеть сумму на этот момент времени, выберите дату выше."
+      />
+    }
+  </app-card>
+</div>

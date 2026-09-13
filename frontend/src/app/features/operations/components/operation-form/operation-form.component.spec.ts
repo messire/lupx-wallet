@@ -38,7 +38,7 @@ describe('OperationFormComponent', () => {
     fixture.detectChanges();
 
     expect(component.isAdjustment()).toBe(false);
-    expect(fixture.nativeElement.querySelector('.radio-group')).toBeNull();
+    expect(fixture.nativeElement.querySelector('app-radio-group')).toBeNull();
   });
 
   it('shows adjustment mode selector only for Adjustment behaviorKind', () => {
@@ -46,7 +46,7 @@ describe('OperationFormComponent', () => {
     fixture.detectChanges();
 
     expect(component.isAdjustment()).toBe(true);
-    expect(fixture.nativeElement.querySelector('.radio-group')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('app-radio-group')).not.toBeNull();
   });
 
   it('emits CreateOperationRequest without adjustmentMode for a non-adjustment type', () => {

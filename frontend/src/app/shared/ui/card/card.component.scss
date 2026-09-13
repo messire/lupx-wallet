@@ -1,0 +1,35 @@
+:host {
+  display: block;
+}
+
+.app-card {
+  position: relative;
+  isolation: isolate;
+  min-width: 0;
+  border: 1px solid var(--lw-border);
+  border-top-color: var(--lw-border-light);
+  border-radius: var(--lw-radius-md);
+  background: var(--lw-glass);
+  backdrop-filter: blur(var(--lw-blur));
+  box-shadow: var(--lw-shadow);
+}
+
+.app-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: var(--lw-panel-reflection);
+}
+
+.app-card--padded {
+  padding: 28px;
+}
+
+@media (max-width: 767px) {
+  .app-card--padded {
+    padding: 22px;
+  }
+}

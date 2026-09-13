@@ -57,15 +57,25 @@ To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use th
 ng test
 ```
 
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
+## Architecture check
 
 ```bash
-ng e2e
+npm run check:boundaries
 ```
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
+Checks every import/re-export/dynamic `import()` under `src/app` with the TypeScript compiler API (resolves the `@shared/*` path alias exactly like `tsc`) against ADR-0012 §3 / `docs/conventions/frontend.md`: a feature must not import another feature directly, and `core`/`shared`/`data-access` must not depend on any feature; the graph must also stay free of import cycles. The rule logic itself is unit-tested with synthetic allowed/forbidden examples:
+
+```bash
+npm run check:boundaries:test
+```
+
+## Browser smoke tests (Playwright)
+
+```bash
+npm run e2e
+```
+
+Runs against the real running app (Angular dev server + .NET API + Postgres), not a mock — see [e2e/README.md](e2e/README.md) for what each scenario covers, required setup, and known limitations. Wired into CI as the `e2e` job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
 
 ## Additional Resources
 

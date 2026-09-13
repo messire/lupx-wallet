@@ -1,0 +1,105 @@
+<div class="page">
+  <h1>Переводы</h1>
+
+  @if (successMessage(); as message) {
+    <app-toast class="page-toast" [message]="message" tone="success" (dismissed)="successMessage.set(null)" />
+  }
+
+  <app-card class="filters-card">
+    <form class="filters" [formGroup]="filterForm" (ngSubmit)="applyFilters()">
+      <app-field label="Кошелек" class="filters__field">
+        <select appFieldControl formControlName="walletId">
+          <option value="">— все —</option>
+          @for (wallet of wallets(); track wallet.id) {
+            <option [value]="wallet.id">{{ wallet.name }}</option>
+          }
+        </select>
+      </app-field>
+
+      <div class="filter-actions app-field-align">
+        <app-button type="submit" variant="secondary">Применить</app-button>
+        <app-button type="button" variant="ghost" (click)="resetFilters()">Сбросить</app-button>
+      </div>
+    </form>
+  </app-card>
+
+  <section class="toolbar">
+    <app-button variant="primary" (click)="openCreateForm()" [disabled]="isFormOpen()">Добавить перевод</app-button>
+  </section>
+
+  @if (isFormOpen()) {
+    <app-transfer-form
+      [wallets]="walletOptions()"
+      [isSubmitting]="isSubmitting()"
+      [errorMessage]="submitError()"
+      (save)="saveTransfer($event)"
+      (cancel)="cancelForm()"
+    />
+  }
+
+  @if (deleteError()) {
+    <app-error-state [message]="deleteError()!" [showRetry]="false" />
+  }
+
+  @if (isLoading() && transfers().length === 0) {
+    <app-loading-state label="Загрузка…">
+      <app-skeleton height="56px" />
+      <app-skeleton height="56px" />
+      <app-skeleton height="56px" />
+    </app-loading-state>
+  } @else if (loadError()) {
+    <app-error-state [message]="loadError()!" (retry)="loadTransfers()" />
+  } @else if (transfers().length === 0) {
+    <app-empty-state title="Переводов пока нет" description="Добавьте первый перевод, чтобы учесть перемещение между кошельками">
+      <app-button variant="primary" (click)="openCreateForm()">Добавить перевод</app-button>
+    </app-empty-state>
+  } @else {
+    <div class="table-card">
+      <div class="table-scroll" role="region" aria-label="Список переводов" tabindex="0">
+        <table class="app-table transfers-table">
+          <thead>
+            <tr>
+              <th>Дата</th>
+              <th>Источник</th>
+              <th>Получатель</th>
+              <th class="amount-col">Сумма</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (transfer of transfers(); track transfer.id) {
+              <tr>
+                <td>{{ transfer.transferDate }}</td>
+                <td>{{ walletName(transfer.sourceWalletId) }}</td>
+                <td class="target-cell">
+                  <span class="target-arrow" aria-hidden="true">→</span>
+                  {{ walletName(transfer.targetWalletId) }}
+                </td>
+                <td class="amount-col">
+                  <span class="amount">{{ formatMoney(transfer.amount) }}</span>
+                </td>
+                <td class="actions">
+                  <app-button variant="danger" (click)="deleteTransfer(transfer)">Удалить</app-button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    @if (hasMore()) {
+      <div class="load-more">
+        <app-button
+          variant="secondary"
+          (click)="loadMore()"
+          [disabled]="isLoading()"
+          [loading]="isLoading()"
+          loadingText="Загрузка…"
+        >
+          Загрузить ещё
+        </app-button>
+      </div>
+    }
+  }
+</div>

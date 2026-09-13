@@ -9,10 +9,10 @@ public interface IDomainEventDispatcher
 }
 
 /// <summary>
-/// Публикует доменные события через MediatR.IPublisher, оборачивая каждое в
-/// DomainEventNotification&lt;T&gt;. Вызывается изнутри TransactionBehavior — то есть
-/// подписчики (Wallets/BalanceHistory/Audit и т.д.) отрабатывают в той же транзакции,
-/// что и исходная команда (high-level-architecture.md, §4).
+/// Publishes domain events via MediatR.IPublisher, wrapping each in
+/// DomainEventNotification&lt;T&gt;. Called from within TransactionBehavior, so subscribers
+/// (Wallets/BalanceHistory/Audit, etc.) run in the same transaction as the originating
+/// command (high-level-architecture.md, §4).
 /// </summary>
 public sealed class MediatRDomainEventDispatcher(IPublisher publisher) : IDomainEventDispatcher
 {

@@ -1,5 +1,5 @@
-// Соответствует docs/api/openapi.yaml (схемы Operation, OperationCreateRequest,
-// OperationUpdateRequest, OperationPage).
+// Mirrors docs/api/openapi.yaml (Operation, OperationCreateRequest,
+// OperationUpdateRequest, OperationPage schemas).
 
 import { CursorPage } from '../../shared/pagination/cursor-page';
 import { Money } from '../../shared/money/money';
@@ -12,10 +12,10 @@ export interface Operation {
   operationTypeId: string;
   amount: Money;
   operationDate: string;
-  /** Заполнено только когда operationType ссылается на behaviorKind = Adjustment (Q3). */
+  /** Set only when operationType references behaviorKind = Adjustment (Q3). */
   adjustmentMode: AdjustmentMode | null;
-  /** Не null — операция является частью перевода (см. UC-17): редактировать/удалять
-   *  напрямую через /operations нельзя, только через /transfers/{transferId}. */
+  /** Non-null means the operation is part of a transfer (see UC-17): it cannot be
+   *  edited/deleted directly via /operations, only via /transfers/{transferId}. */
   transferId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -26,15 +26,15 @@ export type OperationPage = CursorPage<Operation>;
 export interface CreateOperationRequest {
   walletId: string;
   operationTypeId: string;
-  /** Строка с точкой, произвольная точность (ADR-0005) — см. shared/money/money.ts. */
+  /** Decimal-point string, arbitrary precision (ADR-0005) — see shared/money/money.ts. */
   amount: string;
   operationDate: string;
   adjustmentMode?: AdjustmentMode;
 }
 
-/** OperationUpdateRequest (openapi.yaml) — walletId позволяет перенести операцию на другой
- *  кошелек (UC-13, решение пользователя от 2026-09-11): баланс исходного и нового кошелька
- *  пересчитывается на бэкенде. Недоступно для операций — частей перевода (409). */
+/** OperationUpdateRequest (openapi.yaml) — walletId allows moving the operation to another
+ *  wallet (UC-13): the balances of both the source and target wallet are recalculated on
+ *  the backend. Not available for operations that are part of a transfer (409). */
 export interface UpdateOperationRequest {
   walletId: string;
   operationTypeId?: string;

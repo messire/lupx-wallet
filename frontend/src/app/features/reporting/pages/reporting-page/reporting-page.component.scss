@@ -1,0 +1,57 @@
+
+.section {
+  margin-bottom: var(--lw-space-6);
+
+  h2 {
+    font-size: var(--lw-type-section);
+    font-weight: 500;
+    margin: 0 0 var(--lw-space-4);
+  }
+}
+
+.amount-widget {
+  font-size: var(--lw-type-display);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  margin: var(--lw-space-1) 0;
+
+  &.amount-widget--secondary {
+    font-size: var(--lw-type-page);
+  }
+}
+
+.hint {
+  color: var(--lw-text-secondary);
+  font-size: var(--lw-type-small);
+  margin: var(--lw-space-1) 0 0;
+}
+
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  /* flex-end здесь ложно выравнивает по нижнему краю app-field (который
+     резервирует место под hint/error даже когда их нет) вместо видимого
+     инпута — из-за этого кнопка "плавала" ниже поля. Выравнивание по верху +
+     .app-field-align на кнопке (см. field.component.scss) вместо этого. */
+  align-items: flex-start;
+  gap: var(--lw-space-4);
+  margin-bottom: var(--lw-space-4);
+}
+
+.excluded-wallets {
+  margin-top: var(--lw-space-4);
+  padding: var(--lw-space-4);
+  border: 1px solid var(--lw-border-light);
+  border-radius: var(--lw-radius-sm);
+  background: var(--lw-glass-strong);
+
+  ul {
+    margin: var(--lw-space-2) 0 0;
+    padding-left: var(--lw-space-6);
+  }
+
+  li {
+    color: var(--lw-text-secondary);
+    font-size: var(--lw-type-small);
+  }
+}

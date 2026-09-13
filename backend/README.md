@@ -64,6 +64,16 @@ dotnet test tests/LupexWallet.IntegrationTests/LupexWallet.IntegrationTests.cspr
 
 Интеграционные тесты поднимают собственный одноразовый контейнер Postgres (не зависят от `docker compose up`), сами применяют все EF Core-миграции и сбрасывают данные между тестами через Respawn — `docker compose`-инстанс им не нужен.
 
+Оба набора тестов и архитектурная проверка запускаются в CI как отдельные job'ы — [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
+
+## Архитектурная проверка
+
+```bash
+node scripts/check-architecture.mjs
+```
+
+Проверяет граф `ProjectReference`/`PackageReference` в `backend/src/**/*.csproj` против правила границы модуля (`high-level-architecture.md` §2, ADR-0006/0007/0009): какой слой какому может ссылаться, что Domain не подключает NuGet-пакеты, что Application не подключает EF Core/ASP.NET Core напрямую, и что граф ссылок между проектами не содержит циклов. Не требует сборки решения — читает `.csproj` напрямую, поэтому ловит нарушение раньше и быстрее, чем `dotnet build` (успешная компиляция сама по себе не гарантирует соблюдение правила границы модуля). Область — только `backend/src`; `backend/tests` намеренно не проверяется (интеграционные тесты закономерно ссылаются на несколько модулей и Host). Правила проверки покрыты примерами разрешённых/запрещённых зависимостей — `scripts/lib/module-rules.test.mjs` (`node --test scripts/lib/module-rules.test.mjs`).
+
 ## Деплой (Railway)
 
 Топология и обоснование — [ADR-0013](../docs/architecture/adr/0013-deployment-topology.md). `Dockerfile` в корне `backend/` — Root Directory сервиса в Railway должен быть `backend/`.

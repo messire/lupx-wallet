@@ -6,14 +6,13 @@ using Microsoft.Extensions.Logging;
 namespace LupexWallet.BuildingBlocks.Infrastructure;
 
 /// <summary>
-/// Оборачивает обработку MediatR-команды в System.Transactions.TransactionScope, чтобы
-/// SaveChanges нескольких DbContext (модуль-инициатор + подписчики его доменных событий,
-/// например Wallets/BalanceHistory/Audit) фиксировались как одна физическая транзакция
-/// PostgreSQL — сильная согласованность вместо eventual consistency
+/// Wraps MediatR command handling in a System.Transactions.TransactionScope so that
+/// SaveChanges calls from multiple DbContexts (the initiating module plus subscribers to
+/// its domain events, e.g. Wallets/BalanceHistory/Audit) commit as a single physical
+/// PostgreSQL transaction — strong consistency instead of eventual consistency
 /// (high-level-architecture.md, §4; ADR-0006).
 ///
-/// Применяется только к командам (ICommand), не к запросам — чтения не должны
-/// открывать транзакцию.
+/// Applies only to commands (ICommand), not queries — reads must not open a transaction.
 /// </summary>
 public sealed class TransactionBehavior<TRequest, TResponse>(ILogger<TransactionBehavior<TRequest, TResponse>> logger)
     : IPipelineBehavior<TRequest, TResponse>

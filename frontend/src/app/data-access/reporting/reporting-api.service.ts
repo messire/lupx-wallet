@@ -5,8 +5,8 @@ import { environment } from '../../../environments/environment';
 import { TotalAmount } from './reporting-api.models';
 
 /**
- * GET /reporting/total-amount — без `date` возвращает текущую сумму (UC-19),
- * с `date` — историческую (UC-21). Единственный эндпоинт модуля Reporting.
+ * GET /reporting/total-amount — without `date` returns the current total (UC-19),
+ * with `date` returns a historical one (UC-21). The only endpoint of the Reporting module.
  */
 @Injectable({ providedIn: 'root' })
 export class ReportingApiService {

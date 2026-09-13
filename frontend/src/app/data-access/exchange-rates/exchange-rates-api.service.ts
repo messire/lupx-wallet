@@ -5,10 +5,10 @@ import { environment } from '../../../environments/environment';
 import { LatestExchangeRates } from './exchange-rates-api.models';
 
 /**
- * HTTP-доступ к докс/api/openapi.yaml: /exchange-rates/latest, /exchange-rates/refresh
- * (UC-08, UC-09, UC-10, docs/PROGRESS.md W2.4). Обе операции возвращают одну и ту же
- * схему LatestExchangeRates — в том числе `refresh` при 502 (источник Frankfurter
- * недоступен, ADR-0001 п.6: возвращаются последние известные курсы, а не ошибка без тела).
+ * HTTP access to docs/api/openapi.yaml: /exchange-rates/latest, /exchange-rates/refresh
+ * (UC-08, UC-09, UC-10). Both operations return the same LatestExchangeRates schema —
+ * including `refresh` on a 502 (Frankfurter source unavailable, ADR-0001 §6: the last
+ * known rates are returned instead of a bodyless error).
  */
 @Injectable({ providedIn: 'root' })
 export class ExchangeRatesApiService {

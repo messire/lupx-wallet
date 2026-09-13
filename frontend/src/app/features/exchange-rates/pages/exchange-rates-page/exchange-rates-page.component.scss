@@ -1,0 +1,48 @@
+.update-bar-card {
+  margin-bottom: var(--lw-space-6);
+}
+
+.update-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--lw-space-4);
+}
+
+.update-label {
+  color: var(--lw-text-secondary);
+  font-size: var(--lw-type-small);
+}
+
+.warning {
+  color: var(--lw-warning);
+  font-size: var(--lw-type-small);
+  padding: var(--lw-space-4);
+  margin: 0 0 var(--lw-space-4);
+  border: 1px solid var(--lw-border-light);
+  border-radius: var(--lw-radius-sm);
+  background: var(--lw-glass-strong);
+}
+
+.table-scroll {
+  overflow-x: auto;
+  border-radius: var(--lw-radius-sm);
+
+  &:focus-visible {
+    outline: 2px solid var(--lw-accent);
+    outline-offset: 2px;
+  }
+}
+
+.rates-table {
+  min-width: 420px;
+}
+
+.amount-col {
+  text-align: right;
+}
+
+.money {
+  font-variant-numeric: tabular-nums;
+}

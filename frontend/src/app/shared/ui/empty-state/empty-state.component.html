@@ -1,0 +1,9 @@
+<div class="app-empty-state">
+  <h3 class="app-empty-state__title">{{ title() }}</h3>
+  @if (description()) {
+    <p class="app-empty-state__description">{{ description() }}</p>
+  }
+  <div class="app-empty-state__action">
+    <ng-content></ng-content>
+  </div>
+</div>

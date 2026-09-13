@@ -39,6 +39,11 @@ testem.log
 /typings
 __screenshots__/
 
+# Playwright (e2e) — generated reports/traces/screenshots, not source
+/playwright-report/
+/test-results/
+/e2e/screenshots/
+
 # System files
 .DS_Store
 Thumbs.db

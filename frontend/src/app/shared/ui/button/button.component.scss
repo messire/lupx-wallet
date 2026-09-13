@@ -1,0 +1,106 @@
+:host {
+  display: inline-flex;
+}
+
+:host(.app-button-host--full) {
+  display: block;
+}
+
+.app-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--lw-space-2);
+  min-height: var(--lw-control-height);
+  padding: 10px var(--lw-space-4);
+  border: 1px solid var(--lw-control-border);
+  border-radius: var(--lw-radius-sm);
+  background: rgb(112 104 174 / 16%);
+  color: var(--lw-text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--lw-motion-fast) ease-out,
+    box-shadow var(--lw-motion-fast) ease-out,
+    border-color var(--lw-motion-fast) ease-out;
+
+  &:hover:not(:disabled) {
+    background: rgb(156 142 210 / 27%);
+    box-shadow: inset 0 1px 0 rgb(230 209 255 / 18%);
+  }
+
+  &:active:not(:disabled) {
+    background: var(--lw-surface);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--lw-accent);
+    outline-offset: 3px;
+  }
+
+  &:disabled {
+    background: var(--lw-disabled-bg);
+    color: var(--lw-disabled-text);
+    border-color: var(--lw-border);
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+}
+
+.app-button--primary {
+  color: var(--lw-on-accent);
+  background: var(--lw-primary-fill);
+  border-color: rgb(243 224 255 / 80%);
+  box-shadow: var(--lw-glow);
+
+  &:hover:not(:disabled) {
+    background: var(--lw-primary-hover);
+    box-shadow: 0 0 28px rgb(216 192 255 / 30%);
+  }
+
+  &:active:not(:disabled) {
+    background: var(--lw-accent-pressed);
+  }
+}
+
+.app-button--ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.app-button--danger {
+  border-color: var(--lw-danger);
+  color: var(--lw-danger);
+  background: rgb(84 39 87 / 25%);
+}
+
+.app-button--icon {
+  min-width: var(--lw-control-height);
+  padding: 0;
+}
+
+.app-button--full {
+  width: 100%;
+}
+
+.app-button__content {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--lw-space-2);
+
+  &--hidden {
+    visibility: hidden;
+  }
+}
+
+.app-button__loading {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--lw-space-4);
+  white-space: nowrap;
+}

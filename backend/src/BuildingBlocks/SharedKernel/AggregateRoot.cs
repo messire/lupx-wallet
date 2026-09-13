@@ -1,9 +1,9 @@
 namespace LupexWallet.SharedKernel;
 
 /// <summary>
-/// Небольшой не-generic маркер, чтобы EF Core SaveChanges-перехватчик в
-/// BuildingBlocks.Infrastructure мог найти агрегаты с непубликованными событиями
-/// в ChangeTracker без знания конкретного TId каждого агрегата.
+/// Small non-generic marker so the EF Core SaveChanges interceptor in
+/// BuildingBlocks.Infrastructure can find aggregates with unpublished events in the
+/// ChangeTracker without knowing each aggregate's concrete TId.
 /// </summary>
 public interface IHasDomainEvents
 {
@@ -12,9 +12,9 @@ public interface IHasDomainEvents
 }
 
 /// <summary>
-/// Базовый класс для сущности-корня агрегата (ddd-model.md, "Общие соглашения":
-/// мутация только через корень агрегата). Собирает доменные события до момента,
-/// когда BuildingBlocks.Infrastructure опубликует их в рамках транзакции команды.
+/// Base class for an aggregate root entity (ddd-model.md, "General conventions": mutation
+/// only through the aggregate root). Collects domain events until BuildingBlocks.Infrastructure
+/// publishes them within the command's transaction.
 /// </summary>
 public abstract class AggregateRoot<TId> : IHasDomainEvents where TId : notnull
 {

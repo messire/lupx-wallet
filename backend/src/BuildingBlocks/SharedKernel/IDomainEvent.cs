@@ -1,9 +1,9 @@
 namespace LupexWallet.SharedKernel;
 
 /// <summary>
-/// Маркер доменного события (ddd-model.md, §6). Не зависит от MediatR — Domain-слой
-/// не должен знать о механизме доставки; обертку под MediatR.INotification строит
-/// BuildingBlocks.Infrastructure (см. DomainEventNotification&lt;T&gt;).
+/// Domain event marker (ddd-model.md, §6). Has no dependency on MediatR — the Domain
+/// layer must not know about the delivery mechanism; BuildingBlocks.Infrastructure builds
+/// the MediatR.INotification wrapper (see DomainEventNotification&lt;T&gt;).
 /// </summary>
 public interface IDomainEvent
 {

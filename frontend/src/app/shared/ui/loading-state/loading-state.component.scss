@@ -1,0 +1,16 @@
+:host {
+  display: block;
+}
+
+.app-loading-state__label {
+  display: block;
+  margin-bottom: var(--lw-space-3);
+  font-size: var(--lw-type-small);
+  color: var(--lw-text-secondary);
+}
+
+.app-loading-state__shapes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lw-space-3);
+}

@@ -1,13 +1,13 @@
 import { AbstractControl, ValidationErrors, ValidatorFn } from '@angular/forms';
 
 /**
- * Money (docs/api/openapi.yaml, схема Money) — ADR-0005: денежная сумма передается
- * строкой с точкой в качестве десятичного разделителя, произвольная точность.
+ * Money (docs/api/openapi.yaml, Money schema) — ADR-0005: a monetary amount is
+ * transferred as a string with a dot as the decimal separator, arbitrary precision.
  *
- * ВАЖНО: сумму нельзя приводить к JS `number` ни при вычислениях, ни при отображении —
- * это может незаметно потерять точность для сумм с большим числом знаков после запятой.
- * Единственные допустимые операции над `amount` в этом файле — строковые: валидация
- * форматом, парсинг ввода как строки и форматирование для отображения.
+ * IMPORTANT: the amount must never be converted to a JS `number`, neither for
+ * calculations nor for display — this can silently lose precision for amounts
+ * with many decimal digits. The only operations allowed on `amount` in this file
+ * are string-based: format validation, parsing user input, and display formatting.
  */
 export interface Money {
   amount: string;
@@ -16,34 +16,34 @@ export interface Money {
 
 const AMOUNT_PATTERN = /^-?\d+(\.\d+)?$/;
 
-/** true, если строка — валидная денежная сумма в формате контракта (ADR-0005). */
+/** True if the string is a valid monetary amount in the contract format (ADR-0005). */
 export function isValidAmount(value: string): boolean {
   return AMOUNT_PATTERN.test(value.trim());
 }
 
 /**
- * Нормализует пользовательский ввод суммы (обрезка пробелов, запятая как
- * десятичный разделитель — частая опечатка при вводе). Возвращает `null`,
- * если результат не является валидной суммой по ADR-0005.
+ * Normalizes user amount input (trims whitespace, treats a comma as the
+ * decimal separator — a common typo when typing). Returns `null` if the
+ * result is not a valid amount per ADR-0005.
  */
 export function parseAmountInput(raw: string): string | null {
   const normalized = raw.trim().replace(',', '.');
   return isValidAmount(normalized) ? normalized : null;
 }
 
-/** Reactive Forms валидатор суммы на основе {@link isValidAmount}. */
+/** Reactive Forms amount validator built on {@link isValidAmount}. */
 export const amountValidator: ValidatorFn = (control: AbstractControl): ValidationErrors | null => {
   const value = control.value;
   if (value === null || value === undefined || value === '') {
-    // Обязательность поля — забота Validators.required, этот валидатор только про формат.
+    // Required-ness is Validators.required's job; this validator only checks the format.
     return null;
   }
   return isValidAmount(String(value)) ? null : { amount: true };
 };
 
 /**
- * Форматирует денежную сумму для отображения (разделитель разрядов), не
- * приводя её к `number` — точность строки сохраняется как есть.
+ * Formats a monetary amount for display (thousands separators), without
+ * converting it to a `number` — the string's precision is preserved as-is.
  */
 export function formatAmount(amount: string): string {
   const negative = amount.startsWith('-');
@@ -54,7 +54,7 @@ export function formatAmount(amount: string): string {
   return decimalPart !== undefined ? `${sign}${withSeparators}.${decimalPart}` : `${sign}${withSeparators}`;
 }
 
-/** Форматирует {@link Money} целиком: сумма + опциональный код валюты. */
+/** Formats a whole {@link Money}: amount + optional currency code. */
 export function formatMoney(money: Money, currencyCode?: string): string {
   const formatted = formatAmount(money.amount);
   return currencyCode ? `${formatted} ${currencyCode}` : formatted;

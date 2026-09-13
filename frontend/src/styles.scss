@@ -1,23 +1,188 @@
-/* Общие дизайн-токены приложения (W0.2) — переиспользуются в layout/shell и
-   feature-компонентах вместо хардкода цветов/радиусов (см. wallets.component.scss). */
+/* Без этого сброса браузерный дефолт box-sizing: content-box заставляет любой
+   элемент с width:100% (или фиксированной шириной) + padding/border вылезать
+   за границы родителя ровно на сумму padding+border — именно так `.app-field__input`
+   (width:100%, padding 11px 14px, border 1px) физически перекрывал карточку формы
+   на 30px по всему приложению (Login, Wallets, Operations, Transfers и т.д.).
+   Это стандартный современный CSS-сброс, а не специфика UI kit. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Дизайн-токены приложения — источник: UI kit v0.2 (docs/design/tokens.css, docs/design/ui-kit.md),
+   утверждён пользователем 2026-09-13 и применён по всем экранам (ADR-0014). Значения --lw-*
+   перенесены из UI kit без изменений и остаются единственным источником цвета/радиуса —
+   временный alias-слой --color-* и --radius-* (нужный на время переноса компонентов)
+   выведен из употребления, как и предписывал ADR-0014, после того как перенос завершился. */
 :root {
-  --color-primary: #2f6fed;
-  --color-primary-contrast: #ffffff;
-  --color-secondary-bg: #eceef1;
-  --color-secondary-text: #333333;
-  --color-border: #d0d3d8;
-  --color-border-light: #e2e4e8;
-  --color-error: #c0392b;
-  --color-muted: #666666;
-  --color-muted-light: #888888;
-  --color-surface: #ffffff;
-  --color-surface-alt: #fafbfc;
-  --color-background: #f4f5f7;
-  --radius-sm: 8px;
-  --radius-md: 12px;
+  color-scheme: dark;
+
+  /* --- UI kit v0.2: палитра --- */
+  --lw-bg: #171b49;
+  --lw-surface: #242951;
+  --lw-surface-raised: #343966;
+  --lw-glass: rgba(29, 34, 79, .56);
+  --lw-glass-strong: rgba(25, 30, 69, .86);
+  --lw-field: rgba(17, 22, 60, .58);
+  --lw-text: #f5f1ff;
+  --lw-text-secondary: #e0dbf4;
+  --lw-text-muted: #c6c2e1;
+  --lw-accent: #d3c6ff;
+  --lw-accent-hover: #e5dcff;
+  --lw-accent-pressed: #bdaafa;
+  --lw-on-accent: #292344;
+  --lw-accent-secondary: #edbee8;
+  --lw-success: #b3ead6;
+  --lw-warning: #f3d9aa;
+  --lw-danger: #ffc2d6;
+  --lw-border: rgba(207, 199, 255, .24);
+  --lw-border-light: rgba(240, 212, 255, .65);
+  --lw-control-border: #b0a6d6;
+  --lw-accent-soft: rgba(195, 174, 255, .14);
+  --lw-disabled-bg: #36375e;
+  --lw-disabled-text: #b2abc9;
+  --lw-overlay: rgba(15, 17, 49, .72);
+  --lw-primary-fill: linear-gradient(110deg, #d3c6ff, #edbee8);
+  --lw-primary-hover: linear-gradient(110deg, #e5dcff, #f4d7f1);
+  --lw-panel-reflection: linear-gradient(125deg, rgba(231, 214, 255, .12), rgba(175, 183, 255, .035) 45%, rgba(240, 171, 229, .07));
+
+  /* --- Типографика --- */
+  --lw-font: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --lw-type-display: 40px;
+  --lw-type-page: 28px;
+  --lw-type-section: 22px;
+  --lw-type-body: 16px;
+  --lw-type-small: 14px;
+  --lw-type-badge: 12px;
+
+  /* --- Геометрия и эффекты --- */
+  --lw-space-1: 4px;
+  --lw-space-2: 8px;
+  --lw-space-3: 12px;
+  --lw-space-4: 16px;
+  --lw-space-6: 24px;
+  --lw-space-8: 32px;
+  --lw-space-12: 48px;
+  --lw-space-16: 64px;
+  --lw-radius-sm: 10px;
+  --lw-radius-md: 18px;
+  --lw-radius-lg: 24px;
+  --lw-control-height: 44px;
+  --lw-row-height: 56px;
+  --lw-sidebar-width: 224px;
+  --lw-content-width: 1280px;
+  --lw-blur: 24px;
+  --lw-shadow: 0 20px 60px rgba(13, 16, 53, .20), inset 0 1px 0 rgba(241, 216, 255, .26);
+  --lw-glow: 0 0 24px rgba(211, 183, 255, .20), 0 5px 18px rgba(237, 190, 232, .10);
+  --lw-motion-fast: 140ms;
+  --lw-motion-overlay: 180ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --lw-motion-fast: 0ms;
+    --lw-motion-overlay: 0ms;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --lw-glass: var(--lw-surface);
+    --lw-glass-strong: var(--lw-surface);
+    --lw-field: var(--lw-surface);
+    --lw-blur: 0px;
+    --lw-panel-reflection: none;
+  }
 }
 
 body {
   margin: 0;
-  font-family: sans-serif;
+  font-family: var(--lw-font);
+  background: var(--lw-bg);
+  color: var(--lw-text);
+}
+
+/* Общий page-shell (ui-kit §4 «Компоновка и адаптация») — единственное
+   определение вместо повторения в каждом экране. Desktop ≥1100px: контент до
+   --lw-content-width (1280px), внешние поля 32px; tablet 768–1099px: поля
+   24px; mobile <768px: поля 16px. Экраны используют `class="page"` и обычный
+   `<h1>` внутри; `wallets.component.scss` переопределяет заголовок под свою
+   BEM-разметку (`.page__header`/`.page__title`) локально. */
+.page {
+  max-width: var(--lw-content-width);
+  margin: 0 auto;
+  padding: var(--lw-space-8);
+}
+
+@media (max-width: 1099px) {
+  .page {
+    padding: var(--lw-space-8) var(--lw-space-6);
+  }
+}
+
+@media (max-width: 767px) {
+  .page {
+    padding: var(--lw-space-6) var(--lw-space-4);
+  }
+}
+
+.page > h1 {
+  margin: 0 0 var(--lw-space-6);
+  font-size: var(--lw-type-page);
+  font-weight: 400;
+  color: var(--lw-text);
+}
+
+/* Единая ширина панели формы (ui-kit §5 «Modal / панель формы»: «Простая форма —
+   до 560 px») — иначе внутри широкого .page (1280px) поля растягиваются на всю
+   ширину страницы. Один класс вместо разной случайной ширины в каждой форме
+   (Wallets/Operations/Transfers). */
+.form-card {
+  max-width: 560px;
+}
+
+/* Инлайн-текст ошибки формы/действия — не заменяет `app-field`'s error input
+   (используется для ошибок, не привязанных к одному полю, или вне форм);
+   `role="alert"` в разметке обязателен, единое определение вместо пяти копий. */
+.form-error {
+  margin: 0 0 var(--lw-space-3);
+  color: var(--lw-danger);
+  font-size: var(--lw-type-small);
+}
+
+.page-toast {
+  display: block;
+  margin: 0 0 var(--lw-space-6);
+}
+
+/* Общий стиль таблицы (ui-kit §5 «Таблица / строка списка») — единственное
+   определение вместо повторения в каждом feature-компоненте (Operations,
+   Transfers, BalanceHistory, ExchangeRates, ReferenceData, Audit). Экраны
+   добавляют свой класс рядом (`class="app-table operations-table"`) только
+   для столбцов, специфичных для конкретной таблицы (amount-col и т.п.). */
+.app-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--lw-glass-strong);
+  border-radius: var(--lw-radius-sm);
+
+  th,
+  td {
+    height: var(--lw-row-height);
+    padding: 0 var(--lw-space-4);
+    text-align: left;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--lw-border);
+    font-size: var(--lw-type-small);
+  }
+
+  th {
+    color: var(--lw-text-muted);
+    font-weight: 500;
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
 }

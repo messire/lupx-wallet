@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Кошельки — Lupex Wallet · UI kit v0.3</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="wallets.css">
+  <script src="wallets.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Перейти к кошелькам</a>
+  <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="wallet" viewBox="0 0 24 24"><path d="M20 8V5a2 2 0 0 0-2-2H5a3 3 0 0 0 0 6h16v11H5a3 3 0 0 1-3-3V6m19 7h-6v4h6"/></symbol>
+    <symbol id="list" viewBox="0 0 24 24"><path d="M8 5h13M8 12h13M8 19h13M3 5h.01M3 12h.01M3 19h.01"/></symbol>
+    <symbol id="transfer" viewBox="0 0 24 24"><path d="M3 7h17l-4-4m5 14H4l4 4M20 7l-4 4M4 17l4-4"/></symbol>
+    <symbol id="history" viewBox="0 0 24 24"><path d="M4 20V9m8 11V3m8 17V13"/></symbol>
+    <symbol id="rates" viewBox="0 0 24 24"><path d="m2 17 6-9 6 6 8-11"/></symbol>
+    <symbol id="report" viewBox="0 0 24 24"><path d="M5 2h10l5 5v15H5zM14 2v6h6M9 12h7M9 16h7"/></symbol>
+    <symbol id="book" viewBox="0 0 24 24"><path d="M12 5C8 2 4 3 2 4v16c4-2 7-1 10 1 3-2 6-3 10-1V4c-2-1-6-2-10 1v16"/></symbol>
+    <symbol id="audit" viewBox="0 0 24 24"><path d="m12 2 9 4v6c0 5-5 8-9 10-4-2-9-5-9-10V6zM8 12l3 3 5-6"/></symbol>
+    <symbol id="exit" viewBox="0 0 24 24"><path d="M10 3h10v18H10M3 12h12m-4-4 4 4-4 4"/></symbol>
+    <symbol id="home" viewBox="0 0 24 24"><path d="m3 10 9-8 9 8v12H3z"/></symbol>
+    <symbol id="menu" viewBox="0 0 24 24"><path d="M3 5h18M3 12h18M3 19h18"/></symbol>
+  </svg>
+  <div class="app-shell">
+    <aside class="sidebar" id="navigation">
+      <a class="wordmark" href="wallets.html">Lupex Wallet</a>
+      <nav aria-label="Разделы приложения">
+        <a class="nav-item current" href="#main" aria-current="page"><svg><use href="#wallet"/></svg>Кошельки</a>
+        <a class="nav-item" href="operations.html"><svg><use href="#list"/></svg>Операции</a>
+        <button class="nav-item" data-preview="Переводы"><svg><use href="#transfer"/></svg>Переводы</button>
+        <button class="nav-item" data-preview="История баланса"><svg><use href="#history"/></svg>История баланса</button>
+        <button class="nav-item" data-preview="Курсы валют"><svg><use href="#rates"/></svg>Курсы валют</button>
+        <button class="nav-item" data-preview="Отчёт"><svg><use href="#report"/></svg>Отчёт</button>
+        <button class="nav-item" data-preview="Справочники"><svg><use href="#book"/></svg>Справочники</button>
+        <button class="nav-item" data-preview="Аудит"><svg><use href="#audit"/></svg>Аудит</button>
+      </nav>
+      <button class="nav-item sign-out" data-preview="Выйти"><svg><use href="#exit"/></svg>Выйти</button>
+    </aside>
+    <div class="workspace">
+      <header class="topbar">
+        <button class="menu-toggle" aria-expanded="false" aria-controls="navigation"><svg><use href="#menu"/></svg><span>Меню</span></button>
+        <span class="context"><svg><use href="#home"/></svg>Личные финансы</span>
+      </header>
+      <main id="main" tabindex="-1">
+        <div class="page-heading"><h1>Кошельки</h1><a class="primary action" href="wallet-form.html"><span aria-hidden="true">＋</span>Создать кошелёк</a></div>
+        <section class="glass summary" aria-labelledby="balance-label">
+          <h2 id="balance-label">Общий баланс</h2>
+          <p class="balance" id="total-balance">12 480,50 €</p>
+          <p class="metadata" id="balance-note">3 кошелька · Все суммы в EUR</p>
+        </section>
+        <section class="wallets-section" aria-labelledby="wallets-heading">
+          <div class="section-heading">
+            <h2 id="wallets-heading">Мои кошельки</h2>
+            <div class="tabs" role="tablist" aria-label="Статус кошельков">
+              <button id="active-tab" role="tab" aria-selected="true" aria-controls="wallet-panel" tabindex="0" data-status="active">Активные</button>
+              <button id="archive-tab" role="tab" aria-selected="false" aria-controls="wallet-panel" tabindex="-1" data-status="archive">Архив</button>
+            </div>
+          </div>
+          <div id="wallet-panel" role="tabpanel" aria-labelledby="active-tab" tabindex="0">
+            <div class="wallet-grid" id="wallet-grid">
+              <article class="glass wallet-card" data-wallet="Ежедневные расходы">
+                <div class="wallet-topline"><details class="wallet-menu"><summary aria-label="Действия: Ежедневные расходы">···</summary><div class="menu-popover"><a href="wallet-form.html?mode=primary&amp;wallet=daily">Редактировать</a><a href="operations.html?wallet=daily">Операции</a></div></details></div>
+                <h3>Ежедневные расходы</h3><div class="wallet-metadata"><p class="metadata">EUR · Личный кошелёк</p><span class="badge">Основной</span></div><p class="balance">2 480,50 €</p><a class="text-action" href="operations.html?wallet=daily">Операции <span aria-hidden="true">↗</span></a>
+              </article>
+              <article class="glass wallet-card" data-wallet="Накопления">
+                <div class="wallet-topline"><details class="wallet-menu"><summary aria-label="Действия: Накопления">···</summary><div class="menu-popover"><a href="wallet-form.html?mode=edit&amp;wallet=savings">Редактировать</a><a href="operations.html?wallet=savings">Операции</a></div></details></div>
+                <h3>Накопления</h3><p class="metadata">EUR · Сбережения</p><p class="balance">8 000,00 €</p><a class="text-action" href="operations.html?wallet=savings">Операции <span aria-hidden="true">↗</span></a>
+              </article>
+              <article class="glass wallet-card" data-wallet="Путешествия">
+                <div class="wallet-topline"><details class="wallet-menu"><summary aria-label="Действия: Путешествия">···</summary><div class="menu-popover"><a href="wallet-form.html?mode=edit&amp;wallet=travel">Редактировать</a><a href="operations.html?wallet=travel">Операции</a></div></details></div>
+                <h3>Путешествия</h3><p class="metadata">EUR · Личный кошелёк</p><p class="balance">2 000,00 €</p><a class="text-action" href="operations.html?wallet=travel">Операции <span aria-hidden="true">↗</span></a>
+              </article>
+            </div>
+            <div class="glass state-panel" id="wallet-state" hidden><p id="state-title"></p><p class="metadata" id="state-description"></p><button class="secondary" id="retry" hidden>Повторить</button></div>
+          </div>
+        </section>
+        <section class="transactions" id="recent" aria-labelledby="recent-heading">
+          <div class="section-heading"><h2 id="recent-heading">Последние операции</h2><a class="text-action" href="operations.html" id="all-operations">Все операции <span aria-hidden="true">↗</span></a></div>
+          <p id="filter-note" class="metadata" hidden></p>
+          <div class="table-scroll" role="region" aria-label="Последние операции, таблица с горизонтальной прокруткой" tabindex="0">
+            <table><caption class="sr-only">Последние операции по кошелькам в EUR</caption><thead><tr><th scope="col">Операция</th><th scope="col">Кошелёк</th><th scope="col">Дата</th><th scope="col" class="amount">Сумма</th></tr></thead>
+              <tbody>
+                <tr data-wallet="Накопления"><td>Пополнение <span class="metadata">· Доход</span></td><td>Накопления</td><td><time datetime="2026-09-13">13.09.2026</time></td><td class="amount positive">+1 200,00 €</td></tr>
+                <tr data-wallet="Ежедневные расходы"><td>Продукты <span class="metadata">· Расход</span></td><td>Ежедневные расходы</td><td><time datetime="2026-09-13">13.09.2026</time></td><td class="amount negative">−64,80 €</td></tr>
+                <tr data-wallet="Ежедневные расходы"><td>Кофе <span class="metadata">· Расход</span></td><td>Ежедневные расходы</td><td><time datetime="2026-09-12">12.09.2026</time></td><td class="amount negative">−4,50 €</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p id="no-transactions" class="metadata" hidden>Операций пока нет.</p>
+        </section>
+      </main>
+      <footer class="review-tools">
+        <details><summary>Проверка макета</summary><div class="review-controls">
+          <p>Автономный образец на вымышленных данных. Изменения не сохраняются. «Создать», «Редактировать» и «Операции» открывают связанные экранные макеты.</p>
+          <label for="sample-state">Состояние экрана</label><select id="sample-state"><option value="default">Обычное</option><option value="empty">Нет кошельков</option><option value="loading">Загрузка</option><option value="error">Ошибка загрузки</option><option value="long">Длинные названия и суммы</option></select>
+          <p><a href="ui-kit.md">UI kit v0.3</a> · <a href="assets/wallets-reference-v0.3.png">Выбранная картинка</a> · <a href="wallet-form.html">Форма кошелька</a> · <a href="operations.html">Операции</a> · <a href="preview.html">Компоненты</a> · <a href="README.md">Передача в разработку</a></p>
+        </div></details>
+      </footer>
+    </div>
+  </div>
+  <dialog id="screen-note" aria-labelledby="screen-note-title"><h2 id="screen-note-title"></h2><p>Этот раздел показан в навигации. Его отдельный экран ещё не подготовлен в макете.</p><form method="dialog"><button class="secondary" autofocus>Закрыть</button></form></dialog>
+  <p class="sr-only" id="announcement" role="status" aria-live="polite"></p>
+</body>
+</html>

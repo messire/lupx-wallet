@@ -1,0 +1,124 @@
+<div class="page">
+  <h1>История баланса</h1>
+
+  <app-card class="wallet-picker">
+    <app-field label="Кошелек">
+      <select appFieldControl id="walletId" [formControl]="walletForm.controls.walletId">
+        <option value="">— выберите кошелек —</option>
+        @for (wallet of wallets(); track wallet.id) {
+          <option [value]="wallet.id">{{ wallet.name }}</option>
+        }
+      </select>
+    </app-field>
+  </app-card>
+
+  @if (selectedWallet(); as wallet) {
+    <p class="hint">
+      Дата начала учёта кошелька «{{ wallet.name }}»: <strong>{{ wallet.accountingStartDate }}</strong>.
+      Баланс до этой даты считается равным 0 — операции и история баланса раньше начала учёта не ведутся.
+    </p>
+
+    <app-card class="section">
+      <h2>Баланс на дату</h2>
+      <form class="inline-form" [formGroup]="balanceDateForm" (ngSubmit)="showBalanceOnDate()">
+        <app-field label="Дата" hint="Пусто — текущий баланс">
+          <input appFieldControl type="date" formControlName="date" />
+        </app-field>
+        <app-button type="submit" variant="secondary" class="app-field-align" [loading]="balanceLoading()" loadingText="Загрузка…">
+          Показать
+        </app-button>
+      </form>
+
+      @if (balanceLoading()) {
+        <app-loading-state label="Загрузка…">
+          <app-skeleton width="240px" height="24px" />
+        </app-loading-state>
+      } @else if (balanceError(); as error) {
+        <app-error-state [message]="error" (retry)="showBalanceOnDate()" />
+      } @else if (balanceSnapshot(); as snapshot) {
+        <p class="balance-result">
+          Баланс на {{ snapshot.date }}:
+          <strong class="money">{{ formatMoney(snapshot.balance, currencyCode(wallet.currencyId)) }}</strong>
+          @if (isBeforeAccountingStart(snapshot.date)) {
+            <app-badge tone="neutral">до начала учёта</app-badge>
+          }
+        </p>
+      }
+    </app-card>
+
+    <app-card class="section">
+      <h2>История за период</h2>
+      <form class="inline-form" [formGroup]="rangeForm" (ngSubmit)="showHistory()">
+        <app-field label="С даты">
+          <input appFieldControl type="date" formControlName="from" />
+        </app-field>
+        <app-field label="По дату">
+          <input appFieldControl type="date" formControlName="to" />
+        </app-field>
+        <app-button type="submit" variant="secondary" class="app-field-align" [loading]="historyLoading()" loadingText="Загрузка…">
+          Показать историю
+        </app-button>
+      </form>
+
+      @if (rangeValidationError(); as error) {
+        <p class="form-error" role="alert">{{ error }}</p>
+      } @else if (historyLoadError(); as error) {
+        <app-error-state [message]="error" (retry)="showHistory()" />
+      }
+
+      @if (historyLoading() && history().length === 0) {
+        <app-loading-state label="Загрузка…">
+          <app-skeleton height="40px" />
+          <app-skeleton height="40px" />
+          <app-skeleton height="40px" />
+        </app-loading-state>
+      } @else if (history().length > 0) {
+        <div
+          class="table-scroll"
+          role="region"
+          tabindex="0"
+          [attr.aria-label]="'История баланса кошелька «' + wallet.name + '»'"
+        >
+          <table class="app-table history-table">
+            <thead>
+              <tr>
+                <th>Дата</th>
+                <th class="amount-col">Баланс</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (snapshot of history(); track snapshot.date) {
+                <tr>
+                  <td>{{ snapshot.date }}</td>
+                  <td class="amount-col money">{{ formatMoney(snapshot.balance, currencyCode(wallet.currencyId)) }}</td>
+                  <td>
+                    @if (isBeforeAccountingStart(snapshot.date)) {
+                      <app-badge tone="neutral">до начала учёта</app-badge>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        @if (hasMore()) {
+          <app-button
+            class="load-more"
+            variant="secondary"
+            [loading]="historyLoading()"
+            loadingText="Загрузка…"
+            (click)="loadMoreHistory()"
+          >
+            Загрузить ещё
+          </app-button>
+        }
+      } @else if (!historyLoading() && !rangeValidationError() && !historyLoadError()) {
+        <app-empty-state title="Истории пока нет" description="Укажите диапазон дат и нажмите «Показать историю»." />
+      }
+    </app-card>
+  } @else {
+    <app-empty-state title="Выберите кошелек" description="Чтобы увидеть баланс и историю, выберите кошелек выше." />
+  }
+</div>

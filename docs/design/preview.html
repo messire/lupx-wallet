@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LupexWallet · UI kit v0.2</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="preview.css">
+</head>
+<body>
+<a href="#content" class="skip">К содержимому</a>
+<header class="kit-header">
+  <div class="brand">Lupex<span>Wallet</span> <span class="small">/ UI kit 0.2</span></div>
+  <nav class="kit-nav" aria-label="Разделы UI kit">
+    <a href="#foundations" aria-current="location">Направление</a><a href="#wallets">Форма и карточка</a><a href="#controls">Компоненты</a><a href="#transactions">Данные</a>
+  </nav>
+</header>
+<main id="content">
+  <header id="foundations" class="hero">
+    <div class="hero-copy">
+      <span class="eyebrow">INDIGO / GLASS / LIGHT</span>
+      <h1>Прозрачность в цвете света.</h1>
+    </div>
+    <div class="panel login-demo" aria-label="Демонстрация формы входа">
+      <div class="brand">Lupex<span>Wallet</span></div>
+      <h2>Добро пожаловать</h2>
+      <p class="small">Ваши финансы в одном пространстве.</p>
+      <div class="field"><label for="login-password">Пароль приложения</label><input id="login-password" type="password" placeholder="Введите пароль" autocomplete="off" aria-describedby="login-note"></div>
+      <button class="primary" type="button" data-feedback="Это образец оформления. Вход в приложение здесь не выполняется.">Войти</button>
+      <p id="login-note" class="login-footnote">Образец формы · без подключения к API</p>
+    </div>
+  </header>
+  <div class="reference-note">
+    <a href="assets/visual-reference.png" aria-label="Открыть исходный визуальный референс"><img src="assets/visual-reference.png" width="1332" height="753" style="height:auto" alt="Исходный референс: прозрачная терраса, сине-фиолетовый городской пейзаж и розовые отражения"></a>
+    <div><h3>Исходный референс → материал интерфейса</h3><p>Изображение сохранено без изменений. Выше — форма на его фоне; ниже — карточка и поля в том же освещении. В таблицах фон плотнее, но сохраняет оттенок индиго.</p><p><a href="ui-kit.md">Спецификация v0.2</a> · <a href="tokens.css">Токены</a> · Все данные в витрине вымышлены.</p></div>
+  </div>
+  <section id="wallets"><h2>01 / Карточка и форма в одном пространстве</h2>
+    <div class="specimen-stage"><div class="grid">
+      <article class="panel wallet-preview">
+        <div class="row spread"><h3>Ежедневные расходы</h3><span class="badge accent">Основной</span></div>
+        <p class="small">Личный кошелёк · EUR</p>
+        <div class="balance">2 480,50 <span class="currency-code">EUR</span></div>
+        <p class="small">Текущий баланс</p>
+        <div class="row wallet-actions"><button data-feedback="Образец действия: открыть операции кошелька">Операции</button><button class="ghost" data-feedback="Образец действия: редактировать кошелёк">Редактировать</button></div>
+      </article>
+      <div class="panel"><h3>Новый кошелёк</h3><p class="small">Образец оформления части формы</p>
+        <div class="field"><label for="sample-wallet">Название</label><input id="sample-wallet" value="Накопления" autocomplete="off"></div>
+        <div class="field"><label for="sample-currency">Валюта</label><select id="sample-currency"><option>EUR — евро</option><option>USD — доллар США</option><option>RSD — сербский динар</option></select></div>
+        <div class="row"><button class="primary" data-feedback="Образец оформления. Кошелёк не создаётся.">Создать кошелёк</button><button class="ghost" data-feedback="Демонстрация: действие отменено">Отмена</button></div>
+      </div>
+    </div></div>
+    <p class="sample-note">Стекло пропускает цвет сцены. Световой край тонкий; затемнение сосредоточено под текстом и полями.</p>
+  </section>
+  <section aria-labelledby="palette-title"><h2 id="palette-title">02 / Палитра и свет</h2>
+    <div class="swatches">
+      <div class="swatch" style="--sample:var(--lw-bg)"><i></i><span>Фон<br>#171B49</span></div>
+      <div class="swatch" style="--sample:var(--lw-surface)"><i></i><span>Поверхность<br>#242951</span></div>
+      <div class="swatch" style="--sample:var(--lw-accent)"><i></i><span>Действие<br>#D3C6FF</span></div>
+      <div class="swatch" style="--sample:var(--lw-accent-secondary)"><i></i><span>Отражение<br>#EDBEE8</span></div>
+      <div class="swatch" style="--sample:var(--lw-success)"><i></i><span>Доход<br>#B3EAD6</span></div>
+      <div class="swatch" style="--sample:var(--lw-danger)"><i></i><span>Ошибка / расход<br>#FFC2D6</span></div>
+    </div>
+  </section>
+  <section id="controls"><h2>03 / Компоненты и состояния</h2><div class="grid">
+    <div class="panel glass"><h3>Действия</h3><p class="small">Один яркий акцент в группе.</p>
+      <div class="row"><button class="primary" data-feedback="Демонстрация: кошелёк сохранён">Сохранить</button><button data-feedback="Демонстрация: действие отменено">Отмена</button><button class="ghost" data-feedback="Демонстрация второстепенного действия">Подробнее</button></div>
+      <div class="state-label">Опасное действие · открывает пример диалога</div><button class="danger" id="open-dialog">Удалить кошелёк</button>
+      <div class="state-label">Disabled · loading · образец focus</div><div class="row"><button disabled>Недоступно</button><button disabled>Сохранение…</button><button class="focus-demo" data-feedback="Образец видимого фокуса">Фокус</button></div>
+      <p class="helper">«Недоступно» — демонстрация состояния. Загрузка здесь статична.</p>
+      <div class="state-label">Статусы</div><div class="row"><span class="badge accent">Основной</span><span class="badge">Архивный</span><span class="badge positive">Доход</span></div>
+    </div>
+    <div class="panel"><div class="field"><label for="wallet-name">Название кошелька</label><input id="wallet-name" value="Ежедневные расходы" autocomplete="off"></div>
+      <div class="field"><label for="currency">Валюта</label><select id="currency"><option>EUR — евро</option><option>USD — доллар США</option><option>RSD — сербский динар</option></select></div>
+      <div class="field"><label for="amount">Сумма · пример ошибки</label><input id="amount" value="12,3,4" aria-invalid="true" aria-describedby="amount-error"><div id="amount-error" class="helper error">Введите сумму с одним десятичным разделителем.</div></div>
+      <label class="check"><input type="checkbox" checked>Учитывать в общем балансе</label>
+    </div>
+  </div></section>
+
+  <section id="transactions"><h2>04 / Таблица операций</h2><div class="table-wrap" tabindex="0" role="region" aria-label="Пример таблицы операций, можно прокручивать горизонтально"><table><caption>Демонстрационные операции · сентябрь 2026</caption><thead><tr><th scope="col">Дата</th><th scope="col">Операция</th><th scope="col">Тип</th><th scope="col" class="amount">Сумма</th></tr></thead><tbody>
+    <tr><td>13.09.2026</td><td>Пополнение кошелька</td><td>Доход</td><td class="amount positive">+1 200,00 EUR</td></tr>
+    <tr><td>12.09.2026</td><td>Продукты</td><td>Расход</td><td class="amount negative">−64,80 EUR</td></tr>
+    <tr><td>11.09.2026</td><td>Расходы → Накопления</td><td>Перевод</td><td class="amount">250,00 EUR</td></tr>
+  </tbody></table></div></section>
+  <section id="states"><h2>05 / Вкладки и состояния</h2><div class="grid">
+    <div class="panel"><div class="tabs" role="tablist" aria-label="Примеры состояний"><button id="tab-empty" role="tab" aria-selected="true" aria-controls="panel-empty">Пусто</button><button id="tab-loading" role="tab" tabindex="-1" aria-selected="false" aria-controls="panel-loading">Загрузка</button></div>
+      <div id="panel-empty" role="tabpanel" aria-labelledby="tab-empty" tabindex="0"><div class="empty"><h3>Кошельков пока нет</h3><p class="small">Создайте первый кошелёк,<br>чтобы начать учёт.</p><button class="primary" data-feedback="Образец действия: открыть создание кошелька">Создать кошелёк</button></div></div>
+      <div id="panel-loading" role="tabpanel" aria-labelledby="tab-loading" tabindex="0" hidden><p class="small">Загрузка кошельков…</p><div aria-hidden="true"><div class="skeleton"></div><div class="skeleton" style="width:50%;height:28px"></div><div class="skeleton" style="width:65%"></div></div></div>
+    </div>
+    <div class="panel"><h3>Сообщения</h3><div class="banner">Нет соединения. Обновить данные сейчас не удалось.</div><p class="error" style="margin-top:24px">Не удалось загрузить операции.</p><button data-feedback="Демонстрация: повторная попытка загрузки">Повторить</button><p class="helper">Ошибка не скрывает введённые значения. Неизвестный баланс не заменяется нулём.</p></div>
+  </div></section>
+  <section id="chart"><h2>06 / История баланса</h2><div class="panel"><div class="row spread"><h3>Демонстрационный ряд · EUR</h3><span class="small">09–13 сентября 2026</span></div>
+    <svg class="chart" viewBox="0 0 700 190" role="img" aria-labelledby="chart-title chart-desc"><title id="chart-title">Образец стиля графика баланса</title><desc id="chart-desc">Вымышленные значения: 1800, 2050, 1960, 2300 и 2480,50 EUR. Все значения доступны в таблице ниже.</desc><g stroke="var(--lw-border)" stroke-width="1"><path d="M65 30H680 M65 85H680 M65 140H680"/></g><g fill="var(--lw-text-muted)" font-size="12"><text x="0" y="34">2 500</text><text x="0" y="89">2 000</text><text x="0" y="144">1 500</text><text x="65" y="178">09 сен</text><text x="350" y="178">11 сен</text><text x="630" y="178">13 сен</text></g><path d="M65 107L219 79.5L373 89.4L526 52L680 32.15" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+    <details><summary>Показать значения графика</summary><div class="table-wrap"><table><thead><tr><th scope="col">Дата</th><th scope="col" class="amount">Баланс</th></tr></thead><tbody><tr><td>09.09.2026</td><td class="amount">1 800,00 EUR</td></tr><tr><td>10.09.2026</td><td class="amount">2 050,00 EUR</td></tr><tr><td>11.09.2026</td><td class="amount">1 960,00 EUR</td></tr><tr><td>12.09.2026</td><td class="amount">2 300,00 EUR</td></tr><tr><td>13.09.2026</td><td class="amount">2 480,50 EUR</td></tr></tbody></table></div></details>
+  </div></section>
+  <footer class="small" style="margin-top:48px">v0.2 · Переработано по приложенному референсу. Точные параметры — для согласования. Это витрина компонентов, не готовый экран приложения. <a href="ui-kit.md">Правила и следующий этап</a></footer>
+</main>
+<dialog id="confirm-dialog" aria-labelledby="dialog-title" aria-describedby="dialog-description"><h2 id="dialog-title">Удалить «Тестовый кошелёк»?</h2><p id="dialog-description">Пример подтверждения для пустого кошелька без истории. В витрине реальные данные не изменяются.</p><form method="dialog" class="row" style="margin-top:24px"><button value="cancel" autofocus>Отмена</button><button value="delete" class="danger">Удалить</button></form></dialog>
+<div class="toast" role="status" aria-live="polite" id="feedback"></div>
+<script>
+  const feedback = document.querySelector('#feedback');
+  let feedbackTimer;
+  function notify(message) { clearTimeout(feedbackTimer); feedback.textContent = message; feedbackTimer = setTimeout(() => { feedback.textContent = ''; }, 6000); }
+  document.querySelectorAll('[data-feedback]').forEach(button => button.addEventListener('click', () => notify(button.dataset.feedback)));
+  const dialog = document.querySelector('#confirm-dialog');
+  const opener = document.querySelector('#open-dialog');
+  opener.addEventListener('click', () => dialog.showModal());
+  dialog.addEventListener('close', () => { opener.focus(); if (dialog.returnValue === 'delete') notify('Демонстрация завершена. Реальные данные не изменены.'); dialog.returnValue = ''; });
+  const tabs = [...document.querySelectorAll('[role=tab]')];
+  function selectTab(tab) { tabs.forEach(item => { const active = item === tab; item.setAttribute('aria-selected', String(active)); item.tabIndex = active ? 0 : -1; document.getElementById(item.getAttribute('aria-controls')).hidden = !active; }); }
+  tabs.forEach((tab, index) => { tab.addEventListener('click', () => selectTab(tab)); tab.addEventListener('keydown', event => { let next; if (event.key === 'ArrowRight') next = (index + 1) % tabs.length; else if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length; else if (event.key === 'Home') next = 0; else if (event.key === 'End') next = tabs.length - 1; else return; event.preventDefault(); selectTab(tabs[next]); tabs[next].focus(); }); });
+  document.querySelectorAll('.kit-nav a').forEach(link => link.addEventListener('click', () => { document.querySelectorAll('.kit-nav a').forEach(item => item.removeAttribute('aria-current')); link.setAttribute('aria-current', 'location'); }));
+</script>
+</body>
+</html>

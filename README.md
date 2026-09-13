@@ -5,6 +5,7 @@
 ## Структура репозитория
 
 - [docs/](docs/) — требования, архитектура (DDD-модель, ADR), схема БД, OpenAPI-контракт
+- [UI kit v0.2](docs/design/ui-kit.md) — визуальные правила по сохранённому референсу, компоненты и [HTML-витрина](docs/design/preview.html)
 - [backend/](backend/) — .NET backend, инструкции запуска и тестов — [backend/README.md](backend/README.md)
 - [frontend/](frontend/) — Angular SPA, инструкции запуска и тестов — [frontend/README.md](frontend/README.md)
 

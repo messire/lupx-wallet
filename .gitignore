@@ -8,11 +8,13 @@ obj/
 frontend/node_modules/
 frontend/dist/
 frontend/.angular/
+.angular/
 npm-debug.log*
 
 # IDE
 .vs/
 .vscode/
+.idea/
 *.swp
 
 # OS
@@ -22,3 +24,6 @@ Thumbs.db
 # Secrets — не должны попадать в репозиторий
 appsettings.Production.json
 *.pfx
+
+# Claude Code — эфемерное состояние оркестрации (не артефакт проекта, см. CLAUDE.md "РЕЖИМ ОРКЕСТРАЦИИ")
+.claude/pipeline-state.json

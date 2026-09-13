@@ -121,21 +121,33 @@ CREATE TABLE operations.transfers (
 );
 
 CREATE TABLE operations.operations (
-    id                 uuid PRIMARY KEY,
-    wallet_id          uuid         NOT NULL,  -- wallets.wallets.id, без FK
-    operation_type_id  uuid         NOT NULL,  -- reference_data.operation_types.id, без FK
-    amount             numeric      NOT NULL,
-    currency_id        uuid         NOT NULL,  -- reference_data.currencies.id, без FK; должна совпадать с currency_id кошелька (проверка в приложении)
-    operation_date     date         NOT NULL,
-    adjustment_mode    varchar(16)  CHECK (adjustment_mode IN ('Absolute', 'Delta')),
-    transfer_id        uuid         REFERENCES operations.transfers(id),
-    created_at         timestamptz  NOT NULL DEFAULT now(),
-    updated_at         timestamptz  NOT NULL DEFAULT now()
+    id                     uuid PRIMARY KEY,
+    wallet_id              uuid         NOT NULL,  -- wallets.wallets.id, без FK
+    operation_type_id      uuid         NOT NULL,  -- reference_data.operation_types.id, без FK
+    amount                 numeric      NOT NULL,
+    applied_delta_amount   numeric      NOT NULL,  -- фактически применённая к балансу кошелька знаковая дельта — см. ниже
+    currency_id            uuid         NOT NULL,  -- reference_data.currencies.id, без FK; должна совпадать с currency_id кошелька (проверка в приложении)
+    operation_date         date         NOT NULL,
+    adjustment_mode        varchar(16)  CHECK (adjustment_mode IN ('Absolute', 'Delta') OR adjustment_mode IS NULL),
+    transfer_id            uuid,        -- FK добавлена ниже как DEFERRABLE (взаимная ссылка с transfers)
+    created_at              timestamptz  NOT NULL DEFAULT now(),
+    updated_at              timestamptz  NOT NULL DEFAULT now()
 );
 
+-- Циклическая зависимость operations.transfer_id <-> transfers.source/target_operation_id
+-- (Transfer и обе его Operation создаются в одной транзакции, ссылаясь друг на друга) —
+-- решена через DEFERRABLE INITIALLY DEFERRED: ограничения проверяются только при COMMIT
+-- транзакции, поэтому порядок вставки трёх строк внутри неё не имеет значения (не нужен
+-- отдельный проход "вставить с NULL -> обновить").
+ALTER TABLE operations.operations
+    ADD CONSTRAINT fk_operations_transfer FOREIGN KEY (transfer_id) REFERENCES operations.transfers(id)
+        DEFERRABLE INITIALLY DEFERRED;
+
 ALTER TABLE operations.transfers
-    ADD CONSTRAINT fk_transfers_source_operation FOREIGN KEY (source_operation_id) REFERENCES operations.operations(id),
-    ADD CONSTRAINT fk_transfers_target_operation FOREIGN KEY (target_operation_id) REFERENCES operations.operations(id),
+    ADD CONSTRAINT fk_transfers_source_operation FOREIGN KEY (source_operation_id) REFERENCES operations.operations(id)
+        DEFERRABLE INITIALLY DEFERRED,
+    ADD CONSTRAINT fk_transfers_target_operation FOREIGN KEY (target_operation_id) REFERENCES operations.operations(id)
+        DEFERRABLE INITIALLY DEFERRED,
     ADD CONSTRAINT uq_transfers_source_operation UNIQUE (source_operation_id),
     ADD CONSTRAINT uq_transfers_target_operation UNIQUE (target_operation_id);
 
@@ -144,7 +156,7 @@ CREATE INDEX ix_operations_operation_type ON operations.operations (operation_ty
 CREATE INDEX ix_operations_transfer ON operations.operations (transfer_id) WHERE transfer_id IS NOT NULL;
 ```
 
-**Порядок вставки перевода** (в одной транзакции, см. `high-level-architecture.md` §4): сначала обе `operations.operations` (`transfer_id = NULL`), затем `operations.transfers` со ссылками на их Id, затем `UPDATE operations.operations SET transfer_id = ...` для обеих строк. Это снимает потребность во взаимном FK «в момент вставки» без отложенных (`DEFERRABLE`) ограничений.
+**Про `applied_delta_amount`.** Добавлена при реализации среза Operations (не было в первой версии схемы) — хранит фактически применённую к `wallets.current_balance_amount` знаковую дельту, отдельно от пользовательского ввода (`amount` + `adjustment_mode`). Нужна, чтобы `UpdateOperation`/`DeleteOperation` могли корректно отменить именно тот эффект, который был применён ранее — особенно для `Adjustment`/`Absolute`, где применённая дельта зависела от баланса кошелька в момент применения и невыводима заново из одного `amount`. Подробности — `Operations.Domain.Operation` и `Operations.Application.OperationEffectCalculator`.
 
 **Про `operations.amount` без CHECK на знак.** Сознательно не ограничен на уровне БД (в отличие от `transfers.amount > 0`): направление влияния на баланс (прибавить/вычесть) для Income/Expense/Transfer определяется через `operation_type_id → behavior_kind_id`, лежащий в другой схеме (`reference_data`) — проверка знака требовала бы либо кросс-схемной ссылки (запрещено ADR-0006), либо триггера с кросс-схемным запросом (хрупко). Для `Adjustment` со значением `Delta` сумма может быть отрицательной по смыслу (уменьшение баланса), поэтому единый CHECK на положительность был бы и технически проблематичным, и семантически неверным. Валидация знака/направления суммы выполняется в Domain-слое модуля `Operations` в момент создания/редактирования операции.
 

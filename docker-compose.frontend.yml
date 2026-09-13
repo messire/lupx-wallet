@@ -1,0 +1,11 @@
+services:
+  frontend:
+    container_name: lupex-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - '4200:4200'

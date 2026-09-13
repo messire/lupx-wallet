@@ -1,0 +1,36 @@
+<div class="currency-select">
+  <input
+    type="text"
+    role="combobox"
+    autocomplete="off"
+    [attr.aria-expanded]="isOpen()"
+    [attr.aria-controls]="listboxId"
+    [attr.aria-activedescendant]="activeOptionId()"
+    aria-autocomplete="list"
+    [placeholder]="placeholder()"
+    [value]="inputValue()"
+    [disabled]="disabled()"
+    (focus)="onFocus()"
+    (input)="onInput($any($event.target).value)"
+    (keydown)="onKeydown($event)"
+  />
+
+  @if (isOpen()) {
+    <ul class="options" [id]="listboxId" role="listbox">
+      @if (filteredCurrencies().length === 0) {
+        <li class="empty">Ничего не найдено</li>
+      }
+      @for (currency of filteredCurrencies(); track currency.code; let i = $index) {
+        <li
+          [id]="listboxId + '-option-' + i"
+          role="option"
+          [attr.aria-selected]="i === highlightedIndex()"
+          [class.highlighted]="i === highlightedIndex()"
+          (mousedown)="selectAt(i)"
+        >
+          {{ currency.code }} — {{ currency.name }}
+        </li>
+      }
+    </ul>
+  }
+</div>

@@ -6,7 +6,9 @@
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "check:boundaries": "node scripts/check-feature-boundaries.mjs",
+    "build:deploy": "node scripts/write-env.mjs && ng build"
   },
   "private": true,
   "packageManager": "npm@11.15.0",

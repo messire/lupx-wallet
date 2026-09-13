@@ -1,0 +1,155 @@
+.shell {
+  min-height: 100vh;
+  background: var(--color-background);
+}
+
+.shell-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.85rem 1.5rem;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border-light);
+
+  .brand {
+    font-weight: 700;
+    color: var(--color-primary);
+    white-space: nowrap;
+  }
+}
+
+// Кнопка-гамбургер — только на узких экранах, см. медиа-запрос ниже.
+.menu-toggle {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: 44px;
+  height: 44px;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--color-secondary-bg);
+  }
+
+  &-bar {
+    width: 22px;
+    height: 2px;
+    margin: 0 auto;
+    background: var(--color-secondary-text);
+    border-radius: 1px;
+  }
+}
+
+.shell-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1;
+
+  a {
+    padding: 0.4rem 0.7rem;
+    border-radius: var(--radius-sm);
+    color: var(--color-secondary-text);
+    text-decoration: none;
+    font-size: 0.9rem;
+
+    &:hover {
+      background: var(--color-secondary-bg);
+    }
+
+    &.active {
+      background: var(--color-primary);
+      color: var(--color-primary-contrast);
+    }
+  }
+
+  .logout {
+    margin-left: auto;
+  }
+}
+
+.shell-backdrop {
+  display: none;
+}
+
+// Ниже ~8 пунктов навигации не помещаются в строку — сворачиваем в выпадающее
+// меню по кнопке-гамбургеру вместо переноса строк вперемешку с брендом.
+@media (max-width: 767px) {
+  .menu-toggle {
+    display: flex;
+  }
+
+  .shell-nav {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 0.5rem;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border-light);
+    box-shadow: 0 8px 16px rgb(0 0 0 / 8%);
+    z-index: 20;
+
+    &.open {
+      display: flex;
+    }
+
+    a {
+      padding: 0.85rem 1rem;
+      font-size: 1rem;
+    }
+
+    .logout {
+      margin: 0.5rem 0 0;
+      width: 100%;
+      padding: 0.85rem 1rem;
+      text-align: center;
+    }
+  }
+
+  .shell-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgb(0 0 0 / 30%);
+    z-index: 10;
+  }
+}
+
+.shell-content {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 1.5rem 2rem;
+}
+
+button {
+  padding: 0.6rem 1rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  font-size: 0.95rem;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  &.secondary {
+    background: var(--color-secondary-bg);
+    color: var(--color-secondary-text);
+  }
+}

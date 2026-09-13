@@ -1,0 +1,9 @@
+bin/
+obj/
+**/bin/
+**/obj/
+tests/
+.vs/
+.idea/
+# SDK внутри образа контролируется тегом FROM в Dockerfile, не локальным дев-пином.
+global.json

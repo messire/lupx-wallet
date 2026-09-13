@@ -1,49 +1,60 @@
 # LupexWallet
 
-Однопользовательское приложение для учета личных финансов. Стек: Angular (frontend), ASP.NET Core / EF Core / PostgreSQL (backend, модульный монолит). Полное описание требований и архитектуры — в [docs/](docs/).
+Однопользовательское приложение для учета личных финансов. Стек: Angular (frontend), ASP.NET Core / EF Core / PostgreSQL (backend, модульный монолит).
 
 ## Структура репозитория
 
-- [docs/requirements/](docs/requirements/) — бизнес-требования, пользовательские сценарии, глоссарий
-- [docs/architecture/](docs/architecture/) — DDD-модель, высокоуровневая архитектура, ADR
-- [docs/database/](docs/database/) — схема PostgreSQL
-- [docs/api/](docs/api/) — OpenAPI-контракт
-- `src/` — backend (.NET), модульный монолит: `BuildingBlocks/`, `Modules/<Module>/{Domain,Application,Infrastructure,Api}`, `Host/LupexWallet.Api`
-- `frontend/` — Angular SPA
+- [docs/](docs/) — требования, архитектура (DDD-модель, ADR), схема БД, OpenAPI-контракт
+- [UI kit v0.2](docs/design/ui-kit.md) — визуальные правила по сохранённому референсу, компоненты и [HTML-витрина](docs/design/preview.html)
+- [backend/](backend/) — .NET backend, инструкции запуска и тестов — [backend/README.md](backend/README.md)
+- [frontend/](frontend/) — Angular SPA, инструкции запуска и тестов — [frontend/README.md](frontend/README.md)
 
-## Запуск backend
-
-Требуется .NET SDK 8.0.x (версия зафиксирована в [global.json](global.json)).
+## Быстрый старт
 
 ```bash
-dotnet build
-dotnet run --project src/Host/LupexWallet.Api
+docker compose up -d                              # PostgreSQL для локальной разработки
+dotnet run --project backend/src/Host/LupexWallet.Api   # backend, http://localhost:5086
+cd frontend && npm install && npm start           # frontend, http://localhost:4200
 ```
 
-По умолчанию слушает `http://localhost:5199` (см. `launchSettings.json`/переданный `--urls`), Swagger UI доступен в Development-режиме на `/swagger`.
+Подробности (аутентификация для разработки, тесты, переменные окружения) — в [backend/README.md](backend/README.md) и [frontend/README.md](frontend/README.md).
 
-### Аутентификация (локальная разработка)
+## Независимый запуск backend/frontend в Docker
 
-В `appsettings.Development.json` уже задан пароль для локальной разработки:
+Помимо `docker-compose.yml` (только PostgreSQL), в корне есть `docker-compose.backend.yml` и
+`docker-compose.frontend.yml` — по одному сервису в каждом, чтобы поднимать backend и frontend
+в Docker независимо друг от друга и в любой комбинации, но чтобы вместе они работали как единый
+стенд. Каждый файл запускается сам по себе (в т.ч. отдельным run-конфигом IDE на каждый файл) —
+явной зависимости между сервисами через `depends_on` нет, т.к. они не обязаны подниматься одной
+командой: backend резолвит `postgres` по имени контейнера через общую внешнюю сеть
+`docker-network-shared`, если тот уже поднят (любым из способов — `docker compose up` из корня,
+отдельным run-конфигом IDE и т.д.), независимо от того, в рамках какого именно `docker compose`
+вызова.
 
-```
-Пароль: ChangeMe123!
-```
-
-Не использовать в production. Для production `Auth:PasswordHash` и `Auth:JwtSigningKey` обязательны и задаются через переменные окружения (`Auth__PasswordHash`, `Auth__JwtSigningKey`) или secret manager — при пустых значениях приложение не запустится вне Development (см. `Program.cs`). Хеш пароля генерируется через `LupexWallet.Api.Auth.PasswordHasher.Hash(...)` (PBKDF2-HMACSHA256).
-
-## Запуск frontend
-
-Требуется Node.js 20+.
+Что отлаживаем в IDE → что поднять в Docker:
 
 ```bash
-cd frontend
-npm install
-npm start
+# Всё в Docker (ничего не отлаживается в IDE) — одной командой или тремя отдельными
+docker compose -f docker-compose.yml up -d
+docker compose -f docker-compose.backend.yml up -d --build
+docker compose -f docker-compose.frontend.yml up -d --build
+
+# Отлаживаю только frontend в IDE → postgres + backend в Docker
+docker compose -f docker-compose.yml up -d
+docker compose -f docker-compose.backend.yml up -d --build
+
+# Отлаживаю только backend в IDE → postgres + frontend в Docker
+docker compose -f docker-compose.yml up -d
+docker compose -f docker-compose.frontend.yml up -d --build
 ```
 
-По умолчанию открывается на `http://localhost:4200` и обращается к API на `http://localhost:5199` (см. `src/environments/environment.development.ts`). CORS для `localhost:4200` включен в backend только в Development-режиме.
+Postgres должен быть поднят раньше backend'а — Docker Compose не знает об этом порядке между
+отдельными вызовами, поэтому при первом старте стенда стоит подождать пару секунд между командами
+(или просто перезапустить `docker-compose.backend.yml`, если backend упал с ошибкой подключения).
+
+Backend в Docker слушает тот же `localhost:5086`, что и при запуске из IDE, поэтому frontend
+(из Docker или из IDE) обращается к нему одинаково независимо от того, где backend поднят.
 
 ## Текущий статус реализации
 
-Реализован первый вертикальный срез — аутентификация по единому паролю (`POST /api/v1/auth/login`), end-to-end: backend (JWT, PBKDF2, rate limiting на попытки входа) + frontend (форма входа, guard, интерцептор, хранение токена). Остальные модули (Wallets, Operations, BalanceHistory, ExchangeRates, ReferenceData, Audit, Reporting) присутствуют в решении как скелет (собираются, зарегистрированы в композиции), но без доменной логики — она добавляется последующими вертикальными срезами.
+Актуальный статус по срезам, известные упрощения и инфраструктурный TODO — в [docs/PROGRESS.md](docs/PROGRESS.md) (единственный источник правды по прогрессу, этот README не дублирует таблицу).

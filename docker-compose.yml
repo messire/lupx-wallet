@@ -1,0 +1,43 @@
+name: postgres
+
+services:
+  postgres:
+    container_name: postgres
+    image: postgres
+    environment:
+      POSTGRES_USER: postgres-user
+      POSTGRES_PASSWORD: postgres-pwd
+      POSTGRES_DB: postgres
+    ports:
+      - '5432:5432'
+    networks:
+      - docker-network
+    volumes:
+      - data:/var/lib/postgresql/data
+  
+  postgres-admin:
+    container_name: postgres-admin
+    depends_on:
+      - postgres
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: pgadmin4@pgadmin.org
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - '5050:80'
+    networks:
+      - docker-network
+    volumes:
+      - pgadmin:/var/lib/pgadmin
+
+networks:
+  docker-network:
+    external: true
+    name: docker-network-shared
+
+volumes:
+  data:
+    driver: local
+  pgadmin:
+    driver: local

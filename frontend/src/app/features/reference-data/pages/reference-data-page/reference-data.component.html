@@ -1,0 +1,164 @@
+<div class="page">
+  <h1>Справочники</h1>
+
+  <nav class="tabs">
+    <button type="button" [class.active]="activeTab() === 'wallet-types'" (click)="selectTab('wallet-types')">
+      Типы кошельков
+    </button>
+    <button type="button" [class.active]="activeTab() === 'operation-types'" (click)="selectTab('operation-types')">
+      Типы операций
+    </button>
+    <button type="button" [class.active]="activeTab() === 'currencies'" (click)="selectTab('currencies')">
+      Валюты
+    </button>
+  </nav>
+
+  @if (actionError()) {
+    <p class="error">{{ actionError() }}</p>
+  }
+
+  @if (isLoading()) {
+    <p>Загрузка…</p>
+  } @else if (loadError()) {
+    <p class="error">{{ loadError() }}</p>
+  } @else {
+    @if (activeTab() === 'wallet-types') {
+      <section class="tab-panel">
+        <form class="quick-form" [formGroup]="walletTypeForm" (ngSubmit)="submitWalletType()">
+          <input type="text" placeholder="Название типа кошелька" formControlName="name" />
+          <button type="submit" [disabled]="walletTypeForm.invalid || isSubmittingWalletType()">
+            {{ isSubmittingWalletType() ? 'Сохранение…' : 'Добавить' }}
+          </button>
+        </form>
+
+        @if (walletTypes().length === 0) {
+          <p class="empty">Типы кошельков еще не добавлены.</p>
+        } @else {
+          <table class="ref-table">
+            <thead>
+              <tr>
+                <th>Название</th>
+                <th>Статус</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (item of walletTypes(); track item.id) {
+                <tr>
+                  <td>{{ item.name }}</td>
+                  <td>
+                    <span class="status" [class.inactive]="!item.isActive">
+                      {{ item.isActive ? 'Активен' : 'Деактивирован' }}
+                    </span>
+                  </td>
+                  <td class="actions">
+                    @if (item.isActive) {
+                      <button type="button" class="link" (click)="deactivateWalletType(item)">Деактивировать</button>
+                    }
+                    <button type="button" class="link danger" (click)="deleteWalletType(item)">Удалить</button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </section>
+    }
+
+    @if (activeTab() === 'operation-types') {
+      <section class="tab-panel">
+        <form class="quick-form" [formGroup]="operationTypeForm" (ngSubmit)="submitOperationType()">
+          <input type="text" placeholder="Название типа операции" formControlName="name" />
+          <select formControlName="behaviorKindId">
+            <option value="" disabled>— вид поведения —</option>
+            @for (kind of creatableBehaviorKinds(); track kind.id) {
+              <option [value]="kind.id">{{ kind.name }}</option>
+            }
+          </select>
+          <button type="submit" [disabled]="operationTypeForm.invalid || isSubmittingOperationType()">
+            {{ isSubmittingOperationType() ? 'Сохранение…' : 'Добавить' }}
+          </button>
+        </form>
+
+        @if (operationTypes().length === 0) {
+          <p class="empty">Типы операций еще не добавлены.</p>
+        } @else {
+          <table class="ref-table">
+            <thead>
+              <tr>
+                <th>Название</th>
+                <th>Вид поведения</th>
+                <th>Статус</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (item of operationTypes(); track item.id) {
+                <tr>
+                  <td>{{ item.name }}</td>
+                  <td>{{ behaviorKindName(item.behaviorKindId) }}</td>
+                  <td>
+                    <span class="status" [class.inactive]="!item.isActive">
+                      {{ item.isActive ? 'Активен' : 'Деактивирован' }}
+                    </span>
+                  </td>
+                  <td class="actions">
+                    @if (item.isActive) {
+                      <button type="button" class="link" (click)="deactivateOperationType(item)">Деактивировать</button>
+                    }
+                    <button type="button" class="link danger" (click)="deleteOperationType(item)">Удалить</button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </section>
+    }
+
+    @if (activeTab() === 'currencies') {
+      <section class="tab-panel">
+        <form class="quick-form" [formGroup]="currencyForm" (ngSubmit)="submitCurrency()">
+          <app-currency-select [currencies]="availableIsoCurrencies()" formControlName="isoCode" />
+          <button type="submit" [disabled]="currencyForm.invalid || isSubmittingCurrency()">
+            {{ isSubmittingCurrency() ? 'Сохранение…' : 'Добавить' }}
+          </button>
+        </form>
+
+        @if (currencies().length === 0) {
+          <p class="empty">Валюты еще не добавлены.</p>
+        } @else {
+          <table class="ref-table">
+            <thead>
+              <tr>
+                <th>Код</th>
+                <th>Название</th>
+                <th>Статус</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (item of currencies(); track item.id) {
+                <tr>
+                  <td>{{ item.code }}</td>
+                  <td>{{ item.name }}</td>
+                  <td>
+                    <span class="status" [class.inactive]="!item.isActive">
+                      {{ item.isActive ? 'Активна' : 'Деактивирована' }}
+                    </span>
+                  </td>
+                  <td class="actions">
+                    @if (item.isActive) {
+                      <button type="button" class="link" (click)="deactivateCurrency(item)">Деактивировать</button>
+                    }
+                    <button type="button" class="link danger" (click)="deleteCurrency(item)">Удалить</button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </section>
+    }
+  }
+</div>

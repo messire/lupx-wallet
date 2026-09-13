@@ -1,0 +1,18 @@
+services:
+  backend:
+    container_name: lupex-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__LupexWallet: Host=postgres;Port=5432;Database=postgres;Username=postgres-user;Password=postgres-pwd
+    ports:
+      - '5086:8080'
+    networks:
+      - docker-network
+
+networks:
+  docker-network:
+    external: true
+    name: docker-network-shared

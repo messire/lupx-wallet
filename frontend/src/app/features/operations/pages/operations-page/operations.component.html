@@ -1,0 +1,113 @@
+<div class="page">
+  <h1>Операции</h1>
+
+  <form class="filters" [formGroup]="filterForm" (ngSubmit)="applyFilters()">
+    <div class="field">
+      <label for="filterWalletId">Кошелек</label>
+      <select id="filterWalletId" formControlName="walletId">
+        <option value="">— все —</option>
+        @for (wallet of wallets(); track wallet.id) {
+          <option [value]="wallet.id">{{ wallet.name }}</option>
+        }
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="filterOperationTypeId">Тип операции</label>
+      <select id="filterOperationTypeId" formControlName="operationTypeId">
+        <option value="">— все —</option>
+        @for (type of allOperationTypeOptions(); track type.id) {
+          <option [value]="type.id">{{ type.name }}</option>
+        }
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="filterDateFrom">С даты</label>
+      <input id="filterDateFrom" type="date" formControlName="dateFrom" />
+    </div>
+
+    <div class="field">
+      <label for="filterDateTo">По дату</label>
+      <input id="filterDateTo" type="date" formControlName="dateTo" />
+    </div>
+
+    <div class="filter-actions">
+      <button type="submit">Применить</button>
+      <button type="button" class="secondary" (click)="resetFilters()">Сбросить</button>
+    </div>
+  </form>
+
+  <section class="toolbar">
+    <button type="button" (click)="openCreateForm()" [disabled]="isFormOpen()">Добавить операцию</button>
+  </section>
+
+  @if (isFormOpen()) {
+    <app-operation-form
+      [wallets]="walletOptions()"
+      [operationTypes]="creatableOperationTypeOptions()"
+      [editingOperation]="editingOperation()"
+      [isSubmitting]="isSubmitting()"
+      [errorMessage]="submitError()"
+      (save)="saveOperation($event)"
+      (cancel)="cancelForm()"
+    />
+  }
+
+  @if (deleteError()) {
+    <p class="error">{{ deleteError() }}</p>
+  }
+
+  @if (isLoading() && operations().length === 0) {
+    <p>Загрузка…</p>
+  } @else if (loadError()) {
+    <p class="error">{{ loadError() }}</p>
+  } @else if (operations().length === 0) {
+    <p class="empty">Операций пока нет.</p>
+  } @else {
+    <table class="operations-table">
+      <thead>
+        <tr>
+          <th>Дата</th>
+          <th>Кошелек</th>
+          <th>Тип</th>
+          <th>Сумма</th>
+          <th>Корректировка</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (operation of operations(); track operation.id) {
+          <tr [class.transfer-part]="operation.transferId">
+            <td>{{ operation.operationDate }}</td>
+            <td>{{ walletName(operation.walletId) }}</td>
+            <td>{{ operationTypeName(operation.operationTypeId) }}</td>
+            <td>{{ formatMoney(operation.amount) }}</td>
+            <td>{{ operation.adjustmentMode ?? '' }}</td>
+            <td class="actions">
+              @if (operation.transferId) {
+                <span class="badge" title="Часть перевода — управляется со экрана «Переводы»">часть перевода</span>
+              } @else {
+                <button type="button" class="link" (click)="openEditForm(operation)">Изменить</button>
+                <button type="button" class="link danger" (click)="deleteOperation(operation)">Удалить</button>
+              }
+              <a
+                class="link"
+                [routerLink]="['/audit']"
+                [queryParams]="{ entityType: 'Operation', entityId: operation.id }"
+              >
+                История изменений
+              </a>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+
+    @if (hasMore()) {
+      <button type="button" class="secondary" (click)="loadMore()" [disabled]="isLoading()">
+        {{ isLoading() ? 'Загрузка…' : 'Загрузить еще' }}
+      </button>
+    }
+  }
+</div>

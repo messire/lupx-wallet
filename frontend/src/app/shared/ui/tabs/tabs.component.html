@@ -1,0 +1,18 @@
+<div class="app-tabs" role="tablist" [attr.aria-label]="ariaLabel()">
+  @for (tab of tabs(); track tab.id; let i = $index) {
+    <button
+      [id]="tabElementId(tab.id)"
+      type="button"
+      role="tab"
+      class="app-tabs__tab"
+      [attr.aria-selected]="tab.id === activeId()"
+      [attr.aria-controls]="panelElementId(tab.id)"
+      [tabIndex]="tab.id === activeId() ? 0 : -1"
+      (click)="select(tab.id)"
+      (keydown)="onKeydown($event, i)"
+    >
+      {{ tab.label }}
+    </button>
+  }
+</div>
+<ng-content></ng-content>

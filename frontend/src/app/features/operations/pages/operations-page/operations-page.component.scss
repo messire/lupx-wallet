@@ -1,0 +1,91 @@
+.filters-card {
+  display: block;
+  margin-bottom: var(--lw-space-6);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lw-space-4);
+  /* flex-end выравнивал по нижнему краю app-field (резервирует место под
+     hint/error даже без них), а не по видимому инпуту — кнопки "плавали"
+     ниже полей. Выравнивание по верху + .app-field-align на .filter-actions. */
+  align-items: flex-start;
+}
+
+.filters__field {
+  flex: 1 1 180px;
+  min-width: 160px;
+}
+
+.filter-actions {
+  display: flex;
+  gap: var(--lw-space-3);
+}
+
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--lw-space-4);
+}
+
+.table-card {
+  display: block;
+  margin-bottom: var(--lw-space-4);
+}
+
+.table-scroll {
+  overflow-x: auto;
+  border-radius: var(--lw-radius-sm);
+}
+
+.operations-table {
+  min-width: 720px;
+
+  tr.transfer-part {
+    color: var(--lw-text-muted);
+  }
+
+  .amount-col {
+    text-align: right;
+  }
+
+  .amount {
+    font-variant-numeric: tabular-nums;
+    color: var(--lw-text);
+  }
+
+  .amount--income {
+    color: var(--lw-success);
+  }
+
+  .amount--expense {
+    color: var(--lw-danger);
+  }
+
+  .amount-category {
+    display: block;
+    font-size: var(--lw-type-badge);
+    color: var(--lw-text-muted);
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--lw-space-2);
+  }
+
+  .history-link {
+    font-size: var(--lw-type-small);
+    color: var(--lw-accent);
+    text-decoration: underline;
+    white-space: nowrap;
+  }
+}
+
+.load-more {
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--lw-space-4);
+}

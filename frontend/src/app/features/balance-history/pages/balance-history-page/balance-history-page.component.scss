@@ -1,0 +1,69 @@
+
+.wallet-picker {
+  max-width: 360px;
+  margin-bottom: var(--lw-space-6);
+}
+
+.hint {
+  padding: var(--lw-space-4);
+  border: 1px solid var(--lw-border-light);
+  border-radius: var(--lw-radius-sm);
+  background: var(--lw-glass-strong);
+  color: var(--lw-text-secondary);
+  font-size: var(--lw-type-small);
+  margin: 0 0 var(--lw-space-6);
+}
+
+.section {
+  margin-bottom: var(--lw-space-6);
+
+  h2 {
+    font-size: var(--lw-type-section);
+    font-weight: 500;
+    margin: 0 0 var(--lw-space-4);
+  }
+}
+
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lw-space-4);
+  /* flex-end выравнивал по нижнему краю app-field (резервирует место под
+     hint/error даже без них), а не по видимому инпуту — кнопка "плавала"
+     ниже поля. Выравнивание по верху + .app-field-align на кнопке. */
+  align-items: flex-start;
+  margin-bottom: var(--lw-space-4);
+}
+
+.balance-result {
+  display: flex;
+  align-items: center;
+  gap: var(--lw-space-2);
+}
+
+.money {
+  font-variant-numeric: tabular-nums;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  border-radius: var(--lw-radius-sm);
+
+  &:focus-visible {
+    outline: 2px solid var(--lw-accent);
+    outline-offset: 2px;
+  }
+}
+
+.history-table {
+  min-width: 480px;
+}
+
+.amount-col {
+  text-align: right;
+}
+
+.load-more {
+  display: inline-block;
+  margin-top: var(--lw-space-4);
+}

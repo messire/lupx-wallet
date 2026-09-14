@@ -1,8 +1,13 @@
 import { DestroyRef, ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, ValidationErrors, ValidatorFn, Validators } from '@angular/forms';
-import { amountValidator } from '../../../../shared/money/money';
+import { amountValidator } from '@shared/money/money';
+import { fieldError } from '@shared/forms/field-error';
 import { CreateTransferRequest } from '../../../../data-access/transfers/transfers-api.models';
+import { ButtonComponent } from '@shared/ui/button/button.component';
+import { CardComponent } from '@shared/ui/card/card.component';
+import { FieldComponent } from '@shared/ui/field/field.component';
+import { FieldControlDirective } from '@shared/ui/field/field-control.directive';
 
 export interface TransferWalletOption {
   id: string;
@@ -10,7 +15,7 @@ export interface TransferWalletOption {
   currencyId: string;
 }
 
-/** Исходный и целевой кошелек не могут совпадать (UC-16). */
+/** Source and target wallet cannot be the same (UC-16). */
 const differentWalletsValidator: ValidatorFn = (control): ValidationErrors | null => {
   const sourceWalletId = control.get('sourceWalletId')?.value;
   const targetWalletId = control.get('targetWalletId')?.value;
@@ -21,19 +26,19 @@ const differentWalletsValidator: ValidatorFn = (control): ValidationErrors | nul
 };
 
 /**
- * Форма создания перевода (UC-16): исходный и целевой кошельки обязаны иметь
- * одинаковую валюту (UC-17 — иначе перевод запрещен правилами раздела 4).
- * Список целевых кошельков фильтруется на клиенте по валюте выбранного
- * исходного кошелька — сервер все равно проверяет и вернет 409, если
- * ограничение будет обойдено (openapi.yaml, POST /transfers).
+ * Transfer create form (UC-16): the source and target wallet must share the
+ * same currency (UC-17 — otherwise the transfer is forbidden by section 4's rules).
+ * The target wallet list is filtered client-side by the selected source wallet's
+ * currency — the server still validates it and returns 409 if the restriction
+ * is bypassed (openapi.yaml, POST /transfers).
  *
- * Только создание — редактирование перевода контрактом не предусмотрено
- * (openapi.yaml не содержит PATCH /transfers/{id}), только удаление.
+ * Create only — editing a transfer is not part of the contract (openapi.yaml
+ * has no PATCH /transfers/{id}), only deletion.
  */
 @Component({
   selector: 'app-transfer-form',
   standalone: true,
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, ButtonComponent, CardComponent, FieldComponent, FieldControlDirective],
   templateUrl: './transfer-form.component.html',
   styleUrl: './transfer-form.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -51,7 +56,7 @@ export class TransferFormComponent {
 
   private readonly sourceWalletId = signal<string>('');
 
-  /** Целевые кошельки: та же валюта, что у исходного, и не тот же кошелек (UC-16/UC-17). */
+  /** Target wallets: same currency as the source, excluding the source itself (UC-16/UC-17). */
   readonly targetWalletOptions = computed<TransferWalletOption[]>(() => {
     const source = this.wallets().find((wallet) => wallet.id === this.sourceWalletId());
     if (!source) {
@@ -73,7 +78,7 @@ export class TransferFormComponent {
   constructor() {
     this.form.controls.sourceWalletId.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((id) => {
       this.sourceWalletId.set(id);
-      // Смена исходного кошелька могла сделать текущий выбор цели невалидным (другая валюта).
+      // Changing the source wallet may invalidate the current target selection (different currency).
       if (this.form.controls.targetWalletId.value) {
         this.form.controls.targetWalletId.setValue('');
       }
@@ -97,6 +102,25 @@ export class TransferFormComponent {
 
   onCancel(): void {
     this.cancel.emit();
+  }
+
+  sourceWalletError(): string | null {
+    return fieldError(this.form.controls.sourceWalletId, 'Выберите кошелек-источник');
+  }
+
+  targetWalletError(): string | null {
+    return fieldError(this.form.controls.targetWalletId, 'Выберите кошелек-получатель');
+  }
+
+  amountError(): string | null {
+    return fieldError(this.form.controls.amount, {
+      required: 'Укажите сумму',
+      amount: 'Сумма — число с точкой в качестве разделителя (например, 1234.56)',
+    });
+  }
+
+  transferDateError(): string | null {
+    return fieldError(this.form.controls.transferDate, 'Укажите дату');
   }
 
   private today(): string {

@@ -1,0 +1,15 @@
+<label class="app-radio" [for]="inputId" [class.app-radio--disabled]="disabled()">
+  <span class="app-radio__dot">
+    <input
+      [id]="inputId"
+      type="radio"
+      [name]="group.name"
+      [value]="value()"
+      [checked]="checked()"
+      [disabled]="disabled()"
+      (change)="onChange()"
+    />
+    <span class="app-radio__mark" aria-hidden="true"></span>
+  </span>
+  <span class="app-radio__label">{{ label() }}</span>
+</label>

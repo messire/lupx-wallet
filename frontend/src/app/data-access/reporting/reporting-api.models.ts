@@ -1,18 +1,18 @@
-// Соответствует docs/api/openapi.yaml (схемы TotalAmount, ExcludedWallet).
+// Mirrors docs/api/openapi.yaml (TotalAmount, ExcludedWallet schemas).
 
 import { Money } from '../../shared/money/money';
 
-/** Кошелёк, исключённый из суммы из-за отсутствия курса его валюты (docs/PROGRESS.md, П.5.1). */
+/** A wallet excluded from the total because its currency has no exchange rate (docs/PROGRESS.md, section 5.1). */
 export interface ExcludedWallet {
   walletId: string;
   reason: string;
 }
 
 export interface TotalAmount {
-  /** Запрошенная дата; null означает "текущая сумма" (UC-19). */
+  /** Requested date; null means "current total" (UC-19). */
   date: string | null;
   amount: Money;
-  /** Дата курса, реально применённого при конвертации — может отличаться от запрошенной. */
+  /** The rate date actually applied during conversion — may differ from the requested date. */
   ratesAsOfDate: string;
   excludedWallets: ExcludedWallet[];
 }

@@ -1,61 +1,54 @@
-<form class="entity-form" [formGroup]="form" (ngSubmit)="submit()">
-  <div class="field">
-    <label for="walletId">Кошелек</label>
-    <select id="walletId" formControlName="walletId">
-      <option value="" disabled>— выберите кошелек —</option>
-      @for (wallet of wallets(); track wallet.id) {
-        <option [value]="wallet.id">{{ wallet.name }}</option>
-      }
-    </select>
-  </div>
+<app-card class="form-card">
+  <form class="entity-form" [formGroup]="form" (ngSubmit)="submit()">
+    <app-field label="Кошелек" [error]="walletError()" [required]="true">
+      <select appFieldControl formControlName="walletId">
+        <option value="" disabled>— выберите кошелек —</option>
+        @for (wallet of wallets(); track wallet.id) {
+          <option [value]="wallet.id">{{ wallet.name }}</option>
+        }
+      </select>
+    </app-field>
 
-  <div class="field">
-    <label for="operationTypeId">Тип операции</label>
-    <select id="operationTypeId" formControlName="operationTypeId">
-      <option value="" disabled>— выберите тип —</option>
-      @for (type of operationTypes(); track type.id) {
-        <option [value]="type.id">{{ type.name }}</option>
-      }
-    </select>
-  </div>
+    <app-field label="Тип операции" [error]="operationTypeError()" [required]="true">
+      <select appFieldControl formControlName="operationTypeId">
+        <option value="" disabled>— выберите тип —</option>
+        @for (type of operationTypes(); track type.id) {
+          <option [value]="type.id">{{ type.name }}</option>
+        }
+      </select>
+    </app-field>
 
-  @if (isAdjustment()) {
-    <div class="field">
-      <label>Способ корректировки</label>
-      <div class="radio-group">
-        <label>
-          <input type="radio" formControlName="adjustmentMode" value="Delta" />
-          Дельта (+/-)
-        </label>
-        <label>
-          <input type="radio" formControlName="adjustmentMode" value="Absolute" />
-          Новое значение баланса
-        </label>
+    @if (isAdjustment()) {
+      <div class="field-group">
+        <span class="field-group__label" id="adjustment-mode-label">Способ корректировки</span>
+        <app-radio-group formControlName="adjustmentMode" ariaLabelledBy="adjustment-mode-label">
+          <app-radio-option value="Delta" label="Дельта (+/-)" />
+          <app-radio-option value="Absolute" label="Новое значение баланса" />
+        </app-radio-group>
       </div>
-    </div>
-  }
-
-  <div class="field">
-    <label for="amount">{{ isAdjustment() && form.controls.adjustmentMode.value === 'Absolute' ? 'Новый баланс' : 'Сумма' }}</label>
-    <input id="amount" type="text" inputmode="decimal" placeholder="0.00" formControlName="amount" />
-    @if (form.controls.amount.errors?.['amount']) {
-      <p class="hint error">Сумма — число с точкой в качестве разделителя (например, 1234.56)</p>
     }
-  </div>
 
-  <div class="field">
-    <label for="operationDate">Дата</label>
-    <input id="operationDate" type="date" formControlName="operationDate" />
-  </div>
+    <app-field
+      [label]="isAdjustment() && form.controls.adjustmentMode.value === 'Absolute' ? 'Новый баланс' : 'Сумма'"
+      [error]="amountError()"
+      [required]="true"
+    >
+      <input appFieldControl type="text" inputmode="decimal" placeholder="0.00" formControlName="amount" />
+    </app-field>
 
-  @if (errorMessage()) {
-    <p class="error">{{ errorMessage() }}</p>
-  }
+    <app-field label="Дата" [error]="operationDateError()" [required]="true">
+      <input appFieldControl type="date" formControlName="operationDate" />
+    </app-field>
 
-  <div class="form-actions">
-    <button type="submit" [disabled]="form.invalid || isSubmitting()">
-      {{ isSubmitting() ? 'Сохранение…' : (isEditMode() ? 'Сохранить' : 'Создать') }}
-    </button>
-    <button type="button" class="secondary" (click)="onCancel()">Отмена</button>
-  </div>
-</form>
+    @if (errorMessage()) {
+      <p class="form-error" role="alert">{{ errorMessage() }}</p>
+    }
+
+    <div class="form-actions">
+      <app-button type="submit" variant="primary" [disabled]="form.invalid" [loading]="isSubmitting()" loadingText="Сохранение…">
+        {{ isEditMode() ? 'Сохранить' : 'Создать' }}
+      </app-button>
+      <app-button type="button" variant="secondary" (click)="onCancel()">Отмена</app-button>
+    </div>
+  </form>
+</app-card>

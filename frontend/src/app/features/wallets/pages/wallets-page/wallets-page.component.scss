@@ -1,0 +1,190 @@
+/* UI kit v0.2 (docs/design/ui-kit.md §4, §5) — токены --lw-* напрямую, без
+   локальных hex/px значений там, где есть соответствующая переменная. */
+
+.page__header {
+  margin-bottom: var(--lw-space-6);
+}
+
+.page__title {
+  margin: 0;
+  font-size: var(--lw-type-page);
+  font-weight: 400;
+  color: var(--lw-text);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--lw-space-4);
+  margin-bottom: var(--lw-space-6);
+}
+
+.wallet-form-card {
+  display: block;
+  margin-bottom: var(--lw-space-6);
+
+  form {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+.wallet-form-card__title {
+  margin: 0 0 var(--lw-space-4);
+  font-size: var(--lw-type-section);
+  font-weight: 500;
+  color: var(--lw-text);
+}
+
+.quick-add {
+  display: flex;
+  /* flex-end выравнивал по нижнему краю app-field (резервирует место под
+     hint/error даже без них), а не по видимому инпуту — кнопка "плавала"
+     ниже поля. Выравнивание по верху + .app-field-align на кнопке. */
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--lw-space-3);
+  margin-top: var(--lw-space-2);
+
+  app-currency-select {
+    display: block;
+  }
+}
+
+.quick-add__field {
+  flex: 1;
+  min-width: 200px;
+  margin-bottom: 0;
+}
+
+.checkbox-field {
+  margin-bottom: var(--lw-space-4);
+}
+
+.hint {
+  margin: var(--lw-space-2) 0 0;
+  font-size: var(--lw-type-small);
+  color: var(--lw-text-muted);
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lw-space-3);
+  margin-top: var(--lw-space-2);
+}
+
+.wallets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--lw-space-6);
+}
+
+.wallet-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lw-space-3);
+  /* Позволяет .wallet-card__balance ниже реагировать на фактическую ширину
+     карточки (260px+ в grid-е), а не только на ширину viewport — карточка
+     может быть узкой и на широком экране (много колонок), см. ui-kit §3. */
+  container-type: inline-size;
+  container-name: wallet-card;
+}
+
+.wallet-card--selected {
+  outline: 2px solid var(--lw-accent);
+  outline-offset: 2px;
+}
+
+.wallet-card--archived .wallet-card__name {
+  color: var(--lw-text-secondary);
+}
+
+.wallet-card__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--lw-space-2);
+}
+
+.wallet-card__name {
+  margin: 0;
+  font-size: var(--lw-type-section);
+  font-weight: 500;
+  color: var(--lw-text);
+  overflow-wrap: anywhere;
+}
+
+.wallet-card__selected-flag {
+  flex: none;
+  font-size: var(--lw-type-badge);
+  font-weight: 500;
+  color: var(--lw-accent);
+}
+
+.wallet-card__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--lw-space-2);
+}
+
+.wallet-card__currency {
+  font-size: var(--lw-type-small);
+  color: var(--lw-text-secondary);
+}
+
+/* Крупный баланс — ui-kit §3 «Типографика»: 40/48px, вес 400 (это единственное
+   место в приложении с этой ролью текста; заголовки карточек/секций — другая
+   роль, --lw-type-section, 22px, и её не путать с балансом). */
+.wallet-card__balance {
+  margin: 0;
+  font-size: var(--lw-type-display);
+  line-height: 48px;
+  font-weight: 400;
+  color: var(--lw-text);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* Длинные суммы в узкой карточке адаптивно уменьшаются вместо переполнения —
+   ui-kit §3: «длинные значения допускают перенос и адаптивное уменьшение
+   размера без округления или обрезки значащих цифр». Ориентируется на
+   фактическую ширину карточки (container query), а не на ширину viewport. */
+@container wallet-card (max-width: 300px) {
+  .wallet-card__balance {
+    font-size: clamp(22px, 11cqw, var(--lw-type-display));
+    line-height: 1.2;
+  }
+}
+
+.wallet-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--lw-space-2);
+  margin-top: auto;
+  padding-top: var(--lw-space-2);
+}
+
+.wallet-card__link {
+  color: var(--lw-accent);
+  font-size: var(--lw-type-small);
+  text-decoration: underline;
+}
+
+.wallet-card-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lw-space-3);
+  padding: 28px;
+  border: 1px solid var(--lw-border);
+  border-radius: var(--lw-radius-md);
+  background: var(--lw-glass);
+}
+
+@media (max-width: 767px) {
+  .wallet-card-skeleton {
+    padding: 22px;
+  }
+}

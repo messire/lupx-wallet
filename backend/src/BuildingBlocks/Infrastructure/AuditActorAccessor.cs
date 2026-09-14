@@ -1,13 +1,14 @@
 namespace LupexWallet.BuildingBlocks.Infrastructure;
 
 /// <summary>
-/// Кто выполняет текущую цепочку обработки — пользователь по HTTP или фоновый процесс
-/// (ADR-0010). Живёт в BuildingBlocks.Infrastructure, а не в Audit.Application/Domain:
-/// читают/пишут его не только обработчики Audit, но и фоновые сервисы других модулей
+/// Identifies who is executing the current processing chain — an HTTP user or a background
+/// process (ADR-0010). Lives in BuildingBlocks.Infrastructure rather than
+/// Audit.Application/Domain because it is read/written not only by Audit handlers but also
+/// by background services in other modules
 /// (BalanceHistory.Infrastructure.BalanceSnapshotSchedulerHostedService,
-/// ExchangeRates.Infrastructure.ExchangeRateRefreshBackgroundService) — размещение внутри
-/// модуля Audit потребовало бы от них прямой ссылки на Audit, запрещённой правилом границы
-/// модуля (high-level-architecture.md, §2).
+/// ExchangeRates.Infrastructure.ExchangeRateRefreshBackgroundService) — placing it inside
+/// the Audit module would require them to reference Audit directly, which the module
+/// boundary rule forbids (high-level-architecture.md, §2).
 /// </summary>
 public sealed record AuditActorContext(bool IsSystem, string? SystemProcessName)
 {
@@ -19,18 +20,18 @@ public interface IAuditActorAccessor
     AuditActorContext Current { get; }
 
     /// <summary>
-    /// Вызывается фоновыми сервисами первым действием внутри собственного DI-scope, до
-    /// отправки MediatR-команды — иначе аудит по умолчанию пометил бы системное действие
-    /// как выполненное пользователем (см. <see cref="AuditActorContext.User"/>).
+    /// Must be called by background services as the first action within their own DI
+    /// scope, before sending a MediatR command — otherwise audit would default to marking
+    /// a system action as performed by a user (see <see cref="AuditActorContext.User"/>).
     /// </summary>
     void SetSystemActor(string processName);
 }
 
 /// <summary>
-/// Scoped: ASP.NET Core создаёт новый DI-scope на каждый HTTP-запрос, поэтому свежий
-/// экземпляр уже по умолчанию "User" — отдельный middleware не требуется. Каскадные
-/// побочные эффекты, вызванные синхронно внутри того же scope (например, пересчёт истории
-/// баланса из обработчика события Operations), корректно наследуют то же значение.
+/// Scoped: ASP.NET Core creates a new DI scope per HTTP request, so a fresh instance
+/// already defaults to "User" — no separate middleware is needed. Cascading side effects
+/// triggered synchronously within the same scope (e.g. balance history recalculation from
+/// an Operations event handler) correctly inherit the same value.
 /// </summary>
 public sealed class AuditActorAccessor : IAuditActorAccessor
 {

@@ -30,6 +30,8 @@ export class CurrencySelectComponent implements ControlValueAccessor {
 
   readonly currencies = input.required<readonly IsoCurrency[]>();
   readonly placeholder = input('— выберите валюту —');
+  /** Lets an external `<label for>` (e.g. `app-field`'s `controlId()`) target the inner `<input>`. */
+  readonly id = input<string | null>(null);
 
   readonly listboxId = `currency-select-listbox-${nextId++}`;
 

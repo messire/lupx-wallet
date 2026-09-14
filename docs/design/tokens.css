@@ -1,4 +1,4 @@
-/* LupexWallet UI kit v0.2: indigo glass, based on the supplied visual reference. */
+/* LupexWallet UI kit v0.3: original palette, quiet glass surfaces. */
 :root {
   color-scheme: dark;
   --lw-bg: #171b49;
@@ -19,7 +19,9 @@
   --lw-warning: #f3d9aa;
   --lw-danger: #ffc2d6;
   --lw-border: rgba(207, 199, 255, .24);
-  --lw-border-light: rgba(240, 212, 255, .65);
+  --lw-border-light: rgba(240, 212, 255, .12);
+  --lw-surface-border: rgba(207, 199, 255, .07);
+  --lw-divider: rgba(207, 199, 255, .12);
   --lw-control-border: #b0a6d6;
   --lw-accent-soft: rgba(195, 174, 255, .14);
   --lw-disabled-bg: #36375e;
@@ -27,7 +29,9 @@
   --lw-overlay: rgba(15, 17, 49, .72);
   --lw-primary-fill: linear-gradient(110deg, #d3c6ff, #edbee8);
   --lw-primary-hover: linear-gradient(110deg, #e5dcff, #f4d7f1);
-  --lw-panel-reflection: linear-gradient(125deg, rgba(231, 214, 255, .12), rgba(175, 183, 255, .035) 45%, rgba(240, 171, 229, .07));
+  --lw-panel-reflection: linear-gradient(125deg, rgba(231, 214, 255, .045), rgba(175, 183, 255, .015) 45%, rgba(240, 171, 229, .02));
+  --lw-workspace-background: radial-gradient(ellipse at 14% 8%, rgba(126, 132, 222, .50), transparent 58%), radial-gradient(ellipse at 18% 55%, rgba(113, 97, 174, .18), transparent 56%), linear-gradient(120deg, #303b83, #20295e 58%, #171b49);
+  --lw-sidebar-background: rgba(23, 27, 73, .38);
   --lw-font: "Segoe UI", system-ui, -apple-system, sans-serif;
   --lw-type-display: 40px;
   --lw-type-page: 28px;
@@ -51,8 +55,8 @@
   --lw-sidebar-width: 224px;
   --lw-content-width: 1280px;
   --lw-blur: 24px;
-  --lw-shadow: 0 20px 60px rgba(13, 16, 53, .20), inset 0 1px 0 rgba(241, 216, 255, .26);
-  --lw-glow: 0 0 24px rgba(211, 183, 255, .20), 0 5px 18px rgba(237, 190, 232, .10);
+  --lw-shadow: 0 12px 32px rgba(13, 16, 53, .10), inset 0 1px 0 var(--lw-border-light);
+  --lw-glow: none;
   --lw-motion-fast: 140ms;
   --lw-motion-overlay: 180ms;
 }

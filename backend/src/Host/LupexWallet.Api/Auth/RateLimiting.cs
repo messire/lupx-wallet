@@ -4,9 +4,9 @@ using Microsoft.AspNetCore.RateLimiting;
 namespace LupexWallet.Api.Auth;
 
 /// <summary>
-/// Ограничение частоты попыток входа (docs/api/api-design.md: 429 на /auth/login,
-/// защита от подбора пароля). Встроенный Microsoft.AspNetCore.RateLimiting — без
-/// дополнительных пакетов.
+/// Limits the rate of login attempts (docs/api/api-design.md: 429 on /auth/login,
+/// protection against password brute-forcing). Uses the built-in
+/// Microsoft.AspNetCore.RateLimiting — no additional packages.
 /// </summary>
 public static class RateLimiting
 {

@@ -1,0 +1,208 @@
+<div class="page">
+  <h1>Справочники</h1>
+
+  <app-tabs
+    #tabsRef
+    [tabs]="tabs"
+    [selectedId]="activeTab()"
+    ariaLabel="Разделы справочника"
+    (selectedIdChange)="selectTab($event)"
+  />
+
+  @if (actionError()) {
+    <p class="form-error" role="alert">{{ actionError() }}</p>
+  }
+
+  @if (isLoading()) {
+    <app-loading-state label="Загрузка…">
+      <app-skeleton height="48px" />
+      <app-skeleton height="180px" />
+    </app-loading-state>
+  } @else if (loadError()) {
+    <app-error-state [message]="loadError()!" (retry)="loadAll()" />
+  } @else {
+    <div
+      class="tab-panel"
+      [id]="tabsRef.panelElementId('wallet-types')"
+      role="tabpanel"
+      tabindex="0"
+      [attr.aria-labelledby]="tabsRef.tabElementId('wallet-types')"
+      [hidden]="activeTab() !== 'wallet-types'"
+    >
+      <form class="quick-form" [formGroup]="walletTypeForm" (ngSubmit)="submitWalletType()">
+        <app-field label="Название типа кошелька" class="quick-form__field">
+          <input type="text" appFieldControl formControlName="name" placeholder="Например, «Наличные»" />
+        </app-field>
+        <app-button
+          type="submit"
+          variant="primary"
+          class="quick-form__submit app-field-align"
+          [disabled]="walletTypeForm.invalid"
+          [loading]="isSubmittingWalletType()"
+          loadingText="Сохранение…"
+        >
+          Добавить
+        </app-button>
+      </form>
+
+      @if (walletTypes().length === 0) {
+        <app-empty-state title="Типы кошельков пока не добавлены" description="Добавьте первый тип, чтобы использовать его при создании кошелька." />
+      } @else {
+          <table class="app-table ref-table">
+            <thead>
+              <tr>
+                <th>Название</th>
+                <th>Статус</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (item of walletTypes(); track item.id) {
+                <tr>
+                  <td>{{ item.name }}</td>
+                  <td>
+                    <app-badge [tone]="item.isActive ? 'success' : 'neutral'">
+                      {{ item.isActive ? 'Активен' : 'Деактивирован' }}
+                    </app-badge>
+                  </td>
+                  <td class="ref-table__actions">
+                    @if (item.isActive) {
+                      <app-button variant="ghost" (click)="deactivateWalletType(item)">Деактивировать</app-button>
+                    }
+                    <app-button variant="danger" (click)="deleteWalletType(item)">Удалить</app-button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+      }
+    </div>
+
+    <div
+      class="tab-panel"
+      [id]="tabsRef.panelElementId('operation-types')"
+      role="tabpanel"
+      tabindex="0"
+      [attr.aria-labelledby]="tabsRef.tabElementId('operation-types')"
+      [hidden]="activeTab() !== 'operation-types'"
+    >
+      <form class="quick-form" [formGroup]="operationTypeForm" (ngSubmit)="submitOperationType()">
+        <app-field label="Название типа операции" class="quick-form__field">
+          <input type="text" appFieldControl formControlName="name" placeholder="Например, «Зарплата»" />
+        </app-field>
+        <app-field label="Вид поведения" class="quick-form__field">
+          <select appFieldControl formControlName="behaviorKindId">
+            <option value="" disabled>— вид поведения —</option>
+            @for (kind of creatableBehaviorKinds(); track kind.id) {
+              <option [value]="kind.id">{{ kind.name }}</option>
+            }
+          </select>
+        </app-field>
+        <app-button
+          type="submit"
+          variant="primary"
+          class="quick-form__submit app-field-align"
+          [disabled]="operationTypeForm.invalid"
+          [loading]="isSubmittingOperationType()"
+          loadingText="Сохранение…"
+        >
+          Добавить
+        </app-button>
+      </form>
+
+      @if (operationTypes().length === 0) {
+        <app-empty-state title="Типы операций пока не добавлены" description="Добавьте первый тип, чтобы использовать его при создании операции." />
+      } @else {
+          <table class="app-table ref-table">
+            <thead>
+              <tr>
+                <th>Название</th>
+                <th>Вид поведения</th>
+                <th>Статус</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (item of operationTypes(); track item.id) {
+                <tr>
+                  <td>{{ item.name }}</td>
+                  <td>{{ behaviorKindName(item.behaviorKindId) }}</td>
+                  <td>
+                    <app-badge [tone]="item.isActive ? 'success' : 'neutral'">
+                      {{ item.isActive ? 'Активен' : 'Деактивирован' }}
+                    </app-badge>
+                  </td>
+                  <td class="ref-table__actions">
+                    @if (item.isActive) {
+                      <app-button variant="ghost" (click)="deactivateOperationType(item)">Деактивировать</app-button>
+                    }
+                    <app-button variant="danger" (click)="deleteOperationType(item)">Удалить</app-button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+      }
+    </div>
+
+    <div
+      class="tab-panel"
+      [id]="tabsRef.panelElementId('currencies')"
+      role="tabpanel"
+      tabindex="0"
+      [attr.aria-labelledby]="tabsRef.tabElementId('currencies')"
+      [hidden]="activeTab() !== 'currencies'"
+    >
+      <form class="quick-form" [formGroup]="currencyForm" (ngSubmit)="submitCurrency()">
+        <div class="quick-form__field">
+          <label class="app-field__label" for="currencyQuickAddControl">Валюта</label>
+          <app-currency-select id="currencyQuickAddControl" [currencies]="availableIsoCurrencies()" formControlName="isoCode" />
+        </div>
+        <app-button
+          type="submit"
+          variant="primary"
+          class="quick-form__submit app-field-align"
+          [disabled]="currencyForm.invalid"
+          [loading]="isSubmittingCurrency()"
+          loadingText="Сохранение…"
+        >
+          Добавить
+        </app-button>
+      </form>
+
+      @if (currencies().length === 0) {
+        <app-empty-state title="Валюты пока не добавлены" description="Добавьте первую валюту, чтобы использовать её при создании кошелька." />
+      } @else {
+          <table class="app-table ref-table">
+            <thead>
+              <tr>
+                <th>Код</th>
+                <th>Название</th>
+                <th>Статус</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (item of currencies(); track item.id) {
+                <tr>
+                  <td>{{ item.code }}</td>
+                  <td>{{ item.name }}</td>
+                  <td>
+                    <app-badge [tone]="item.isActive ? 'success' : 'neutral'">
+                      {{ item.isActive ? 'Активна' : 'Деактивирована' }}
+                    </app-badge>
+                  </td>
+                  <td class="ref-table__actions">
+                    @if (item.isActive) {
+                      <app-button variant="ghost" (click)="deactivateCurrency(item)">Деактивировать</app-button>
+                    }
+                    <app-button variant="danger" (click)="deleteCurrency(item)">Удалить</app-button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+      }
+    </div>
+  }
+</div>

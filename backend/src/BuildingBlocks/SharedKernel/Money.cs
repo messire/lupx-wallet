@@ -1,8 +1,8 @@
 namespace LupexWallet.SharedKernel;
 
 /// <summary>
-/// Value object «сумма + валюта» (ddd-model.md, §4). Произвольная точность decimal
-/// (ADR-0005) — округление только на уровне отображения, не здесь.
+/// Value object combining an amount and a currency (ddd-model.md, §4). Uses arbitrary
+/// decimal precision (ADR-0005) — rounding happens only at the presentation layer, not here.
 /// </summary>
 public readonly record struct Money(decimal Amount, CurrencyId CurrencyId)
 {

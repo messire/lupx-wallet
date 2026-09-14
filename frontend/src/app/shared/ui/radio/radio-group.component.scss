@@ -1,0 +1,9 @@
+:host {
+  display: block;
+}
+
+.app-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lw-space-2);
+}

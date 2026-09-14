@@ -1,0 +1,334 @@
+<div class="page">
+  <header class="page__header">
+    <h1 class="page__title">Кошельки</h1>
+  </header>
+
+  @if (successMessage(); as message) {
+    <app-toast class="page-toast" [message]="message" tone="success" (dismissed)="successMessage.set(null)" />
+  }
+
+  <section class="toolbar">
+    <app-button variant="primary" (click)="openForm()" [disabled]="isFormOpen()">Добавить кошелек</app-button>
+    <app-checkbox
+      label="Показывать архивные"
+      [ngModel]="showArchived()"
+      [ngModelOptions]="{ standalone: true }"
+      (ngModelChange)="toggleShowArchived()"
+    />
+  </section>
+
+  @if (isFormOpen()) {
+    <app-card class="wallet-form-card form-card">
+      <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+        <app-field label="Название" [required]="true">
+          <input appFieldControl type="text" formControlName="name" />
+        </app-field>
+
+        <app-field label="Тип кошелька" [required]="true">
+          @if (walletTypesLoadError(); as error) {
+            <app-error-state [message]="error" retryLabel="Повторить" (retry)="loadWalletTypes()" />
+          } @else {
+            <select appFieldControl formControlName="walletTypeId" [disabled]="walletTypesLoading()">
+              @if (walletTypesLoading()) {
+                <option value="" disabled>Загрузка…</option>
+              } @else {
+                <option value="" disabled>— выберите тип —</option>
+                @for (walletType of walletTypes(); track walletType.id) {
+                  <option [value]="walletType.id">{{ walletType.name }}</option>
+                }
+              }
+            </select>
+          }
+
+          <app-button variant="ghost" type="button" (click)="toggleAddWalletType()">
+            {{ isAddingWalletType() ? 'Отмена' : '+ добавить тип' }}
+          </app-button>
+
+          @if (isAddingWalletType()) {
+            <div class="quick-add">
+              <app-field label="Название нового типа" class="quick-add__field">
+                <input
+                  appFieldControl
+                  type="text"
+                  placeholder="Название типа"
+                  [value]="newWalletTypeName()"
+                  (input)="newWalletTypeName.set($any($event.target).value)"
+                />
+              </app-field>
+              <app-button
+                variant="secondary"
+                type="button"
+                class="app-field-align"
+                [disabled]="isSubmittingWalletType()"
+                [loading]="isSubmittingWalletType()"
+                loadingText="Сохранение…"
+                (click)="submitNewWalletType()"
+              >
+                Добавить
+              </app-button>
+            </div>
+            @if (addWalletTypeError(); as error) {
+              <p class="form-error" role="alert">{{ error }}</p>
+            }
+          }
+        </app-field>
+
+        <app-field label="Валюта" [required]="true">
+          @if (currenciesLoadError(); as error) {
+            <app-error-state [message]="error" retryLabel="Повторить" (retry)="loadCurrencies()" />
+          } @else {
+            <select appFieldControl formControlName="currencyId" [disabled]="currenciesLoading()">
+              @if (currenciesLoading()) {
+                <option value="" disabled>Загрузка…</option>
+              } @else {
+                <option value="" disabled>— выберите валюту —</option>
+                @for (currency of currencies(); track currency.id) {
+                  <option [value]="currency.id">{{ currency.code }} — {{ currency.name }}</option>
+                }
+              }
+            </select>
+          }
+
+          <app-button variant="ghost" type="button" (click)="toggleAddCurrency()">
+            {{ isAddingCurrency() ? 'Отмена' : '+ добавить валюту' }}
+          </app-button>
+
+          @if (isAddingCurrency()) {
+            <div class="quick-add">
+              <app-field #newCurrencyField label="Новая валюта" class="quick-add__field">
+                <app-currency-select
+                  [id]="newCurrencyField.controlId()"
+                  [currencies]="availableIsoCurrencies()"
+                  [formControl]="newCurrencyIsoCode"
+                />
+              </app-field>
+              <app-button
+                variant="secondary"
+                type="button"
+                class="app-field-align"
+                [disabled]="!newCurrencyIsoCode.value || isSubmittingCurrency()"
+                [loading]="isSubmittingCurrency()"
+                loadingText="Сохранение…"
+                (click)="submitNewCurrency()"
+              >
+                Добавить
+              </app-button>
+            </div>
+            @if (addCurrencyError(); as error) {
+              <p class="form-error" role="alert">{{ error }}</p>
+            }
+          }
+        </app-field>
+
+        <app-field label="Начальный баланс" [required]="true" [error]="initialBalanceError()">
+          <input appFieldControl type="text" inputmode="decimal" placeholder="0.00" formControlName="initialBalanceAmount" />
+        </app-field>
+
+        <app-field label="Дата начала учета" [required]="true">
+          <input appFieldControl type="date" formControlName="accountingStartDate" />
+        </app-field>
+
+        @if (submitError()) {
+          <p class="form-error" role="alert">{{ submitError() }}</p>
+        }
+
+        <div class="form-actions">
+          <app-button type="submit" variant="primary" [disabled]="form.invalid" [loading]="isSubmitting()" loadingText="Сохранение…">
+            Создать
+          </app-button>
+          <app-button type="button" variant="secondary" (click)="cancelForm()">Отмена</app-button>
+        </div>
+      </form>
+    </app-card>
+  }
+
+  @if (editingWallet(); as wallet) {
+    <app-card class="wallet-form-card form-card">
+      <form [formGroup]="editForm" (ngSubmit)="submitEdit()" novalidate>
+        <h2 class="wallet-form-card__title">Изменить кошелек «{{ wallet.name }}»</h2>
+
+        <app-field label="Название" [required]="true">
+          <input appFieldControl type="text" formControlName="name" />
+        </app-field>
+
+        <app-field label="Тип кошелька" [required]="true" [error]="walletTypesLoadError()">
+          <select appFieldControl formControlName="walletTypeId">
+            @for (walletType of walletTypes(); track walletType.id) {
+              <option [value]="walletType.id">{{ walletType.name }}</option>
+            }
+          </select>
+        </app-field>
+
+        <app-field label="Описание">
+          <input appFieldControl type="text" formControlName="purposeDescription" />
+        </app-field>
+
+        <div class="checkbox-field">
+          <app-checkbox label="Учитывать в общей сумме" formControlName="includeInTotal" />
+          @if (wallet.isPrimary) {
+            <p class="hint">У основного кошелька этот параметр всегда включен.</p>
+          }
+        </div>
+
+        <app-field label="Порядок отображения">
+          <input appFieldControl type="number" formControlName="displayOrder" />
+        </app-field>
+
+        <app-field label="Цвет">
+          <input appFieldControl type="text" placeholder="#RRGGBB" formControlName="color" />
+        </app-field>
+
+        <app-field label="Иконка">
+          <input appFieldControl type="text" formControlName="icon" />
+        </app-field>
+
+        @if (editError()) {
+          <p class="form-error" role="alert">{{ editError() }}</p>
+        }
+
+        <div class="form-actions">
+          <app-button
+            type="submit"
+            variant="primary"
+            [disabled]="editForm.invalid"
+            [loading]="isEditSubmitting()"
+            loadingText="Сохранение…"
+          >
+            Сохранить
+          </app-button>
+          <app-button type="button" variant="secondary" (click)="cancelEdit()">Отмена</app-button>
+        </div>
+      </form>
+    </app-card>
+  }
+
+  @if (changingCurrencyWalletId()) {
+    <app-card class="wallet-form-card form-card">
+      <form [formGroup]="currencyForm" (ngSubmit)="submitChangeCurrency()" novalidate>
+        <h2 class="wallet-form-card__title">Сменить валюту</h2>
+
+        <app-field label="Новая валюта" [required]="true" [error]="currenciesLoadError()">
+          <select appFieldControl formControlName="currencyId">
+            @for (currency of currencies(); track currency.id) {
+              <option [value]="currency.id">{{ currency.code }} — {{ currency.name }}</option>
+            }
+          </select>
+        </app-field>
+
+        @if (currencyError()) {
+          <p class="form-error" role="alert">{{ currencyError() }}</p>
+        }
+
+        <div class="form-actions">
+          <app-button
+            type="submit"
+            variant="primary"
+            [disabled]="currencyForm.invalid"
+            [loading]="isCurrencySubmitting()"
+            loadingText="Сохранение…"
+          >
+            Сменить
+          </app-button>
+          <app-button type="button" variant="secondary" (click)="cancelChangeCurrency()">Отмена</app-button>
+        </div>
+      </form>
+    </app-card>
+  }
+
+  @if (actionError()) {
+    <p class="form-error" role="alert">{{ actionError() }}</p>
+  }
+
+  @if (isLoading()) {
+    <app-loading-state label="Загрузка…">
+      <div class="wallets-grid" aria-hidden="true">
+        @for (placeholder of [0, 1, 2]; track placeholder) {
+          <div class="wallet-card-skeleton">
+            <app-skeleton width="60%" height="22px" />
+            <app-skeleton width="40%" height="14px" />
+            <app-skeleton width="70%" height="28px" />
+            <app-skeleton width="90%" height="14px" />
+          </div>
+        }
+      </div>
+    </app-loading-state>
+  } @else if (loadError()) {
+    <app-error-state [message]="loadError()!" (retry)="loadWallets()" />
+  } @else if (wallets().length === 0) {
+    <app-empty-state title="Кошельков пока нет" description="Создайте первый кошелек, чтобы начать учет">
+      <app-button variant="primary" (click)="openForm()">Добавить кошелек</app-button>
+    </app-empty-state>
+  } @else {
+    <div class="wallets-grid">
+      @for (wallet of wallets(); track wallet.id) {
+        <app-card
+          class="wallet-card"
+          [class.wallet-card--archived]="wallet.isArchived"
+          [class.wallet-card--selected]="isWalletSelected(wallet.id)"
+        >
+          <div class="wallet-card__header">
+            <h3 class="wallet-card__name">{{ wallet.name }}</h3>
+            @if (isWalletSelected(wallet.id)) {
+              <span class="wallet-card__selected-flag">Открыто для редактирования</span>
+            }
+          </div>
+
+          <div class="wallet-card__meta">
+            <span class="wallet-card__currency">{{ currencyCode(wallet.currencyId) }}</span>
+            @if (wallet.isPrimary) {
+              <app-badge tone="accent">Основной</app-badge>
+            } @else if (wallet.isArchived) {
+              <app-badge tone="neutral">Архивный</app-badge>
+            }
+          </div>
+
+          <p class="wallet-card__balance">{{ formatMoney(wallet.currentBalance, currencyCode(wallet.currencyId)) }}</p>
+
+          <div class="wallet-card__actions">
+            <app-button variant="ghost" type="button" (click)="openEditForm(wallet)">Изменить</app-button>
+            @if (!wallet.isPrimary) {
+              <app-button variant="ghost" type="button" (click)="setPrimary(wallet)">Сделать основным</app-button>
+            }
+            @if (!wallet.isArchived) {
+              <app-button variant="secondary" type="button" (click)="requestConfirm(wallet.id, 'archive')">
+                Архивировать
+              </app-button>
+            }
+            <app-button variant="ghost" type="button" (click)="openChangeCurrency(wallet)">Сменить валюту</app-button>
+            <app-button variant="danger" type="button" (click)="requestConfirm(wallet.id, 'delete')">Удалить</app-button>
+            <a class="wallet-card__link" [routerLink]="['/audit']" [queryParams]="{ entityType: 'Wallet', entityId: wallet.id }">
+              История изменений
+            </a>
+          </div>
+        </app-card>
+      }
+    </div>
+  }
+
+  <app-dialog
+    [open]="pendingConfirm() !== null"
+    [titleText]="pendingConfirm()?.action === 'archive' ? 'Архивировать кошелек' : 'Удалить кошелек'"
+    size="sm"
+    (dismissRequested)="cancelConfirm()"
+    (closed)="cancelConfirm()"
+  >
+    @if (pendingConfirm(); as pending) {
+      @if (walletById(pending.walletId); as pendingWallet) {
+        @if (pending.action === 'archive') {
+          <p>
+            Кошелек «{{ pendingWallet.name }}» будет архивирован и перестанет участвовать в новых операциях. История по нему
+            останется доступной для просмотра.
+          </p>
+        } @else {
+          <p>Кошелек «{{ pendingWallet.name }}» будет удален без возможности восстановления.</p>
+        }
+      }
+    }
+    <div dialogActions>
+      <app-button variant="secondary" type="button" (click)="cancelConfirm()">Отмена</app-button>
+      <app-button variant="danger" type="button" (click)="confirmPendingAction()">
+        {{ pendingConfirm()?.action === 'archive' ? 'Архивировать' : 'Удалить' }}
+      </app-button>
+    </div>
+  </app-dialog>
+</div>

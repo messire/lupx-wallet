@@ -104,7 +104,7 @@ describe('amountValidator', () => {
   });
 });
 
-// Реализация formatAmount разделяет разряды неразрывным пробелом (U+00A0), не обычным.
+// formatAmount separates thousands with a non-breaking space (U+00A0), not a regular one.
 const NBSP = ' ';
 
 describe('formatAmount', () => {

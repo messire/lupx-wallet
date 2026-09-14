@@ -1,4 +1,4 @@
-// Соответствует docs/api/openapi.yaml (схемы Transfer, TransferCreateRequest, TransferPage).
+// Mirrors docs/api/openapi.yaml (Transfer, TransferCreateRequest, TransferPage schemas).
 
 import { CursorPage } from '../../shared/pagination/cursor-page';
 import { Money } from '../../shared/money/money';
@@ -16,8 +16,8 @@ export interface Transfer {
 
 export type TransferPage = CursorPage<Transfer>;
 
-/** TransferCreateRequest (openapi.yaml) — amount строкой без валюты: валюта берется
- *  из кошельков (UC-16, оба кошелька обязаны быть одной валюты). */
+/** TransferCreateRequest (openapi.yaml) — amount is a string without a currency: the
+ *  currency comes from the wallets (UC-16, both wallets must share the same currency). */
 export interface CreateTransferRequest {
   sourceWalletId: string;
   targetWalletId: string;

@@ -1,5 +1,5 @@
-// Соответствует docs/api/openapi.yaml (схемы ReferenceItem, OperationType, Currency,
-// OperationBehaviorKind и их *Page варианты).
+// Mirrors docs/api/openapi.yaml (ReferenceItem, OperationType, Currency,
+// OperationBehaviorKind schemas and their *Page variants).
 
 import { CursorPage } from '../../shared/pagination/cursor-page';
 

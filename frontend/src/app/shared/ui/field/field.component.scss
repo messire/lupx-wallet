@@ -1,0 +1,115 @@
+/* encapsulation: None (см. field.component.ts) — правила ниже глобальны по всему
+   приложению, поэтому классы используют специфичный префикс `app-field__`.
+   :host всё равно попадает под ViewEncapsulation.None и остаётся тег-селектором
+   app-field, поэтому здесь можно и нужно задать блочное отображение по умолчанию. */
+app-field {
+  display: block;
+}
+
+.app-field {
+  margin-bottom: var(--lw-space-4);
+}
+
+.app-field__label {
+  display: block;
+  margin-bottom: var(--lw-space-2);
+  font-size: var(--lw-type-small);
+  color: var(--lw-text-secondary);
+}
+
+.app-field__required {
+  color: var(--lw-danger);
+}
+
+.app-field__hint {
+  margin: var(--lw-space-2) 0 0;
+  font-size: var(--lw-type-small);
+  color: var(--lw-text-muted);
+}
+
+.app-field__error {
+  margin: var(--lw-space-2) 0 0;
+  font-size: var(--lw-type-small);
+  color: var(--lw-danger);
+}
+
+.app-field--disabled .app-field__label {
+  color: var(--lw-disabled-text);
+}
+
+.app-field__input {
+  display: block;
+  width: 100%;
+  min-height: var(--lw-control-height, 44px);
+  height: 48px;
+  padding: 11px 14px;
+  border: 1px solid var(--lw-control-border);
+  border-radius: var(--lw-radius-sm);
+  background: var(--lw-field);
+  color: var(--lw-text);
+  font: inherit;
+  box-shadow: inset 0 2px 8px rgb(13 17 53 / 12%);
+  transition:
+    border-color var(--lw-motion-fast) ease-out,
+    box-shadow var(--lw-motion-fast) ease-out;
+}
+
+.app-field__input::placeholder {
+  color: var(--lw-text-muted);
+}
+
+.app-field__input:hover:not(:disabled):not(:focus) {
+  border-color: var(--lw-accent-secondary);
+}
+
+.app-field__input:focus-visible {
+  outline: 2px solid var(--lw-accent);
+  outline-offset: 2px;
+}
+
+.app-field__input[aria-invalid='true'] {
+  border-color: var(--lw-danger);
+}
+
+.app-field__input:disabled {
+  background: var(--lw-disabled-bg);
+  color: var(--lw-disabled-text);
+  cursor: not-allowed;
+}
+
+.app-field__input:read-only:not(:disabled) {
+  background: var(--lw-glass-strong);
+  cursor: text;
+}
+
+textarea.app-field__input {
+  height: auto;
+  min-height: 96px;
+  resize: vertical;
+  field-sizing: content;
+}
+
+select.app-field__input {
+  appearance: none;
+  padding-right: 40px;
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  /* Цвет стрелки в data URI не может ссылаться на CSS-переменные; #e0dbf4 повторяет
+     значение --lw-text-secondary на момент утверждения UI kit v0.2. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23e0dbf4' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+select.app-field__input option {
+  background: var(--lw-surface);
+  color: var(--lw-text);
+}
+
+/* Утилита для элемента без своего label (обычно кнопка), стоящего в одной строке
+   рядом с app-field: выравнивает его верхний край по инпуту, а не по label над
+   ним. Высота строки label равна её собственному font-size (--lw-type-small)
+   при line-height ~1.4 плюс отступ под ней (--lw-space-2) — то же самое
+   вычисление, что и в самом app-field, вынесенное сюда один раз вместо
+   повторения магического числа в каждом feature-компоненте. */
+.app-field-align {
+  margin-top: calc(var(--lw-type-small) * 1.4 + var(--lw-space-2));
+}

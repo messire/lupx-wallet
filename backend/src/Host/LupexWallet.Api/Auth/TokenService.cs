@@ -9,9 +9,9 @@ namespace LupexWallet.Api.Auth;
 public sealed record IssuedToken(string Token, DateTimeOffset ExpiresAt);
 
 /// <summary>
-/// Выпуск JWT после успешной проверки единого пароля (POST /api/v1/auth/login,
-/// docs/api/openapi.yaml). Токен не несет ролей/прав — приложение однопользовательское,
-/// сам факт валидного токена означает полный доступ.
+/// Issues a JWT after successful verification of the single password (POST
+/// /api/v1/auth/login, docs/api/openapi.yaml). The token carries no roles/claims — the
+/// application is single-user, so a valid token alone grants full access.
 /// </summary>
 public sealed class TokenService(IOptions<AuthOptions> options)
 {

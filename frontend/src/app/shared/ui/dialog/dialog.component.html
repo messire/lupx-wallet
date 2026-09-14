@@ -1,0 +1,18 @@
+<dialog
+  #dialogEl
+  class="app-dialog"
+  [class.app-dialog--sm]="size() === 'sm'"
+  [class.app-dialog--md]="size() === 'md'"
+  [class.app-dialog--lg]="size() === 'lg'"
+  [attr.aria-labelledby]="titleId"
+  (cancel)="onCancel($event)"
+  (close)="onClose()"
+>
+  <h2 class="app-dialog__title" [id]="titleId">{{ titleText() }}</h2>
+  <div class="app-dialog__body">
+    <ng-content></ng-content>
+  </div>
+  <div class="app-dialog__actions">
+    <ng-content select="[dialogActions]"></ng-content>
+  </div>
+</dialog>

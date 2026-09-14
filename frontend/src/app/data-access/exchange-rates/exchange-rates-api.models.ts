@@ -1,16 +1,16 @@
-// Соответствует docs/api/openapi.yaml (схемы ExchangeRateQuote, LatestExchangeRates).
-// ExchangeRateQuote хранит только id валют (docs/PROGRESS.md, W1.1) — код валюты для
-// отображения подтягивается отдельно через ReferenceDataApiService (/currencies).
+// Mirrors docs/api/openapi.yaml (ExchangeRateQuote, LatestExchangeRates schemas).
+// ExchangeRateQuote only stores currency ids — the display currency code is
+// fetched separately via ReferenceDataApiService (/currencies).
 
 export interface ExchangeRateQuote {
   fromCurrencyId: string;
   toCurrencyId: string;
-  /** Decimal как строка (ADR-0005) — не приводить к number. */
+  /** Decimal as a string (ADR-0005) — do not cast to number. */
   rate: string;
 }
 
 export interface LatestExchangeRates {
-  /** null, если ни одно обновление ещё не было успешным (UC-10). */
+  /** null if no update has succeeded yet (UC-10). */
   lastSuccessfulUpdate: string | null;
   rates: ExchangeRateQuote[];
 }

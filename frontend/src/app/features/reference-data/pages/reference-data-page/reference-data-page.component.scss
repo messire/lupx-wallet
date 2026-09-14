@@ -1,0 +1,47 @@
+app-tabs {
+  margin-bottom: var(--lw-space-6);
+}
+
+/* Без :not([hidden]) `display: flex` здесь перекрывал бы браузерное
+   `[hidden] { display: none }` — авторские стили всегда побеждают стили
+   браузера по умолчанию независимо от специфичности, поэтому все три панели
+   были бы видны одновременно, а не только активная (см. тот же баг в
+   dialog.component.scss). */
+.tab-panel:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lw-space-4);
+}
+
+.tab-panel:focus-visible {
+  outline: 2px solid var(--lw-accent);
+  outline-offset: 3px;
+}
+
+.quick-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--lw-space-3);
+  padding: var(--lw-space-4) var(--lw-space-6);
+  border: 1px solid var(--lw-border);
+  border-top-color: var(--lw-border-light);
+  border-radius: var(--lw-radius-md);
+  background: var(--lw-glass);
+}
+
+.quick-form__field {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.quick-form__submit {
+  /* Выравнивание по инпуту, а не по label — см. .app-field-align в field.component.scss. */
+  flex: 0 0 auto;
+}
+
+.ref-table__actions {
+  display: flex;
+  gap: var(--lw-space-2);
+  justify-content: flex-end;
+}

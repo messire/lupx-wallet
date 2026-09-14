@@ -3,8 +3,8 @@ import { inject } from '@angular/core';
 import { AuthService } from './auth.service';
 
 /**
- * Прикладывает Authorization: Bearer <token> ко всем запросам, кроме /auth/login
- * (единственного анонимного эндпоинта — docs/api/openapi.yaml).
+ * Attaches Authorization: Bearer <token> to all requests except /auth/login
+ * (the only anonymous endpoint — docs/api/openapi.yaml).
  */
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   if (req.url.includes('/auth/login')) {

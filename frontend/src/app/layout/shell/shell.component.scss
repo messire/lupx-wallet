@@ -1,20 +1,33 @@
 .shell {
   min-height: 100vh;
-  background: var(--color-background);
+  background: var(--lw-bg);
 }
 
+/* Header — полноширинная стеклянная панель (ui-kit.md §5 «Навигация и topbar»).
+   Не app-card: карточка предполагает изолированную поверхность контента с
+   собственными краями/тенью по всему периметру, а header — layout-контейнер на
+   всю ширину экрана, поэтому токены --lw-glass/--lw-blur/--lw-shadow/--lw-border-light
+   применены к нему напрямую, как допускает задача. */
 .shell-header {
-  position: relative;
+  position: sticky;
+  top: 0;
+  isolation: isolate;
+  z-index: 30;
   display: flex;
   align-items: center;
-  gap: 1.5rem;
-  padding: 0.85rem 1.5rem;
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border-light);
+  gap: var(--lw-space-6);
+  min-height: 64px;
+  padding: var(--lw-space-3) var(--lw-space-8);
+  background: var(--lw-glass);
+  backdrop-filter: blur(var(--lw-blur));
+  border-bottom: 1px solid var(--lw-border);
+  border-top: 1px solid var(--lw-border-light);
+  box-shadow: var(--lw-shadow);
 
   .brand {
-    font-weight: 700;
-    color: var(--color-primary);
+    font-weight: 500;
+    font-size: var(--lw-type-section);
+    color: var(--lw-text);
     white-space: nowrap;
   }
 }
@@ -30,19 +43,25 @@
   margin-left: auto;
   padding: 0;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--lw-radius-sm);
   background: transparent;
   cursor: pointer;
+  transition: background var(--lw-motion-fast) ease-out;
 
   &:hover {
-    background: var(--color-secondary-bg);
+    background: var(--lw-accent-soft);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--lw-accent);
+    outline-offset: 2px;
   }
 
   &-bar {
     width: 22px;
     height: 2px;
     margin: 0 auto;
-    background: var(--color-secondary-text);
+    background: var(--lw-text-secondary);
     border-radius: 1px;
   }
 }
@@ -51,23 +70,34 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.25rem;
+  gap: var(--lw-space-1);
   flex: 1;
 
   a {
     padding: 0.4rem 0.7rem;
-    border-radius: var(--radius-sm);
-    color: var(--color-secondary-text);
+    border-radius: var(--lw-radius-sm);
+    color: var(--lw-text-secondary);
     text-decoration: none;
-    font-size: 0.9rem;
+    font-size: var(--lw-type-small);
+    transition:
+      background var(--lw-motion-fast) ease-out,
+      color var(--lw-motion-fast) ease-out;
 
     &:hover {
-      background: var(--color-secondary-bg);
+      background: var(--lw-accent-soft);
     }
 
+    &:focus-visible {
+      outline: 2px solid var(--lw-accent);
+      outline-offset: 2px;
+    }
+
+    // Активный раздел: мягкая лавандовая заливка + маркер (ui-kit.md §5).
     &.active {
-      background: var(--color-primary);
-      color: var(--color-primary-contrast);
+      background: var(--lw-accent-soft);
+      color: var(--lw-text);
+      font-weight: 500;
+      box-shadow: inset 0 -2px 0 var(--lw-accent-secondary);
     }
   }
 
@@ -96,10 +126,11 @@
     flex-direction: column;
     align-items: stretch;
     gap: 0;
-    padding: 0.5rem;
-    background: var(--color-surface);
-    border-bottom: 1px solid var(--color-border-light);
-    box-shadow: 0 8px 16px rgb(0 0 0 / 8%);
+    padding: var(--lw-space-2);
+    background: var(--lw-glass-strong);
+    backdrop-filter: blur(var(--lw-blur));
+    border-bottom: 1px solid var(--lw-border);
+    box-shadow: var(--lw-shadow);
     z-index: 20;
 
     &.open {
@@ -108,14 +139,19 @@
 
     a {
       padding: 0.85rem 1rem;
-      font-size: 1rem;
+      font-size: var(--lw-type-body);
     }
 
+    /* Растягиваем «Выйти» на всю ширину только в мобильном выпадающем меню; на
+       desktop та же кнопка остаётся обычной ширины (margin-left: auto выше) —
+       статический input app-button[fullWidth] не подходит, поведение зависит
+       от media query, а не от состояния компонента. */
     .logout {
-      margin: 0.5rem 0 0;
-      width: 100%;
-      padding: 0.85rem 1rem;
-      text-align: center;
+      margin: var(--lw-space-2) 0 0;
+
+      ::ng-deep .app-button {
+        width: 100%;
+      }
     }
   }
 
@@ -123,33 +159,19 @@
     display: block;
     position: fixed;
     inset: 0;
-    background: rgb(0 0 0 / 30%);
+    background: var(--lw-overlay);
     z-index: 10;
   }
 }
 
+/* Ширина и внешние отступы контента принадлежат одному месту — глобальному
+   `.page` (styles.scss, ui-kit §4), которым уже размечена каждая страница за
+   этим router-outlet. `.shell-content` раньше дублировал владение шириной
+   своим собственным max-width:960px + padding поверх padding самой `.page` —
+   эффективная ширина контента оказывалась 960px вместо положенных 1280px, а
+   горизontal-поля складывались (24px здесь + 32px в `.page`). Раз `.page` уже
+   отвечает за адаптацию под desktop/tablet/mobile, `.shell-content` остаётся
+   чисто семантическим контейнером без собственных размеров/отступов. */
 .shell-content {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 0 1.5rem 2rem;
-}
-
-button {
-  padding: 0.6rem 1rem;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: var(--color-primary);
-  color: var(--color-primary-contrast);
-  font-size: 0.95rem;
-  cursor: pointer;
-
-  &:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-
-  &.secondary {
-    background: var(--color-secondary-bg);
-    color: var(--color-secondary-text);
-  }
+  display: block;
 }

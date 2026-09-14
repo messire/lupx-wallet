@@ -23,27 +23,27 @@ export class WalletsApiService {
     return this.http.post<Wallet>(`${environment.apiBaseUrl}/wallets`, request);
   }
 
-  /** PATCH /wallets/{id} (UC-02). 409 — см. docs/architecture/adr/0002 (не применимо здесь), Q8 (тихое игнорирование includeInTotal, не 409). */
+  /** PATCH /wallets/{id} (UC-02). Q8: includeInTotal is silently ignored for the primary wallet, not a 409. */
   update(id: string, request: UpdateWalletRequest): Observable<Wallet> {
     return this.http.patch<Wallet>(`${environment.apiBaseUrl}/wallets/${id}`, request);
   }
 
-  /** POST /wallets/{id}/archive (UC-03). 409 — основной кошелек нельзя архивировать (Q7). */
+  /** POST /wallets/{id}/archive (UC-03). 409 — the primary wallet cannot be archived (Q7). */
   archive(id: string): Observable<Wallet> {
     return this.http.post<Wallet>(`${environment.apiBaseUrl}/wallets/${id}/archive`, {});
   }
 
-  /** POST /wallets/{id}/set-primary (UC-05). 409 — архивный кошелек нельзя сделать основным. */
+  /** POST /wallets/{id}/set-primary (UC-05). 409 — an archived wallet cannot be made primary. */
   setPrimary(id: string): Observable<Wallet> {
     return this.http.post<Wallet>(`${environment.apiBaseUrl}/wallets/${id}/set-primary`, {});
   }
 
-  /** PUT /wallets/{id}/currency (UC-06). 409 — у кошелька уже есть операции/слепки (Q15). */
+  /** PUT /wallets/{id}/currency (UC-06). 409 — the wallet already has operations/snapshots (Q15). */
   changeCurrency(id: string, request: ChangeWalletCurrencyRequest): Observable<Wallet> {
     return this.http.put<Wallet>(`${environment.apiBaseUrl}/wallets/${id}/currency`, request);
   }
 
-  /** DELETE /wallets/{id} (UC-04). 409 — история операций/слепков ИЛИ кошелек основной (ADR-0002). */
+  /** DELETE /wallets/{id} (UC-04). 409 — operation/snapshot history OR the wallet is primary (ADR-0002). */
   remove(id: string): Observable<void> {
     return this.http.delete<void>(`${environment.apiBaseUrl}/wallets/${id}`);
   }

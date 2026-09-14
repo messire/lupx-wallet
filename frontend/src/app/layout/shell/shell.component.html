@@ -3,6 +3,7 @@
     <span class="brand">LupexWallet</span>
 
     <button
+      #menuToggleButton
       type="button"
       class="menu-toggle"
       aria-controls="shell-nav"
@@ -15,11 +16,13 @@
       <span class="menu-toggle-bar"></span>
     </button>
 
-    <nav id="shell-nav" class="shell-nav" [class.open]="menuOpen()">
+    <nav id="shell-nav" class="shell-nav" [class.open]="menuOpen()" (keydown.escape)="closeMenu()">
       @for (item of navItems; track item.path) {
-        <a [routerLink]="item.path" routerLinkActive="active" (click)="closeMenu()">{{ item.label }}</a>
+        <a [routerLink]="item.path" routerLinkActive="active" [ariaCurrentWhenActive]="'page'" (click)="closeMenu()">{{
+          item.label
+        }}</a>
       }
-      <button type="button" class="secondary logout" (click)="logout()">Выйти</button>
+      <app-button class="logout" variant="ghost" (click)="logout()">Выйти</app-button>
     </nav>
   </header>
 

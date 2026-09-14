@@ -8,8 +8,8 @@ public sealed record LoginRequest(string Password);
 public sealed record LoginResponse(string Token, DateTimeOffset ExpiresAt);
 
 /// <summary>
-/// POST /api/v1/auth/login — единственный не защищенный Bearer-токеном эндпоинт
-/// (docs/api/openapi.yaml, docs/api/api-design.md §"Аутентификация").
+/// POST /api/v1/auth/login — the only endpoint not protected by a Bearer token
+/// (docs/api/openapi.yaml, docs/api/api-design.md, "Authentication" section).
 /// </summary>
 public static class AuthEndpoints
 {

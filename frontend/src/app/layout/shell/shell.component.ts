@@ -1,6 +1,7 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from '../../core/auth/auth.service';
+import { ButtonComponent } from '@shared/ui/button/button.component';
 
 interface NavItem {
   path: string;
@@ -8,17 +9,18 @@ interface NavItem {
 }
 
 /**
- * Единая оболочка авторизованной части приложения: шапка с брендом, навигация
- * между разделами и кнопка выхода (ранее дублировалась внутри wallets.component).
- * Разделы фич монтируются в дочерний <router-outlet> (см. app.routes.ts).
+ * Shared shell for the authenticated part of the app: a header with the brand,
+ * navigation between sections, and a logout button. Feature sections mount into
+ * a nested <router-outlet> (see app.routes.ts).
  *
- * На узких экранах навигация (8 пунктов) сворачивается в выпадающее меню —
- * ширины хватает только на бренд и кнопку-гамбургер, см. shell.component.scss.
+ * On narrow screens the navigation (8 items) collapses into a dropdown menu —
+ * there is only enough width for the brand and the hamburger button, see
+ * shell.component.scss.
  */
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, RouterOutlet],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, ButtonComponent],
   templateUrl: './shell.component.html',
   styleUrl: './shell.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -28,6 +30,15 @@ export class ShellComponent {
   private readonly router = inject(Router);
 
   readonly menuOpen = signal(false);
+
+  /**
+   * The hamburger button stays a native <button> (not app-button) so that
+   * programmatically restoring focus after closing the mobile menu (ui-kit.md §5
+   * "Navigation and topbar") is reliable: `.focus()` is guaranteed to work on a
+   * focusable native element, whereas the host element of the presentational
+   * app-button is not focusable on its own.
+   */
+  private readonly menuToggleButton = viewChild<ElementRef<HTMLButtonElement>>('menuToggleButton');
 
   readonly navItems: NavItem[] = [
     { path: '/wallets', label: 'Кошельки' },
@@ -45,7 +56,12 @@ export class ShellComponent {
   }
 
   closeMenu(): void {
+    if (!this.menuOpen()) {
+      return;
+    }
+
     this.menuOpen.set(false);
+    this.menuToggleButton()?.nativeElement.focus();
   }
 
   logout(): void {

@@ -1,9 +1,9 @@
-// Соответствует docs/api/openapi.yaml (схемы AuditEntry, AuditFieldChange, AuditEntryPage)
-// и docs/database/schema.md (комментарий к audit.audit_entries.entity_type).
+// Mirrors docs/api/openapi.yaml (AuditEntry, AuditFieldChange, AuditEntryPage schemas)
+// and docs/database/schema.md (comment on audit.audit_entries.entity_type).
 
 import { CursorPage } from '../../shared/pagination/cursor-page';
 
-/** Полный список entity_type, поддерживаемых аудитом (docs/database/schema.md). */
+/** Full list of entity_type values supported by audit (docs/database/schema.md). */
 export const AUDIT_ENTITY_TYPES = [
   'Wallet',
   'Operation',

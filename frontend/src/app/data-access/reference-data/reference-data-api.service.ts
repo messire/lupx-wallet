@@ -6,11 +6,10 @@ import { toCursorParams } from '../../shared/pagination/cursor-page';
 import { Currency, CurrencyPage, OperationBehaviorKind, OperationType, OperationTypePage, ReferenceItem, ReferenceItemPage } from './reference-data-api.models';
 
 /**
- * Единая точка HTTP-доступа к справочникам (docs/api/openapi.yaml: /wallet-types,
- * /operation-types, /currencies, /operation-behavior-kinds). Переиспользуется как
- * мини-формами быстрого добавления в features/wallets, так и полноценным экраном
- * управления справочниками features/reference-data (W1.4, docs/PROGRESS.md) — HTTP-вызовы
- * не дублируются ни в одном из потребителей.
+ * Single HTTP access point for reference data (docs/api/openapi.yaml: /wallet-types,
+ * /operation-types, /currencies, /operation-behavior-kinds). Reused both by the quick-add
+ * mini-forms in features/wallets and by the full reference-data management screen in
+ * features/reference-data — no consumer duplicates these HTTP calls.
  */
 @Injectable({ providedIn: 'root' })
 export class ReferenceDataApiService {

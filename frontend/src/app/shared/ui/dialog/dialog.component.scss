@@ -1,0 +1,62 @@
+:host {
+  display: contents;
+}
+
+/* Без [open] в селекторе `display: flex` здесь перекрывал бы браузерное
+   `dialog:not([open]) { display: none }` — авторские стили всегда побеждают
+   стили браузера по умолчанию независимо от специфичности, поэтому диалог был
+   бы виден в потоке страницы постоянно, а не только после showModal(). */
+.app-dialog[open] {
+  display: flex;
+}
+
+.app-dialog {
+  flex-direction: column;
+  gap: var(--lw-space-4);
+  width: calc(100% - 32px);
+  max-height: calc(100dvh - 32px);
+  padding: 28px;
+  border: 1px solid var(--lw-border-light);
+  border-radius: var(--lw-radius-lg);
+  background: var(--lw-surface);
+  color: var(--lw-text);
+  box-shadow: var(--lw-shadow);
+}
+
+.app-dialog::backdrop {
+  background: var(--lw-overlay);
+  backdrop-filter: blur(8px);
+}
+
+.app-dialog--sm {
+  max-width: 440px;
+}
+
+.app-dialog--md {
+  max-width: 560px;
+}
+
+.app-dialog--lg {
+  max-width: 960px;
+}
+
+.app-dialog__title {
+  margin: 0;
+  font-size: var(--lw-type-section);
+  font-weight: 500;
+}
+
+.app-dialog__body {
+  overflow-y: auto;
+}
+
+.app-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--lw-space-3);
+}
+
+.app-dialog__actions:empty {
+  display: none;
+}

@@ -16,9 +16,9 @@ const TOKEN_STORAGE_KEY = 'lupexwallet.auth.token';
 const EXPIRES_AT_STORAGE_KEY = 'lupexwallet.auth.expiresAt';
 
 /**
- * Аутентификация по единому паролю приложения (docs/api/api-design.md, §"Аутентификация").
- * Без регистрации/ролей — успешный логин выдает JWT, который прикладывается ко всем
- * остальным запросам через authInterceptor.
+ * Authentication using a single application-wide password (docs/api/api-design.md,
+ * §"Authentication"). No registration/roles — a successful login issues a JWT,
+ * which is attached to all other requests via authInterceptor.
  */
 @Injectable({ providedIn: 'root' })
 export class AuthService {

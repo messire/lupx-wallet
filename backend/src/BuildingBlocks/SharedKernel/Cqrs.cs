@@ -1,11 +1,11 @@
 namespace LupexWallet.SharedKernel;
 
 /// <summary>
-/// Маркеры «команда» / «запрос» без зависимости от MediatR (Domain-слой не должен видеть
-/// MediatR транзитивно через SharedKernel). Конкретные команды/запросы в Application-слое
-/// модулей реализуют оба интерфейса: и MediatR.IRequest&lt;TResponse&gt; (для диспетчеризации),
-/// и один из этих маркеров (чтобы TransactionBehavior в BuildingBlocks.Infrastructure мог
-/// применяться только к командам, не к запросам).
+/// Command/query markers with no dependency on MediatR (the Domain layer must not see
+/// MediatR transitively through SharedKernel). Concrete commands/queries in modules'
+/// Application layer implement both MediatR.IRequest&lt;TResponse&gt; (for dispatching)
+/// and one of these markers, so TransactionBehavior in BuildingBlocks.Infrastructure
+/// applies only to commands, not queries.
 /// </summary>
 public interface ICommand<out TResponse>
 {

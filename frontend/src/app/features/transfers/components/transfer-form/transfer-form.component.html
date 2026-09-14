@@ -1,52 +1,53 @@
-<form class="entity-form" [formGroup]="form" (ngSubmit)="submit()">
-  <div class="field">
-    <label for="sourceWalletId">Кошелек-источник</label>
-    <select id="sourceWalletId" formControlName="sourceWalletId">
-      <option value="" disabled>— выберите кошелек —</option>
-      @for (wallet of wallets(); track wallet.id) {
-        <option [value]="wallet.id">{{ wallet.name }}</option>
-      }
-    </select>
-  </div>
+<app-card class="form-card">
+  <form class="entity-form" [formGroup]="form" (ngSubmit)="submit()">
+    <app-field label="Кошелек-источник" [error]="sourceWalletError()" [required]="true">
+      <select appFieldControl formControlName="sourceWalletId">
+        <option value="" disabled>— выберите кошелек —</option>
+        @for (wallet of wallets(); track wallet.id) {
+          <option [value]="wallet.id">{{ wallet.name }}</option>
+        }
+      </select>
+    </app-field>
 
-  <div class="field">
-    <label for="targetWalletId">Кошелек-получатель</label>
-    <select id="targetWalletId" formControlName="targetWalletId">
-      <option value="" disabled>— выберите кошелек —</option>
-      @for (wallet of targetWalletOptions(); track wallet.id) {
-        <option [value]="wallet.id">{{ wallet.name }}</option>
-      }
-    </select>
-    @if (form.controls.sourceWalletId.value && targetWalletOptions().length === 0) {
-      <p class="hint">Нет других кошельков с той же валютой (UC-17 — переводы между разными валютами не поддерживаются).</p>
+    <app-field
+      label="Кошелек-получатель"
+      [error]="targetWalletError()"
+      [hint]="
+        form.controls.sourceWalletId.value && targetWalletOptions().length === 0
+          ? 'Нет других кошельков с той же валютой (UC-17 — переводы между разными валютами не поддерживаются).'
+          : null
+      "
+      [required]="true"
+    >
+      <select appFieldControl formControlName="targetWalletId">
+        <option value="" disabled>— выберите кошелек —</option>
+        @for (wallet of targetWalletOptions(); track wallet.id) {
+          <option [value]="wallet.id">{{ wallet.name }}</option>
+        }
+      </select>
+    </app-field>
+
+    <app-field label="Сумма" [error]="amountError()" [required]="true">
+      <input appFieldControl type="text" inputmode="decimal" placeholder="0.00" formControlName="amount" />
+    </app-field>
+
+    <app-field label="Дата" [error]="transferDateError()" [required]="true">
+      <input appFieldControl type="date" formControlName="transferDate" />
+    </app-field>
+
+    @if (form.errors?.['sameWallet'] && form.controls.targetWalletId.touched) {
+      <p class="form-error" role="alert">Кошелек-источник и кошелек-получатель должны различаться.</p>
     }
-  </div>
 
-  <div class="field">
-    <label for="amount">Сумма</label>
-    <input id="amount" type="text" inputmode="decimal" placeholder="0.00" formControlName="amount" />
-    @if (form.controls.amount.errors?.['amount']) {
-      <p class="hint error">Сумма — число с точкой в качестве разделителя (например, 1234.56)</p>
+    @if (errorMessage()) {
+      <p class="form-error" role="alert">{{ errorMessage() }}</p>
     }
-  </div>
 
-  <div class="field">
-    <label for="transferDate">Дата</label>
-    <input id="transferDate" type="date" formControlName="transferDate" />
-  </div>
-
-  @if (form.errors?.['sameWallet']) {
-    <p class="hint error">Кошелек-источник и кошелек-получатель должны различаться.</p>
-  }
-
-  @if (errorMessage()) {
-    <p class="error">{{ errorMessage() }}</p>
-  }
-
-  <div class="form-actions">
-    <button type="submit" [disabled]="form.invalid || isSubmitting()">
-      {{ isSubmitting() ? 'Сохранение…' : 'Создать' }}
-    </button>
-    <button type="button" class="secondary" (click)="onCancel()">Отмена</button>
-  </div>
-</form>
+    <div class="form-actions">
+      <app-button type="submit" variant="primary" [disabled]="form.invalid" [loading]="isSubmitting()" loadingText="Сохранение…">
+        Создать
+      </app-button>
+      <app-button type="button" variant="secondary" (click)="onCancel()">Отмена</app-button>
+    </div>
+  </form>
+</app-card>

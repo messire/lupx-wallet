@@ -1,9 +1,9 @@
 namespace LupexWallet.BuildingBlocks.Infrastructure;
 
 /// <summary>
-/// Один изменённый скаляр сущности, снятый из EF Core ChangeTracker
-/// (см. DispatchDomainEventsInterceptor, ADR-0010). Не зависит от модуля Audit —
-/// общий инфраструктурный тип, которым может воспользоваться любой будущий подписчик,
-/// которому нужен diff old/new, а не только Audit.
+/// A single changed scalar property of an entity, captured from the EF Core ChangeTracker
+/// (see DispatchDomainEventsInterceptor, ADR-0010). Does not depend on the Audit module —
+/// a shared infrastructure type usable by any future subscriber that needs an old/new
+/// diff, not only Audit.
 /// </summary>
 public sealed record EntityFieldChange(string FieldName, string? OldValue, string? NewValue);

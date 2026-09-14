@@ -1,0 +1,67 @@
+/* Login (docs/design/ui-kit.md §2 правило 5, §6 п.1): фон — сохранённый визуальный
+   референс (frontend/public/login-background.png), поверх него один слой стекла
+   (app-card). Затемняющий градиент ниже — не второй слой стекла (нет blur/прозрачной
+   заливки токенами --lw-glass*), а обычное усиление контраста фона под текстом,
+   как в demo-витрине (docs/design/preview.css .hero::before). */
+.login-page {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--lw-space-4);
+  background: #303c83 url('/login-background.png') center 42% / cover no-repeat;
+}
+
+.login-page::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(0deg, rgba(23, 27, 73, 0.78), transparent 55%),
+    linear-gradient(160deg, rgba(23, 27, 73, 0.4), transparent 50%);
+}
+
+.login-card {
+  display: block;
+  width: 100%;
+  max-width: 400px;
+}
+
+/* app-card [padded]="false" — форма входа использует собственный отступ 36/24 px
+   (ui-kit §3 «Внутренний отступ карточки»), отличный от отступа карточки по
+   умолчанию (28/22 px), поэтому отступ задаётся здесь, а не через app-card. */
+.login-form {
+  display: flex;
+  flex-direction: column;
+  padding: 36px;
+}
+
+.login-title {
+  margin: 0 0 var(--lw-space-2);
+  font-size: var(--lw-type-page);
+  font-weight: 400;
+  color: var(--lw-text);
+}
+
+.login-subtitle {
+  margin: 0 0 var(--lw-space-8);
+  color: var(--lw-text-secondary);
+  font-size: var(--lw-type-body);
+}
+
+.login-submit {
+  margin-top: var(--lw-space-2);
+}
+
+@media (max-width: 767px) {
+  .login-form {
+    padding: 24px;
+  }
+
+  .login-subtitle {
+    margin-bottom: var(--lw-space-6);
+  }
+}

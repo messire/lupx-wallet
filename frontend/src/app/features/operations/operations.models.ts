@@ -1,7 +1,7 @@
-// Модель состояния экрана Operations (не часть контракта API — производный вид
-// OperationType, дополненный кодом поведения behaviorKind, для формы/фильтра).
+// Operations screen state model (not part of the API contract — a derived view
+// of OperationType, enriched with the behaviorKind code, for the form/filter).
 
-/** Тип операции, дополненный кодом поведения (behaviorKind) для формы/фильтра. */
+/** Operation type enriched with its behaviorKind code, for the form/filter. */
 export interface OperationTypeOption {
   id: string;
   name: string;

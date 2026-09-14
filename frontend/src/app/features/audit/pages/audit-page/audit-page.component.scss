@@ -1,0 +1,49 @@
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--lw-space-3);
+  margin-bottom: var(--lw-space-6);
+}
+
+.filters__field {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.filters__submit {
+  /* Выравнивание по инпуту, а не по label — см. .app-field-align в field.component.scss. */
+  flex: 0 0 auto;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  border-radius: var(--lw-radius-sm);
+  margin-bottom: var(--lw-space-4);
+}
+
+.audit-table {
+  min-width: 640px;
+
+  /* Столбец «Изменения» может занимать несколько строк списка — фиксированная
+     высота строки из .app-table здесь не подходит, ячейка растёт по контенту. */
+  td {
+    height: auto;
+    padding: var(--lw-space-3) var(--lw-space-4);
+    vertical-align: top;
+  }
+}
+
+.no-changes {
+  color: var(--lw-text-muted);
+}
+
+.changes {
+  margin: 0;
+  padding-left: var(--lw-space-4);
+  font-size: var(--lw-type-small);
+
+  li {
+    margin-bottom: var(--lw-space-1);
+  }
+}

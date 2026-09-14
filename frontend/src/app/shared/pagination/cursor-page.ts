@@ -1,10 +1,9 @@
 import { HttpParams } from '@angular/common/http';
 
 /**
- * Курсорная пагинация (docs/api/openapi.yaml, схема CursorPageMeta) — общий
- * контракт для всех списковых эндпоинтов (Wallets, ReferenceData, Operations,
- * BalanceHistory, ...). Ранее типы дублировались в моделях каждой фичи
- * (см. wallets.models.ts / reference-data.models.ts до этого среза).
+ * Cursor pagination (docs/api/openapi.yaml, CursorPageMeta schema) — the shared
+ * contract for all list endpoints (Wallets, ReferenceData, Operations,
+ * BalanceHistory, ...).
  */
 export interface CursorPageMeta {
   nextCursor: string | null;
@@ -21,7 +20,7 @@ export interface CursorPageOptions {
   limit?: number;
 }
 
-/** Добавляет `cursor`/`limit` к уже собранным `HttpParams` запроса списка. */
+/** Adds `cursor`/`limit` to the already-built `HttpParams` of a list request. */
 export function toCursorParams(options: CursorPageOptions, params: HttpParams = new HttpParams()): HttpParams {
   let result = params;
   if (options.cursor) {
@@ -40,8 +39,8 @@ export interface LoadMoreResult<T> {
 }
 
 /**
- * Хелпер «загрузить ещё»: присоединяет новую страницу к уже загруженным
- * элементам и возвращает обновленное состояние курсора/наличия следующей страницы.
+ * "Load more" helper: appends a new page to the already-loaded items and
+ * returns the updated cursor/has-more-pages state.
  */
 export function appendPage<T>(existingItems: T[], page: CursorPage<T>): LoadMoreResult<T> {
   return {

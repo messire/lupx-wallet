@@ -4,7 +4,7 @@ namespace LupexWallet.Operations.Domain;
 /// Local mirror of ReferenceData.OperationBehaviorKind.Codes for validation inside
 /// Operations.Domain — Domain itself does not depend on ReferenceData; Operations.Application
 /// maps the behavior code (a string from IOperationTypeLookup) to this value before calling
-/// the Operation.Create/Update factory (ADR-0007).
+/// the Operation.Create/Update factory (ADR-0001).
 /// </summary>
 public enum OperationEffectKind
 {

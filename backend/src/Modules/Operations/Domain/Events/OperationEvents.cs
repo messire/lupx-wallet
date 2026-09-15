@@ -5,8 +5,8 @@ namespace LupexWallet.Operations.Domain;
 /// <summary>
 /// Operation/Transfer aggregate events (ddd-model.md, §6). The wallet balance effect is
 /// required for command correctness and is therefore a synchronous contract, not a
-/// subscription to these events (ADR-0007). BalanceHistory is the first real subscriber
-/// (ADR-0008): it reacts to OperationCreated/Updated/Deleted to cascade-recalculate the
+/// subscription to these events (ADR-0001). BalanceHistory is the first real subscriber
+/// (ADR-0003): it reacts to OperationCreated/Updated/Deleted to cascade-recalculate the
 /// balance history from the operation date (OperationDate/PreviousOperationDate — the
 /// earliest affected date) through today (ADR-0003). TransferCreated/TransferDeleted need no
 /// separate subscriber: both transfer legs already raise their own

@@ -54,8 +54,7 @@ input {
   list-style: none;
   background: var(--lw-glass-strong);
   backdrop-filter: blur(var(--lw-blur));
-  border: 1px solid var(--lw-border);
-  border-top-color: var(--lw-border-light);
+  border: 1px solid var(--lw-surface-border);
   border-radius: var(--lw-radius-sm);
   box-shadow: var(--lw-shadow);
 

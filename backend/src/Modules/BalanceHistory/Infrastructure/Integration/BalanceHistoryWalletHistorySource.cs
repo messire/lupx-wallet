@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 namespace LupexWallet.BalanceHistory.Infrastructure;
 
 /// <summary>
-/// ADR-0009, case a — one of two implementations of Wallets.Application.IWalletHistorySource:
+/// ADR-0002, §2 — one of two implementations of Wallets.Application.IWalletHistorySource:
 /// the BalanceHistory data owner. True if the wallet has at least one BalanceSnapshot.
 /// Registered in AddBalanceHistoryModule.
 /// </summary>

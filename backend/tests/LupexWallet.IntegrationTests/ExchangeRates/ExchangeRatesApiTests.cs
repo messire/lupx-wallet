@@ -15,8 +15,8 @@ public sealed record LatestExchangeRatesResponse(DateTimeOffset? LastSuccessfulU
 
 /// <summary>
 /// ExchangeRates API (docs/api/openapi.yaml, тег ExchangeRates) — GET /latest,
-/// POST /refresh, включая 502 при недоступности Frankfurter (ADR-0001 п.6) и пропуск
-/// валюты, не поддерживаемой Frankfurter (ADR-0001, "Последствия"). HTTP-вызов к Frankfurter
+/// POST /refresh, включая 502 при недоступности Frankfurter (ADR-0004 п.6) и пропуск
+/// валюты, не поддерживаемой Frankfurter (ADR-0004, "Последствия"). HTTP-вызов к Frankfurter
 /// подменён через FrankfurterTestableHandler — реального сетевого вызова нет
 /// (docs/PROGRESS.md, W1.1 DoD).
 /// </summary>
@@ -73,7 +73,7 @@ public sealed class ExchangeRatesApiTests(ApiTestFixture fixture) : IntegrationT
         _frankfurterHandler.TestOverride = (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         {
             // Frankfurter отвечает 200, но без запрошенной валюты в "rates" — ровно так себя
-            // ведёт реальный сервис для неподдерживаемого symbols (ADR-0001, "Последствия").
+            // ведёт реальный сервис для неподдерживаемого symbols (ADR-0004, "Последствия").
             Content = new StringContent("""{"amount":1,"base":"EUR","date":"2024-01-01","rates":{}}""", Encoding.UTF8, "application/json"),
         });
     }
@@ -103,14 +103,20 @@ public sealed class ExchangeRatesApiTests(ApiTestFixture fixture) : IntegrationT
         body!.Rates.Should().BeEmpty();
     }
 
-    [Fact]
-    public async Task Refresh_SuccessfulFetch_UpdatesRateAndReflectsInLatest()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Refresh_CatalogCurrencyWithoutWallet_UpdatesRateAndReflectsInLatest(bool deactivate)
     {
         await AuthenticateAsync();
         var primaryCurrency = await Client.CreateCurrencyAsync("EUR", "Евро");
         var secondCurrency = await Client.CreateCurrencyAsync("USD", "Доллар США");
         await Client.CreateWalletAsync(currencyId: primaryCurrency.Id, name: "Основной"); // первый кошелек -> primary
-        await Client.CreateWalletAsync(currencyId: secondCurrency.Id, name: "Второй");
+        if (deactivate)
+        {
+            var deactivateResponse = await Client.PostAsync($"/api/v1/currencies/{secondCurrency.Id}/deactivate", null);
+            deactivateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
         SetSuccessfulRate(0.92m);
 
         var refreshResponse = await Client.PostAsync("/api/v1/exchange-rates/refresh", null);
@@ -165,7 +171,7 @@ public sealed class ExchangeRatesApiTests(ApiTestFixture fixture) : IntegrationT
         var firstBody = await firstRefresh.Content.ReadFromJsonAsync<LatestExchangeRatesResponse>();
         firstBody!.Rates.Should().ContainSingle(r => r.ToCurrencyId == eur.Id);
 
-        // Меняем основной кошелек на GBP — фоновый пересчёт курсов (ADR-0011) в тестах не
+        // Меняем основной кошелек на GBP — фоновый пересчёт курсов (ADR-0004) в тестах не
         // запускается (IHostedService отключены, LupexWalletApiFactory), поэтому это ровно то
         // окно "смена основного кошелька уже произошла, обновление курсов ещё нет", которое
         // и должен закрывать читающий фильтр в GetLatestExchangeRatesQueryHandler.
@@ -209,7 +215,7 @@ public sealed class ExchangeRatesApiTests(ApiTestFixture fixture) : IntegrationT
         secondRefresh.StatusCode.Should().Be(HttpStatusCode.BadGateway);
         var secondBody = await secondRefresh.Content.ReadFromJsonAsync<LatestExchangeRatesResponse>();
         secondBody!.LastSuccessfulUpdate.Should().Be(firstBody!.LastSuccessfulUpdate, "фиксированное требование раздела 2: время последнего успеха не меняется при ошибке");
-        secondBody.Rates.Should().ContainSingle(r => decimal.Parse(r.Rate, CultureInfo.InvariantCulture) == 0.9m, "прежний курс сохраняется при недоступности источника (ADR-0001 п.6)");
+        secondBody.Rates.Should().ContainSingle(r => decimal.Parse(r.Rate, CultureInfo.InvariantCulture) == 0.9m, "прежний курс сохраняется при недоступности источника (ADR-0004 п.6)");
     }
 
     [Fact]

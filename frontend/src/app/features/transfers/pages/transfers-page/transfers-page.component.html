@@ -1,13 +1,16 @@
 <div class="page">
-  <h1>Переводы</h1>
+  <div class="page-heading">
+    <h1>Переводы</h1>
+    <app-button variant="primary" (click)="openCreateForm()">Добавить перевод</app-button>
+  </div>
 
   @if (successMessage(); as message) {
     <app-toast class="page-toast" [message]="message" tone="success" (dismissed)="successMessage.set(null)" />
   }
 
   <app-card class="filters-card">
-    <form class="filters" [formGroup]="filterForm" (ngSubmit)="applyFilters()">
-      <app-field label="Кошелек" class="filters__field">
+    <form class="filters filters--compact" [formGroup]="filterForm" (ngSubmit)="applyFilters()">
+      <app-field label="Кошелек" hint="Учитываются переводы, где кошелек — источник или получатель" class="filters__field">
         <select appFieldControl formControlName="walletId">
           <option value="">— все —</option>
           @for (wallet of wallets(); track wallet.id) {
@@ -23,23 +26,40 @@
     </form>
   </app-card>
 
-  <section class="toolbar">
-    <app-button variant="primary" (click)="openCreateForm()" [disabled]="isFormOpen()">Добавить перевод</app-button>
-  </section>
+  <app-dialog
+    [open]="isFormOpen()"
+    titleText="Новый перевод"
+    size="md"
+    (dismissRequested)="onFormDismissRequested($event)"
+    (closed)="cancelForm()"
+  >
+    @if (isFormOpen()) {
+      <!-- Пересоздаётся при каждом открытии (а не остаётся смонтированным между
+           закрытиями) — иначе форма/её FormGroup сохраняли бы значения и touched-
+           состояние прошлого открытия при следующем открытии. -->
+      <app-transfer-form
+        [wallets]="walletOptions()"
+        [isSubmitting]="isSubmitting()"
+        [errorMessage]="submitError()"
+        (save)="saveTransfer($event)"
+        (cancel)="requestCloseForm()"
+      />
+    }
+  </app-dialog>
 
-  @if (isFormOpen()) {
-    <app-transfer-form
-      [wallets]="walletOptions()"
-      [isSubmitting]="isSubmitting()"
-      [errorMessage]="submitError()"
-      (save)="saveTransfer($event)"
-      (cancel)="cancelForm()"
-    />
-  }
-
-  @if (deleteError()) {
-    <app-error-state [message]="deleteError()!" [showRetry]="false" />
-  }
+  <app-dialog
+    [open]="discardConfirmOpen()"
+    titleText="Отменить изменения?"
+    size="sm"
+    (dismissRequested)="continueEditing()"
+    (closed)="continueEditing()"
+  >
+    <p>Введённые данные будут потеряны.</p>
+    <div dialogActions>
+      <app-button variant="secondary" type="button" (click)="continueEditing()">Продолжить заполнение</app-button>
+      <app-button variant="ghost" type="button" (click)="confirmDiscard()">Отменить изменения</app-button>
+    </div>
+  </app-dialog>
 
   @if (isLoading() && transfers().length === 0) {
     <app-loading-state label="Загрузка…">
@@ -49,6 +69,10 @@
     </app-loading-state>
   } @else if (loadError()) {
     <app-error-state [message]="loadError()!" (retry)="loadTransfers()" />
+  } @else if (transfers().length === 0 && hasActiveFilters()) {
+    <app-empty-state title="По этим условиям ничего не найдено" description="Попробуйте изменить условия или сбросить фильтры">
+      <app-button variant="secondary" (click)="resetFilters()">Сбросить фильтры</app-button>
+    </app-empty-state>
   } @else if (transfers().length === 0) {
     <app-empty-state title="Переводов пока нет" description="Добавьте первый перевод, чтобы учесть перемещение между кошельками">
       <app-button variant="primary" (click)="openCreateForm()">Добавить перевод</app-button>
@@ -70,16 +94,29 @@
             @for (transfer of transfers(); track transfer.id) {
               <tr>
                 <td>{{ transfer.transferDate }}</td>
-                <td>{{ walletName(transfer.sourceWalletId) }}</td>
-                <td class="target-cell">
-                  <span class="target-arrow" aria-hidden="true">→</span>
-                  {{ walletName(transfer.targetWalletId) }}
-                </td>
+                <td class="wallet-col">{{ walletName(transfer.sourceWalletId) }}</td>
+                <td class="wallet-col">{{ walletName(transfer.targetWalletId) }}</td>
                 <td class="amount-col">
-                  <span class="amount">{{ formatMoney(transfer.amount) }}</span>
+                  <span class="money">{{ formatMoney(transfer.amount, walletCurrencyCode(transfer.sourceWalletId)) }}</span>
                 </td>
                 <td class="actions">
-                  <app-button variant="danger" (click)="deleteTransfer(transfer)">Удалить</app-button>
+                  <app-button
+                    variant="ghost"
+                    [iconOnly]="true"
+                    [ariaLabel]="
+                      'Действия с переводом: ' +
+                      walletName(transfer.sourceWalletId) +
+                      ' → ' +
+                      walletName(transfer.targetWalletId) +
+                      ', ' +
+                      formatMoney(transfer.amount, walletCurrencyCode(transfer.sourceWalletId)) +
+                      ', ' +
+                      transfer.transferDate
+                    "
+                    (click)="openRowActions(transfer)"
+                  >
+                    ···
+                  </app-button>
                 </td>
               </tr>
             }
@@ -102,4 +139,57 @@
       </div>
     }
   }
+
+  <!-- screen-spec.md "Переводы": действия строки находятся под «···» (тот же паттерн, что в Operations). -->
+  <app-dialog
+    [open]="pendingRowActionsTransfer() !== null"
+    titleText="Действия с переводом"
+    size="sm"
+    (dismissRequested)="closeRowActions()"
+    (closed)="onRowActionsDialogClosed()"
+  >
+    @if (pendingRowActionsTransfer(); as pending) {
+      <div class="row-actions-list">
+        <app-button variant="danger" type="button" [fullWidth]="true" (click)="deleteFromRowActions(pending)">Удалить перевод</app-button>
+        <a
+          class="row-actions-list__link"
+          [routerLink]="['/audit']"
+          [queryParams]="{ entityType: 'Transfer', entityId: pending.id }"
+          (click)="closeRowActions()"
+        >
+          История изменений
+        </a>
+        @if (isPastDated(pending)) {
+          <p class="metadata">Перевод прошедшей датой удалить нельзя — отредактируйте связанные операции.</p>
+        } @else {
+          <p class="metadata">Удаление пересчитает балансы обоих кошельков.</p>
+        }
+      </div>
+    }
+  </app-dialog>
+
+  <app-dialog
+    [open]="pendingDeleteTransfer() !== null"
+    titleText="Удалить перевод?"
+    size="sm"
+    (dismissRequested)="onDeleteDismissRequested($event)"
+    (closed)="cancelDeleteConfirm()"
+  >
+    @if (pendingDeleteTransfer(); as pending) {
+      <p>
+        Перевод от {{ pending.transferDate }} из «{{ walletName(pending.sourceWalletId) }}» в «{{ walletName(pending.targetWalletId) }}»
+        на сумму {{ formatMoney(pending.amount, walletCurrencyCode(pending.sourceWalletId)) }} будет удалён без возможности восстановления.
+      </p>
+      <p class="metadata">Обе связанные операции будут удалены, балансы двух кошельков пересчитаны. Отменить нельзя.</p>
+    }
+    @if (deleteError()) {
+      <p class="form-error" role="alert">{{ deleteError() }}</p>
+    }
+    <div dialogActions>
+      <app-button variant="secondary" type="button" (click)="cancelDeleteConfirm()" [disabled]="isDeleting()">Отмена</app-button>
+      <app-button variant="danger" type="button" (click)="confirmDeleteTransfer()" [loading]="isDeleting()" loadingText="Удаление…">
+        Удалить
+      </app-button>
+    </div>
+  </app-dialog>
 </div>

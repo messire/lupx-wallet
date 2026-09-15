@@ -50,7 +50,7 @@ public sealed class BalanceSnapshot : IHasDomainEvents
 
     /// <summary>
     /// Recalculates the snapshot value (cascading recalculation, ADR-0003, or the scheduled/
-    /// backfill job, ADR-0004) — the caller (BalanceRecalculationService) does not call this
+    /// backfill job, ADR-0003) — the caller (BalanceRecalculationService) does not call this
     /// method when the new value matches the current one, to avoid extra audit entries when
     /// nothing actually changed.
     /// </summary>

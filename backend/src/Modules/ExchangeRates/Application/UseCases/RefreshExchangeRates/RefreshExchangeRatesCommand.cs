@@ -30,7 +30,7 @@ namespace LupexWallet.ExchangeRates.Application;
 /// and roll back rates already fetched successfully. The handler manages its own atomicity
 /// via IExchangeRatesUnitOfWork.SaveChangesAsync (one call per whole run, not per pair) —
 /// sufficient because the command's side effect is confined to its own DbContext; it does
-/// not need another module's ambient transaction (see ADR-0011 — the command already runs
+/// not need another module's ambient transaction (see ADR-0004 — the command already runs
 /// outside SetPrimaryWallet's transaction; the same principle extends here to its own call).
 /// </summary>
 public sealed record RefreshExchangeRatesCommand(bool IsManualTrigger)

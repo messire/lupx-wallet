@@ -329,7 +329,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
 
         var response = await Client.DeleteAsync($"/api/v1/wallets/{secondary.Id}");
 
-        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "у кошелька уже есть история операций (ADR-0009, случай a)");
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "у кошелька уже есть история операций (ADR-0002, §2)");
     }
 
     [Fact]
@@ -364,7 +364,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
 
         var response = await Client.PutAsJsonAsync($"/api/v1/wallets/{wallet.Id}/currency", new { CurrencyId = newCurrency.Id });
 
-        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "у кошелька уже есть операции (Q15, ADR-0009, случай a)");
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "у кошелька уже есть операции (Q15, ADR-0002, §2)");
     }
 
     private sealed record CursorPageMeta(string? NextCursor, bool HasMore);

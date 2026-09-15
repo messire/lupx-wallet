@@ -56,7 +56,7 @@ public sealed class DeleteOperationCommandHandlerTests
     [Fact]
     public async Task Handle_OperationDatedBeforeToday_ThrowsOperationDeletionNotAllowedExceptionAndDoesNotTouchBalance()
     {
-        // ADR-0009, случай b — решение пользователя от 2026-09-11: дата строго раньше сегодня
+        // Прежнее правило до мягкого удаления (ADR-0002, §3, «Состояние реализации»): дата строго раньше сегодня
         // уже считается отраженной в истории баланса и не подлежит удалению.
         var yesterday = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1);
         var operation = Operation.Create(

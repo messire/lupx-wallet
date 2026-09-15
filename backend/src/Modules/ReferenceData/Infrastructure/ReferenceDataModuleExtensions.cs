@@ -16,7 +16,7 @@ public static class ReferenceDataModuleExtensions
     {
         var connectionString = configuration.GetConnectionString("LupexWallet")
             ?? throw new InvalidOperationException(
-                "Не задана строка подключения ConnectionStrings:LupexWallet — требуется всем модулям (ADR-0006: одна база, схема на модуль).");
+                "Не задана строка подключения ConnectionStrings:LupexWallet — требуется всем модулям (ADR-0001: одна база, схема на модуль).");
 
         services.AddScoped<DispatchDomainEventsInterceptor>();
 

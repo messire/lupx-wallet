@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LupexWallet.ReferenceData.Infrastructure;
 
-/// <summary>Schema "reference_data" (schema.md) — a separate DbContext per module (ADR-0006).</summary>
+/// <summary>Schema "reference_data" (schema.md) — a separate DbContext per module (ADR-0001).</summary>
 public sealed class ReferenceDataDbContext(DbContextOptions<ReferenceDataDbContext> options) : DbContext(options)
 {
     public DbSet<WalletType> WalletTypes => Set<WalletType>();

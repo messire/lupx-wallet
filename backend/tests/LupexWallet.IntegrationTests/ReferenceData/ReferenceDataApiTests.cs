@@ -58,7 +58,7 @@ public sealed class ReferenceDataApiTests(ApiTestFixture fixture) : IntegrationT
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
-    // ---- W2.5, случай c (ADR-0009): isUsed через реальные IReferenceItemUsageProbe ----
+    // ---- W2.5, §4 (ADR-0002): isUsed через реальные IReferenceItemUsageProbe ----
 
     [Fact]
     public async Task DeleteWalletType_UsedByWallet_ReturnsConflict()
@@ -69,7 +69,7 @@ public sealed class ReferenceDataApiTests(ApiTestFixture fixture) : IntegrationT
 
         var response = await Client.DeleteAsync($"/api/v1/wallet-types/{walletType.Id}");
 
-        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "тип кошелька используется существующим кошельком (ADR-0009, случай c)");
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "тип кошелька используется существующим кошельком (ADR-0002, §4)");
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public sealed class ReferenceDataApiTests(ApiTestFixture fixture) : IntegrationT
 
         var response = await Client.DeleteAsync($"/api/v1/operation-types/{incomeType.Id}");
 
-        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "тип операции используется существующей операцией (ADR-0009, случай c)");
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "тип операции используется существующей операцией (ADR-0002, §4)");
     }
 
     [Fact]
@@ -112,7 +112,7 @@ public sealed class ReferenceDataApiTests(ApiTestFixture fixture) : IntegrationT
 
         var response = await Client.DeleteAsync($"/api/v1/currencies/{currency.Id}");
 
-        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "валюта используется существующим кошельком (ADR-0009, случай c)");
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "валюта используется существующим кошельком (ADR-0002, §4)");
     }
 
     [Fact]

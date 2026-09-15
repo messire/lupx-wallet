@@ -10,7 +10,7 @@ namespace LupexWallet.BuildingBlocks.Infrastructure;
 /// SaveChanges calls from multiple DbContexts (the initiating module plus subscribers to
 /// its domain events, e.g. Wallets/BalanceHistory/Audit) commit as a single physical
 /// PostgreSQL transaction — strong consistency instead of eventual consistency
-/// (high-level-architecture.md, §4; ADR-0006).
+/// (high-level-architecture.md, §4; ADR-0001).
 ///
 /// Applies only to commands (ICommand), not queries — reads must not open a transaction.
 /// </summary>

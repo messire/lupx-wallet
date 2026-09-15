@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 namespace LupexWallet.Wallets.Infrastructure;
 
 /// <summary>
-/// ADR-0009, case c — a Wallets-owned implementation of
+/// ADR-0002, §4 — a Wallets-owned implementation of
 /// ReferenceData.Application.IReferenceItemUsageProbe. Checks WalletType/Currency usage in
 /// wallets.wallets via a targeted EXISTS query. OperationType is not relevant here and
 /// returns false. Registered in AddWalletsModule.

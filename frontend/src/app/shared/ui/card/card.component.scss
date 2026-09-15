@@ -6,8 +6,7 @@
   position: relative;
   isolation: isolate;
   min-width: 0;
-  border: 1px solid var(--lw-border);
-  border-top-color: var(--lw-border-light);
+  border: 1px solid var(--lw-surface-border);
   border-radius: var(--lw-radius-md);
   background: var(--lw-glass);
   backdrop-filter: blur(var(--lw-blur));

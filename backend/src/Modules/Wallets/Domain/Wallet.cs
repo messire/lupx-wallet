@@ -165,7 +165,7 @@ public sealed class Wallet : AggregateRoot<WalletId>
         Raise(new WalletCurrencyChanged(Id, oldCurrencyId, newCurrencyId));
     }
 
-    /// <summary>Applies a signed delta to the current balance; invoked via IWalletBalanceGateway (ADR-0007) from Operations commands.</summary>
+    /// <summary>Applies a signed delta to the current balance; invoked via IWalletBalanceGateway (ADR-0001) from Operations commands.</summary>
     public void ApplyBalanceDelta(Money delta)
     {
         if (delta.CurrencyId != CurrencyId)
@@ -180,7 +180,7 @@ public sealed class Wallet : AggregateRoot<WalletId>
 
     /// <summary>
     /// Validates deletion is allowed. <paramref name="hasHistory"/> is computed by the
-    /// Application layer (ADR-0009, IWalletHistorySource), since the aggregate cannot know
+    /// Application layer (ADR-0001, IWalletHistorySource), since the aggregate cannot know
     /// about other modules' Operation/BalanceSnapshot data; IsPrimary is own state, checked
     /// directly.
     /// </summary>

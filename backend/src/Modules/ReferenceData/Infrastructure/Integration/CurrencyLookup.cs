@@ -17,4 +17,9 @@ public sealed class CurrencyLookup(ReferenceDataDbContext dbContext) : ICurrency
             .Where(x => x.IsActive)
             .Select(x => new CurrencyLookupResult(x.Id, x.Code, x.IsActive))
             .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<CurrencyLookupResult>> GetAllAsync(CancellationToken cancellationToken) =>
+        await dbContext.Currencies
+            .Select(x => new CurrencyLookupResult(x.Id, x.Code, x.IsActive))
+            .ToListAsync(cancellationToken);
 }

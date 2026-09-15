@@ -8,8 +8,8 @@ using Microsoft.Extensions.Logging;
 namespace LupexWallet.ExchangeRates.Infrastructure;
 
 /// <summary>
-/// Implements ADR-0001 p.2/3 — daily auto-refresh of rates; a manual refresh resets the
-/// countdown; reacting to PrimaryWalletChanged (ADR-0001 p.5) triggers an out-of-band
+/// Implements ADR-0004 p.2/3 — daily auto-refresh of rates; a manual refresh resets the
+/// countdown; reacting to PrimaryWalletChanged (ADR-0004 p.5) triggers an out-of-band
 /// refresh. Like BalanceHistory.Infrastructure.BalanceSnapshotSchedulerHostedService — a
 /// single run's failure must not bring down the whole host (try/catch in
 /// RunRefreshSafelyAsync).
@@ -45,13 +45,13 @@ public sealed class ExchangeRateRefreshBackgroundService(
             {
                 case ExchangeRateRefreshSignalKind.ManualRefreshCompleted:
                     // Ручное обновление уже выполнено эндпоинтом синхронно — просто
-                    // перезапускаем суточный отсчёт (ADR-0001 п.3).
+                    // перезапускаем суточный отсчёт (ADR-0004 п.3).
                     timer.Reset(DateTimeOffset.UtcNow);
                     break;
 
                 case ExchangeRateRefreshSignalKind.RefreshRequested:
-                    // Реакция на PrimaryWalletChanged (ADR-0001 п.5) — обновление ещё не
-                    // выполнялось, делаем это здесь, вне транзакции SetPrimaryWallet (ADR-0011).
+                    // Реакция на PrimaryWalletChanged (ADR-0004 п.5) — обновление ещё не
+                    // выполнялось, делаем это здесь, вне транзакции SetPrimaryWallet (ADR-0004).
                     await RunRefreshSafelyAsync(isManualTrigger: false, stoppingToken);
                     timer.Reset(DateTimeOffset.UtcNow);
                     break;
@@ -97,7 +97,7 @@ public sealed class ExchangeRateRefreshBackgroundService(
         {
             using var scope = scopeFactory.CreateScope();
 
-            // ADR-0010: этот сервис всегда вызывает RefreshExchangeRatesCommand из
+            // ADR-0006: этот сервис всегда вызывает RefreshExchangeRatesCommand из
             // собственного фонового scope (плановый прогон, старт, реакция на
             // PrimaryWalletChanged) — ручное обновление по кнопке идёт напрямую из HTTP-
             // эндпоинта (ExchangeRatesEndpointsExtensions), в его собственном (User) scope,

@@ -1,17 +1,35 @@
 <div class="page">
-  <h1>Курсы валют</h1>
+  <div class="page-heading">
+    <h1>Курсы валют</h1>
+    <app-button variant="primary" [loading]="isRefreshing()" loadingText="Обновление…" (click)="refresh()">
+      Обновить сейчас
+    </app-button>
+  </div>
 
-  <app-card class="update-bar-card">
-    <div class="update-bar">
-      <span class="update-label">Последнее обновление: {{ lastUpdateLabel() }}</span>
-      <app-button variant="secondary" [loading]="isRefreshing()" loadingText="Обновление…" (click)="refresh()">
-        Обновить сейчас
-      </app-button>
+  @if (successMessage(); as message) {
+    <app-toast class="page-toast" [message]="message" tone="success" (dismissed)="successMessage.set(null)" />
+  }
+
+  <app-card class="rates-status">
+    <div class="rates-status__row">
+      <div>
+        <p class="metadata">Последнее успешное обновление</p>
+        <p>{{ lastUpdateLabel() }}</p>
+        @if (sourceUnavailable(); as message) {
+          <p class="metadata status-note--warning" role="status">{{ message }}</p>
+        }
+      </div>
+      @if (sourceUnavailable()) {
+        <app-badge tone="warning">Источник недоступен</app-badge>
+      }
     </div>
+    @if (primaryCurrencyCode(); as code) {
+      <p class="metadata">Курс показывает, сколько {{ code }} стоит 1 единица валюты.</p>
+    }
   </app-card>
 
-  @if (sourceUnavailable(); as message) {
-    <p class="warning">{{ message }}</p>
+  @if (refreshError(); as message) {
+    <p class="warning" role="status">{{ message }}</p>
   }
 
   @if (isLoading()) {
@@ -22,31 +40,56 @@
     </app-loading-state>
   } @else if (loadError(); as error) {
     <app-error-state [message]="error" (retry)="loadAll()" />
-  } @else if (rows().length === 0) {
+  } @else if (primaryWalletMissing()) {
     <app-empty-state
-      title="Курсы валют ещё не загружены"
-      description="Нажмите «Обновить сейчас», чтобы получить актуальные курсы."
+      title="Основной кошелёк не назначен"
+      description="Курсы валют показываются относительно основного кошелька. Назначьте основной кошелёк на экране «Кошельки», чтобы увидеть курсы."
     />
+  } @else if (rows().length === 0) {
+    @if (sourceUnavailableEmpty(); as message) {
+      <app-empty-state title="Курсов ещё нет" [description]="message">
+        <app-button variant="secondary" [loading]="isRefreshing()" loadingText="Обновление…" (click)="refresh()">
+          Повторить
+        </app-button>
+      </app-empty-state>
+    } @else {
+      <app-empty-state title="Ещё не было" description="Нажмите «Обновить сейчас», чтобы получить актуальные курсы.">
+        <app-button variant="secondary" [loading]="isRefreshing()" loadingText="Обновление…" (click)="refresh()">
+          Обновить сейчас
+        </app-button>
+      </app-empty-state>
+    }
   } @else {
-    <div class="table-scroll" role="region" tabindex="0" aria-label="Таблица курсов валют">
-      <table class="app-table rates-table">
-        <thead>
-          <tr>
-            <th>Валюта</th>
-            <th>Основная валюта</th>
-            <th class="amount-col">Курс</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (row of rows(); track row.fromCurrencyCode + row.toCurrencyCode) {
+    <section class="rates-list" aria-labelledby="rates-heading">
+      <div class="section-heading">
+        <h2 id="rates-heading">К основной валюте</h2>
+        <span class="metadata">{{ primaryCurrencyCode() }}</span>
+      </div>
+      <div
+        class="table-scroll"
+        role="region"
+        tabindex="0"
+        [attr.aria-label]="'Курсы к основной валюте ' + primaryCurrencyCode() + ', таблица с горизонтальной прокруткой'"
+      >
+        <table class="app-table rates-table">
+          <thead>
             <tr>
-              <td>{{ row.fromCurrencyCode }}</td>
-              <td>{{ row.toCurrencyCode }}</td>
-              <td class="amount-col money">{{ row.rate }}</td>
+              <th scope="col">Валюта</th>
+              <th scope="col">Основная валюта</th>
+              <th scope="col" class="amount-col">Курс</th>
             </tr>
-          }
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            @for (row of rows(); track row.fromCurrencyCode + row.toCurrencyCode) {
+              <tr>
+                <td>{{ row.fromCurrencyCode }}</td>
+                <td>{{ row.toCurrencyCode }}</td>
+                <td class="amount-col money">{{ row.rate }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
   }
 </div>

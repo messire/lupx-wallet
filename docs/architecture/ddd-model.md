@@ -1,6 +1,6 @@
 # DDD-модель предметной области
 
-Источники: [wallet_business_prompt_ru_v2.md](../requirements/wallet_business_prompt_ru_v2.md), [user-scenarios.md](../requirements/user-scenarios.md), [glossary.md](../requirements/glossary.md), ADR-0001…ADR-0005.
+Источники: [wallet_business_prompt_ru_v2.md](../requirements/wallet_business_prompt_ru_v2.md), [user-scenarios.md](../requirements/user-scenarios.md), [glossary.md](../requirements/glossary.md), ADR-0001…ADR-0006.
 
 Технические идентификаторы (названия контекстов, агрегатов, сущностей, VO) — на английском, пояснения — на русском, как того требует CLAUDE.md.
 
@@ -30,7 +30,7 @@ ReferenceData ←────────── Wallets           (Wallet ссы
 ReferenceData ←────────── Operations         (Operation ссылается на OperationType по Id; OperationType ссылается на OperationBehaviorKind по Id)
 ReferenceData ←────────── ExchangeRates      (ExchangeRateQuote ссылается на пару Currency по Id)
 Wallets       ←────────── Operations         (Operation ссылается на WalletId; событие меняет CurrentBalance кошелька)
-Operations    ──событие──▶ BalanceHistory    (изменение операции триггерит пересчет слепков, см. ADR-0003/0004)
+Operations    ──событие──▶ BalanceHistory    (изменение операции триггерит пересчет слепков, см. ADR-0003)
 BalanceHistory ──запрос──▶ Operations        (проверка «есть ли операция с датой ≤ последнего слепка» при удалении, см. ADR-0002)
 Wallets, BalanceHistory, ExchangeRates ──запрос──▶ Reporting  (композиция для Total Amount / Historical Total Amount)
 Wallets, ReferenceData, Operations, BalanceHistory, ExchangeRates ──событие──▶ Audit  (подписка на все события, запись журнала)
@@ -86,7 +86,7 @@ Wallets, ReferenceData, Operations, BalanceHistory, ExchangeRates ──собы
 
 Агрегат из одной сущности, представляющий известный курс валютной пары на определенный момент: либо «последний успешно загруженный» (используется для текущих расчетов), либо «исторический на дату» (используется для расчета исторической общей суммы, раздел 5). Идентифицируется парой `(FromCurrencyId, ToCurrencyId)` (ссылки на `Currency` из ReferenceData) для «последнего», либо тройкой `(FromCurrencyId, ToCurrencyId, Date)` для исторических записей.
 
-**Граница агрегата:** один курс одной пары на один момент/дату. Матрица курсов между всеми валютами не хранится и не является агрегатом — только пары, реально запрошенные (валюта кошелька → текущая основная валюта), согласно ADR-0001.
+**Граница агрегата:** один курс одной пары на один момент/дату. Матрица курсов между всеми валютами не хранится и не является агрегатом — только пары, реально запрошенные (валюта кошелька → текущая основная валюта), согласно ADR-0004.
 
 ### 2.8 AuditEntry (контекст Audit)
 
@@ -164,7 +164,7 @@ Wallets, ReferenceData, Operations, BalanceHistory, ExchangeRates ──собы
 ### ExchangeRateQuote
 - `Rate > 0`.
 - `LastSuccessfulUpdate` (метка времени) обновляется только при успешном ответе от Frankfurter; при ошибке сохраняется прежнее значение курса и метки времени (явное требование раздела 2).
-- Периодичность планового автообновления — 1 раз в сутки; ручное обновление сбрасывает таймер автообновления заново (решено, Q5; отклонение от исходного текста требований, см. ADR-0001).
+- Периодичность планового автообновления — 1 раз в сутки; ручное обновление сбрасывает таймер автообновления заново (решено, Q5; отклонение от исходного текста требований, см. ADR-0004).
 
 ### AuditEntry
 - Запись аудита неизменяема после создания: не редактируется и не удаляется никаким сценарием системы (явное требование раздела 6 — «история аудита не должна теряться»).
@@ -182,7 +182,7 @@ Wallets, ReferenceData, Operations, BalanceHistory, ExchangeRates ──собы
 | `UpdateWallet` | `WalletUpdated` | Audit: запись изменения (до/после). |
 | `ArchiveWallet` | `WalletArchived` | Audit. Отклоняется, если кошелек основной (Q7). |
 | `DeleteWallet` | `WalletDeleted` | Audit. Отклоняется, если есть история (Q2). |
-| `SetPrimaryWallet` | `PrimaryWalletChanged` | Audit. `PrimaryWalletPolicy` снимает флаг со старого основного, ставит новому `IncludeInTotal = true` принудительно (Q8). Reporting инвалидирует кэш пересчета общей суммы (если есть). ExchangeRates: перезапрос курсов с новой базовой валютой (ADR-0001). |
+| `SetPrimaryWallet` | `PrimaryWalletChanged` | Audit. `PrimaryWalletPolicy` снимает флаг со старого основного, ставит новому `IncludeInTotal = true` принудительно (Q8). Reporting инвалидирует кэш пересчета общей суммы (если есть). ExchangeRates: перезапрос курсов с новой базовой валютой (ADR-0004). |
 | `ChangeWalletCurrency` | `WalletCurrencyChanged` | Audit. Отклоняется, если есть история (Q15). |
 
 ### ReferenceData
@@ -199,7 +199,7 @@ Wallets, ReferenceData, Operations, BalanceHistory, ExchangeRates ──собы
 
 | Команда | Событие | Побочные эффекты |
 |---|---|---|
-| `CreateOperation` (Income/Expense/Adjustment) | `OperationCreated` | Audit. Wallets: обновление `CurrentBalance`. BalanceHistory: пересчет слепков с даты операции (ADR-0003/ADR-0004). |
+| `CreateOperation` (Income/Expense/Adjustment) | `OperationCreated` | Audit. Wallets: обновление `CurrentBalance`. BalanceHistory: пересчет слепков с даты операции (ADR-0003). |
 | `UpdateOperation` | `OperationUpdated` | Audit (до/после, включая смену `walletId`). Wallets: пересчет `CurrentBalance`. BalanceHistory: каскадный пересчет с наименьшей из старой/новой даты операции (Q4) — если `walletId` не изменился; при смене кошелька (UC-13, решение пользователя от 2026-09-11) пересчитываются ОБА кошелька независимо (`PreviousWalletId` события) — старый с прежней даты операции, новый с новой. |
 | `DeleteOperation` | `OperationDeleted` | Audit (значение до удаления). Wallets: пересчет `CurrentBalance`. BalanceHistory: каскадный пересчет с даты удаленной операции. Отклоняется, если `TransferId` заполнен ИЛИ дата операции ≤ дате последнего существующего слепка кошелька (см. инвариант Operation, ADR-0002). |
 | `CreateTransfer` | `TransferCreated` (+ два `OperationCreated`) | То же, что `OperationCreated`, но для обоих кошельков одновременно, в одной транзакции. |
@@ -230,4 +230,4 @@ Audit не имеет собственных пользовательских к
 
 1. **Справочник валют.** `Currency` — отдельный пользовательский расширяемый справочник (контекст ReferenceData), по той же схеме, что `WalletType`/`OperationType` (создание, деактивация при использовании, удаление если не используется). Позволяет добавлять произвольные валюты, включая криптовалюты, без изменения кода.
 2. **`OperationBehaviorKind` — таблица, а не enum в коде.** Четыре базовых вида поведения операции (Income/Expense/Transfer/Adjustment) хранятся как системный справочник в БД, а не как закрытый enum в C#. В отличие от пользовательских справочников, строки этой таблицы не редактируются через API/UI — только сеются при развертывании, так как добавление нового вида поведения требует кода, который умеет его интерпретировать (раздел 3 требований).
-3. **Правило удаления операции.** Помимо запрета удаления операции, входящей в `Transfer`, дополнительно запрещено физическое удаление операции, дата которой ≤ дате последнего существующего слепка баланса кошелька — такая операция уже учтена в истории и может быть только отредактирована, не удалена бесследно. Это уточнение зафиксировано в [ADR-0002](./adr/0002-deletion-vs-archiving-policy.md).
+3. **Правило удаления операции.** Помимо запрета удаления операции, входящей в `Transfer`, дополнительно запрещено физическое удаление операции, дата которой ≤ дате последнего существующего слепка баланса кошелька — такая операция уже учтена в истории и может быть только отредактирована, не удалена бесследно. Это уточнение зафиксировано в [ADR-0002](./adr/0002-record-lifecycle.md).

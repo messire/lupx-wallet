@@ -45,13 +45,19 @@
 
 .app-checkbox__box input:checked {
   background: var(--lw-primary-fill);
-  border-color: rgb(243 224 255 / 80%);
+  border-color: transparent;
 }
 
 .app-checkbox__box input:disabled {
   background: var(--lw-disabled-bg);
   border-color: var(--lw-border);
   cursor: not-allowed;
+}
+
+@media (forced-colors: active) {
+  .app-checkbox__box input:checked {
+    border-color: ButtonBorder;
+  }
 }
 
 .app-checkbox__box input:focus-visible {

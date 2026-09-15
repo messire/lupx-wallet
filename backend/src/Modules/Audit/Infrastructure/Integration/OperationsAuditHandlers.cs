@@ -5,7 +5,7 @@ using MediatR;
 namespace LupexWallet.Audit.Infrastructure;
 
 /// <summary>
-/// Subscribers to Operations events (ADR-0010). Unlike BalanceHistory.Infrastructure.
+/// Subscribers to Operations events (ADR-0006). Unlike BalanceHistory.Infrastructure.
 /// OperationEventHandlers, this module needs separate TransferCreated/TransferDeleted handlers:
 /// BalanceHistory doesn't need them (both "legs" of a transfer already raise their own
 /// OperationCreated/OperationDeleted), but Audit must create a separate record for the Transfer

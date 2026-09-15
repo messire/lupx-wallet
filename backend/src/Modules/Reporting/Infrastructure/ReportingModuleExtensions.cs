@@ -9,7 +9,7 @@ namespace LupexWallet.Reporting.Infrastructure;
 /// references Wallets.Application.IWalletTotalsSource, BalanceHistory.Application.IWalletBalanceOnDateLookup
 /// and ExchangeRates.Application.IExchangeRateLookup directly, and their implementations are already
 /// registered by AddWalletsModule/AddBalanceHistoryModule/AddExchangeRatesModule (top-down direction,
-/// not the ADR-0009 case where the consumer registers its own port for a missing implementation).
+/// not the consumer-owned port of ADR-0001, §2, way d).
 /// GetTotalAmountQueryHandler lives in Reporting.Application and is picked up by
 /// MediatR.RegisterServicesFromAssembly in Program.cs via the already-registered AssemblyMarker.
 /// </summary>

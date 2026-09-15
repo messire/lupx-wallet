@@ -3,26 +3,6 @@
   margin-bottom: var(--lw-space-6);
 }
 
-.filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--lw-space-4);
-  /* flex-end выравнивал по нижнему краю app-field (резервирует место под
-     hint/error даже без них), а не по видимому инпуту — кнопки "плавали"
-     ниже полей. Выравнивание по верху + .app-field-align на .filter-actions. */
-  align-items: flex-start;
-}
-
-.filters__field {
-  flex: 1 1 180px;
-  min-width: 160px;
-}
-
-.filter-actions {
-  display: flex;
-  gap: var(--lw-space-3);
-}
-
 .toolbar {
   display: flex;
   justify-content: flex-end;
@@ -34,20 +14,11 @@
   margin-bottom: var(--lw-space-4);
 }
 
-.table-scroll {
-  overflow-x: auto;
-  border-radius: var(--lw-radius-sm);
-}
-
 .operations-table {
   min-width: 720px;
 
   tr.transfer-part {
     color: var(--lw-text-muted);
-  }
-
-  .amount-col {
-    text-align: right;
   }
 
   .amount {
@@ -84,8 +55,28 @@
   }
 }
 
-.load-more {
-  display: flex;
-  justify-content: center;
-  margin-bottom: var(--lw-space-4);
+/* Список действий строки, открываемый по «···» (docs/design/operations.html
+   #row-actions-dialog) — кнопки во всю ширину диалога, а не рядом друг с другом. */
+.row-actions-list {
+  display: grid;
+  gap: var(--lw-space-2);
+}
+
+.row-actions-list__link {
+  display: block;
+  padding: 10px var(--lw-space-4);
+  min-height: var(--lw-control-height);
+  color: var(--lw-text);
+  font-size: var(--lw-type-body);
+  text-decoration: none;
+  border-radius: var(--lw-radius-sm);
+
+  &:hover {
+    background: var(--lw-accent-soft);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--lw-accent);
+    outline-offset: 2px;
+  }
 }

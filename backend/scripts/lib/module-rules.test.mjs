@@ -1,5 +1,5 @@
 // Examples of allowed and forbidden backend project/package dependencies
-// (high-level-architecture.md §2, ADR-0006/0007/0009). Run with
+// (high-level-architecture.md §2, ADR-0001). Run with
 // `node --test backend/scripts/lib/module-rules.test.mjs`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -45,7 +45,7 @@ test('checkProjectEdge: Application may reference its own Domain', () => {
   assert.equal(checkProjectEdge(walletsApplication, walletsDomain), null);
 });
 
-test('checkProjectEdge: Application may reference another module Application (ADR-0007 explicit contract)', () => {
+test('checkProjectEdge: Application may reference another module Application (ADR-0001 explicit contract)', () => {
   assert.equal(checkProjectEdge(operationsApplication, walletsApplication), null);
   assert.equal(checkProjectEdge(walletsApplication, referenceDataApplication), null);
 });
@@ -62,7 +62,7 @@ test('checkProjectEdge: Infrastructure may reference own Application, SharedKern
   assert.equal(checkProjectEdge(walletsInfrastructure, buildingBlocksInfra), null);
 });
 
-test('checkProjectEdge: Infrastructure may reference another module Application (ADR-0009 reverse port) or Domain (event handlers)', () => {
+test('checkProjectEdge: Infrastructure may reference another module Application (ADR-0001 reverse port) or Domain (event handlers)', () => {
   const operationsDomain = { area: 'module', module: 'Operations', layer: 'Domain' };
   assert.equal(checkProjectEdge(walletsInfrastructure, referenceDataApplication), null);
   assert.equal(checkProjectEdge(walletsInfrastructure, operationsDomain), null);
@@ -114,7 +114,7 @@ test('checkPackageReference: Infrastructure may reference persistence packages',
   assert.equal(checkPackageReference(walletsInfrastructure, 'Npgsql.EntityFrameworkCore.PostgreSQL'), null);
 });
 
-test('findCycles: reports no cycle for the documented ADR-0007 direction (Operations.Application -> Wallets.Application)', () => {
+test('findCycles: reports no cycle for the documented ADR-0001 direction (Operations.Application -> Wallets.Application)', () => {
   const edges = [
     { from: 'Operations.Application', to: 'Wallets.Application' },
     { from: 'Operations.Application', to: 'Operations.Domain' },

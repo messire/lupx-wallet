@@ -21,8 +21,8 @@ public sealed record CreateWalletCommand(
 /// <summary>
 /// W2.5, case d: walletTypeId/currencyId are validated for existence and active status via
 /// ReferenceData.Application.IWalletTypeLookup/ICurrencyLookup. Top-down direction
-/// (Wallets.Application → ReferenceData.Application), no cycle — ADR-0009 does not apply
-/// (same approach as Operations.Application's IOperationTypeLookup, ADR-0007).
+/// (Wallets.Application → ReferenceData.Application), no cycle — ADR-0001 does not apply
+/// (same approach as Operations.Application's IOperationTypeLookup, ADR-0001).
 /// </summary>
 public sealed class CreateWalletCommandHandler(
     IWalletRepository repository,

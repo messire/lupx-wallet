@@ -16,9 +16,9 @@
   flex: 0 0 auto;
 }
 
+/* overflow-x/border-radius/:focus-visible — общее определение .table-scroll
+   в styles.scss; здесь только страничный отступ, специфичный для Audit. */
 .table-scroll {
-  overflow-x: auto;
-  border-radius: var(--lw-radius-sm);
   margin-bottom: var(--lw-space-4);
 }
 

@@ -3,8 +3,8 @@ using LupexWallet.SharedKernel;
 namespace LupexWallet.Wallets.Application;
 
 /// <summary>
-/// Narrow contract published by Wallets for Operations (ADR-0007) and BalanceHistory
-/// (ADR-0008) — synchronous balance read/write. Operations needs the write effect for
+/// Narrow contract published by Wallets for Operations (ADR-0001) and BalanceHistory
+/// (ADR-0003) — synchronous balance read/write. Operations needs the write effect for
 /// create/update/delete/transfer commands; BalanceHistory only reads InitialBalance and
 /// AccountingStartDate for cascading recalculation (ADR-0003). Shares WalletsDbContext /
 /// SaveChangesAsync, so it participates in the command's ambient TransactionScope.

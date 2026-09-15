@@ -8,7 +8,7 @@ namespace LupexWallet.BalanceHistory.Application;
 /// <summary>
 /// The single balance snapshot recalculation mechanism (ddd-model.md, §2.6:
 /// "BalanceRecalculationService"), shared by three triggers that must all use the same
-/// balance-on-date algorithm (ADR-0003, ADR-0004):
+/// balance-on-date algorithm (ADR-0003):
 /// 1. Cascading recalculation on a retroactive operation/transfer change (Operations domain
 ///    event handlers, see OperationEventHandlers) — fromDate = the operation date (the
 ///    earlier of old/new on edit).

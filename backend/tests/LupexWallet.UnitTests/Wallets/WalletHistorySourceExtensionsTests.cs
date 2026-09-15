@@ -7,7 +7,7 @@ using Xunit;
 namespace LupexWallet.UnitTests.Wallets;
 
 /// <summary>
-/// ADR-0009, случай a — агрегация IEnumerable&lt;IWalletHistorySource&gt; на стороне
+/// ADR-0001, §2, способ d — агрегация IEnumerable&lt;IWalletHistorySource&gt; на стороне
 /// потребителя (Wallets.Application). Пустой список реализаций — ошибка конфигурации DI,
 /// не «истории нет» (см. doc-комментарий WalletHistorySourceExtensions).
 /// </summary>

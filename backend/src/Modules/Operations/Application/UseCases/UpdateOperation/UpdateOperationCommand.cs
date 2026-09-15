@@ -8,7 +8,7 @@ namespace LupexWallet.Operations.Application;
 
 /// <summary>UC-13 (docs/api/openapi.yaml: PATCH /operations/{id}) — cascading history
 /// recalculation (Q4) is BalanceHistory's responsibility, reacting to OperationUpdated
-/// (ADR-0008). WalletId change is implemented as a move, equivalent to deleting from the old
+/// (ADR-0003). WalletId change is implemented as a move, equivalent to deleting from the old
 /// wallet and creating on the new one (see UpdateOperationCommandHandler.Handle).</summary>
 public sealed record UpdateOperationCommand(
     Guid Id,

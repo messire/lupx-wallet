@@ -1,80 +1,60 @@
+/* UI kit v0.3 (docs/design/ui-kit.md §4 «Компоновка и адаптация», §5 «Навигация и
+   topbar»): sidebar 224px на desktop (≥1100px, --lw-sidebar-width), общий рабочий
+   фон --lw-workspace-background на всём аутентифицированном приложении. Ниже
+   1100px sidebar скрыт, вместо него — кнопка «Меню», открывающая ту же навигацию
+   как выпадающую панель (см. media query внизу). */
 .shell {
+  --lw-topbar-height: 64px;
+
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: stretch;
   min-height: 100vh;
-  background: var(--lw-bg);
 }
 
-/* Header — полноширинная стеклянная панель (ui-kit.md §5 «Навигация и topbar»).
-   Не app-card: карточка предполагает изолированную поверхность контента с
-   собственными краями/тенью по всему периметру, а header — layout-контейнер на
-   всю ширину экрана, поэтому токены --lw-glass/--lw-blur/--lw-shadow/--lw-border-light
-   применены к нему напрямую, как допускает задача. */
-.shell-header {
+.shell::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--lw-workspace-background);
+}
+
+.shell-sidebar {
   position: sticky;
   top: 0;
-  isolation: isolate;
-  z-index: 30;
+  z-index: 20;
+  flex: 0 0 var(--lw-sidebar-width);
+  width: var(--lw-sidebar-width);
+  height: 100vh;
   display: flex;
-  align-items: center;
-  gap: var(--lw-space-6);
-  min-height: 64px;
-  padding: var(--lw-space-3) var(--lw-space-8);
-  background: var(--lw-glass);
-  backdrop-filter: blur(var(--lw-blur));
-  border-bottom: 1px solid var(--lw-border);
-  border-top: 1px solid var(--lw-border-light);
-  box-shadow: var(--lw-shadow);
+  flex-direction: column;
+  padding: var(--lw-space-6) var(--lw-space-4);
+  background: var(--lw-sidebar-background);
+  overflow-y: auto;
 
   .brand {
-    font-weight: 500;
+    display: block;
+    padding: var(--lw-space-2) var(--lw-space-3);
+    margin-bottom: var(--lw-space-8);
     font-size: var(--lw-type-section);
+    font-weight: 500;
     color: var(--lw-text);
     white-space: nowrap;
   }
 }
 
-// Кнопка-гамбургер — только на узких экранах, см. медиа-запрос ниже.
-.menu-toggle {
-  display: none;
-  flex-direction: column;
-  justify-content: center;
-  gap: 4px;
-  width: 44px;
-  height: 44px;
-  margin-left: auto;
-  padding: 0;
-  border: none;
-  border-radius: var(--lw-radius-sm);
-  background: transparent;
-  cursor: pointer;
-  transition: background var(--lw-motion-fast) ease-out;
-
-  &:hover {
-    background: var(--lw-accent-soft);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--lw-accent);
-    outline-offset: 2px;
-  }
-
-  &-bar {
-    width: 22px;
-    height: 2px;
-    margin: 0 auto;
-    background: var(--lw-text-secondary);
-    border-radius: 1px;
-  }
-}
-
-.shell-nav {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--lw-space-1);
-  flex: 1;
+.shell-nav-list {
+  display: grid;
+  gap: var(--lw-space-2);
 
   a {
-    padding: 0.4rem 0.7rem;
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-height: 48px;
+    padding: var(--lw-space-3);
     border-radius: var(--lw-radius-sm);
     color: var(--lw-text-secondary);
     text-decoration: none;
@@ -92,17 +72,94 @@
       outline-offset: 2px;
     }
 
-    // Активный раздел: мягкая лавандовая заливка + маркер (ui-kit.md §5).
+    // Активный раздел: мягкая лавандовая заливка + боковой маркер (ui-kit.md §5).
     &.active {
       background: var(--lw-accent-soft);
       color: var(--lw-text);
       font-weight: 500;
-      box-shadow: inset 0 -2px 0 var(--lw-accent-secondary);
+
+      &::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        width: 2px;
+        height: 24px;
+        border-radius: 2px;
+        background: var(--lw-accent);
+      }
     }
   }
+}
 
-  .logout {
-    margin-left: auto;
+.logout {
+  margin-top: auto;
+}
+
+.shell-workspace {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.shell-topbar {
+  display: none;
+}
+
+/* Бренд остаётся видимым и на узком экране (sidebar с ним скрыт ниже 1100px) —
+   без него topbar показывал бы только кнопку «Меню», без названия продукта. */
+.topbar-brand {
+  font-weight: 500;
+  font-size: var(--lw-type-body);
+  color: var(--lw-text);
+  white-space: nowrap;
+}
+
+.menu-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--lw-space-2);
+  height: 44px;
+  min-width: 44px;
+  padding: 0 var(--lw-space-2);
+  margin-left: auto;
+  border: none;
+  border-radius: var(--lw-radius-sm);
+  background: transparent;
+  color: var(--lw-text);
+  cursor: pointer;
+  transition: background var(--lw-motion-fast) ease-out;
+
+  &:hover {
+    background: var(--lw-accent-soft);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--lw-accent);
+    outline-offset: 2px;
+  }
+
+  /* The three bars stack into their own column so the icon reads as a
+     hamburger (≡) rather than three dashes next to the label — before this
+     wrapper they were flex siblings of the label inside `.menu-toggle`'s own
+     row layout, laid out left-to-right like the label instead of on top of
+     each other. */
+  &-icon {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    justify-content: space-between;
+    width: 20px;
+    height: 14px;
+  }
+
+  &-bar {
+    width: 100%;
+    height: 2px;
+    background: var(--lw-text-secondary);
+    border-radius: 1px;
+  }
+
+  &-label {
+    font-size: var(--lw-type-small);
   }
 }
 
@@ -110,68 +167,52 @@
   display: none;
 }
 
-// Ниже ~8 пунктов навигации не помещаются в строку — сворачиваем в выпадающее
-// меню по кнопке-гамбургеру вместо переноса строк вперемешку с брендом.
-@media (max-width: 767px) {
-  .menu-toggle {
-    display: flex;
-  }
+.shell-content {
+  display: block;
+}
 
-  .shell-nav {
+@media (max-width: 1099px) {
+  .shell-sidebar {
     display: none;
-    position: absolute;
-    top: 100%;
+    position: fixed;
+    top: var(--lw-topbar-height);
     left: 0;
     right: 0;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0;
-    padding: var(--lw-space-2);
+    /* Без явного width:auto здесь побеждает базовое `width: var(--lw-sidebar-width)`
+       (224px) — при position:fixed с одновременно заданными left/width/right браузер
+       не может удовлетворить все три и отбрасывает `right`, оставляя узкую 224px
+       панель вместо полной ширины экрана. */
+    width: auto;
+    height: auto;
+    max-height: calc(100dvh - var(--lw-topbar-height));
     background: var(--lw-glass-strong);
     backdrop-filter: blur(var(--lw-blur));
-    border-bottom: 1px solid var(--lw-border);
     box-shadow: var(--lw-shadow);
-    z-index: 20;
 
     &.open {
       display: flex;
     }
+  }
 
-    a {
-      padding: 0.85rem 1rem;
-      font-size: var(--lw-type-body);
-    }
-
-    /* Растягиваем «Выйти» на всю ширину только в мобильном выпадающем меню; на
-       desktop та же кнопка остаётся обычной ширины (margin-left: auto выше) —
-       статический input app-button[fullWidth] не подходит, поведение зависит
-       от media query, а не от состояния компонента. */
-    .logout {
-      margin: var(--lw-space-2) 0 0;
-
-      ::ng-deep .app-button {
-        width: 100%;
-      }
-    }
+  .shell-topbar {
+    display: flex;
+    align-items: center;
+    min-height: var(--lw-topbar-height);
+    padding: 0 var(--lw-space-6);
   }
 
   .shell-backdrop {
     display: block;
     position: fixed;
     inset: 0;
+    top: var(--lw-topbar-height);
     background: var(--lw-overlay);
     z-index: 10;
   }
 }
 
-/* Ширина и внешние отступы контента принадлежат одному месту — глобальному
-   `.page` (styles.scss, ui-kit §4), которым уже размечена каждая страница за
-   этим router-outlet. `.shell-content` раньше дублировал владение шириной
-   своим собственным max-width:960px + padding поверх padding самой `.page` —
-   эффективная ширина контента оказывалась 960px вместо положенных 1280px, а
-   горизontal-поля складывались (24px здесь + 32px в `.page`). Раз `.page` уже
-   отвечает за адаптацию под desktop/tablet/mobile, `.shell-content` остаётся
-   чисто семантическим контейнером без собственных размеров/отступов. */
-.shell-content {
-  display: block;
+@media (max-width: 767px) {
+  .shell-topbar {
+    padding: 0 var(--lw-space-4);
+  }
 }

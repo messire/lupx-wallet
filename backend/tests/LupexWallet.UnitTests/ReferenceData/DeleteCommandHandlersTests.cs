@@ -8,7 +8,7 @@ using Xunit;
 namespace LupexWallet.UnitTests.ReferenceData;
 
 /// <summary>
-/// W2.5, случай c (ADR-0009) — Delete{WalletType|OperationType|Currency}CommandHandler
+/// W2.5, §4 (ADR-0002) — Delete{WalletType|OperationType|Currency}CommandHandler
 /// агрегируют IEnumerable&lt;IReferenceItemUsageProbe&gt; вместо захардкоженного isUsed:
 /// false. Точечная маршрутизация (NotFound/isUsed/успех) — сами доменные инварианты
 /// (EnsureCanBeDeleted) уже покрыты WalletTypeTests/OperationTypeTests/CurrencyTests.

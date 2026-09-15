@@ -1,10 +1,10 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
-import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
+import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, ValidatorFn } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { appendPage } from '@shared/pagination/cursor-page';
 import { extractErrorMessage } from '../../../../core/http/problem-details';
 import { formatMoney } from '@shared/money/money';
-import { OperationBehaviorKind, OperationType } from '../../../../data-access/reference-data/reference-data-api.models';
+import { Currency, OperationBehaviorKind, OperationType } from '../../../../data-access/reference-data/reference-data-api.models';
 import { ReferenceDataApiService } from '../../../../data-access/reference-data/reference-data-api.service';
 import { Wallet } from '../../../../data-access/wallets/wallets-api.models';
 import { WalletsApiService } from '../../../../data-access/wallets/wallets-api.service';
@@ -15,6 +15,7 @@ import { OperationTypeOption } from '../../operations.models';
 import { BadgeComponent, BadgeTone } from '@shared/ui/badge/badge.component';
 import { ButtonComponent } from '@shared/ui/button/button.component';
 import { CardComponent } from '@shared/ui/card/card.component';
+import { DialogComponent } from '@shared/ui/dialog/dialog.component';
 import { EmptyStateComponent } from '@shared/ui/empty-state/empty-state.component';
 import { ErrorStateComponent } from '@shared/ui/error-state/error-state.component';
 import { FieldComponent } from '@shared/ui/field/field.component';
@@ -39,6 +40,7 @@ import { ToastComponent } from '@shared/ui/toast/toast.component';
     BadgeComponent,
     ButtonComponent,
     CardComponent,
+    DialogComponent,
     EmptyStateComponent,
     ErrorStateComponent,
     FieldComponent,
@@ -60,6 +62,7 @@ export class OperationsComponent implements OnInit {
   protected readonly formatMoney = formatMoney;
 
   readonly wallets = signal<Wallet[]>([]);
+  readonly currencies = signal<Currency[]>([]);
   readonly operationTypesRaw = signal<OperationType[]>([]);
   readonly behaviorKinds = signal<OperationBehaviorKind[]>([]);
 
@@ -77,18 +80,37 @@ export class OperationsComponent implements OnInit {
   readonly editingOperation = signal<Operation | null>(null);
 
   readonly deleteError = signal<string | null>(null);
+  /** UC-14: deletion is irreversible — require confirmation (mirrors Wallets' archive/delete confirm). */
+  readonly pendingDeleteOperation = signal<Operation | null>(null);
+  /** screen-spec.md "Операции": действия строки находятся под «···». */
+  readonly pendingRowActionsOperation = signal<Operation | null>(null);
 
-  readonly filterForm = this.formBuilder.nonNullable.group({
-    walletId: [''],
-    operationTypeId: [''],
-    dateFrom: [''],
-    dateTo: [''],
-  });
+  readonly filterForm = this.formBuilder.nonNullable.group(
+    {
+      walletId: [''],
+      operationTypeId: [''],
+      dateFrom: [''],
+      dateTo: [''],
+    },
+    { validators: reverseDateRangeValidator },
+  );
+
+  /** screen-spec.md "Операции": пустой результат фильтра предлагает сброс, а не
+   *  общий пустой список — отдельно от `operations().length === 0`, т.к. само по
+   *  себе оно не говорит, применены ли сейчас фильтры. Снимок на момент последней
+   *  успешно применённой загрузки, а не текущее (возможно, ещё не отправленное)
+   *  состояние `filterForm`. */
+  readonly hasActiveFilters = signal(false);
 
   /** Wallets for the form/filter dropdowns. */
-  readonly walletOptions = computed<WalletOption[]>(() =>
-    this.wallets().map((wallet) => ({ id: wallet.id, name: wallet.name })),
-  );
+  readonly walletOptions = computed<WalletOption[]>(() => {
+    const currencies = new Map(this.currencies().map((currency) => [currency.id, currency.code]));
+    return this.wallets().map((wallet) => ({
+      id: wallet.id,
+      name: wallet.name,
+      currencyCode: currencies.get(wallet.currencyId) ?? '',
+    }));
+  });
 
   /** All active operation types enriched with the behaviorKind code — for the filter. */
   readonly allOperationTypeOptions = computed<OperationTypeOption[]>(() => {
@@ -107,6 +129,7 @@ export class OperationsComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadWallets();
+    this.loadCurrencies();
     this.loadOperationTypes();
     this.loadBehaviorKinds();
     this.loadOperations();
@@ -114,6 +137,10 @@ export class OperationsComponent implements OnInit {
 
   loadWallets(): void {
     this.walletsService.list({ includeArchived: true, limit: 100 }).subscribe((page) => this.wallets.set(page.data));
+  }
+
+  loadCurrencies(): void {
+    this.referenceDataService.listCurrencies({ limit: 100 }).subscribe((page) => this.currencies.set(page.data));
   }
 
   loadOperationTypes(): void {
@@ -125,10 +152,16 @@ export class OperationsComponent implements OnInit {
   }
 
   loadOperations(): void {
+    if (this.filterForm.invalid) {
+      // screen-spec.md "Операции": обратный диапазон дат показывает ошибку, а не запрос.
+      return;
+    }
+
     this.isLoading.set(true);
     this.loadError.set(null);
 
     const filters = this.filterForm.getRawValue();
+    this.hasActiveFilters.set(!!(filters.walletId || filters.operationTypeId || filters.dateFrom || filters.dateTo));
     this.operationsService
       .list({
         walletId: filters.walletId || undefined,
@@ -212,6 +245,47 @@ export class OperationsComponent implements OnInit {
     this.submitError.set(null);
   }
 
+  /**
+   * "Изменить"/"Удалить" inside the row-actions dialog must open the *next* dialog
+   * only after this one has actually finished closing (`onRowActionsDialogClosed`,
+   * wired to `app-dialog`'s `(closed)`) — not synchronously here. Both dialogs are
+   * independent `DialogComponent` instances, each reacting to its own `[open]`
+   * input via its own `effect()`; opening one while the other is still mid-close
+   * in the same tick makes their effects' relative flush order (unspecified)
+   * decide whether focus lands in the new dialog or gets stolen back to the
+   * "···" button by the closing one's focus-restore.
+   */
+  private nextRowAction: { type: 'edit' | 'delete'; operation: Operation } | null = null;
+
+  openRowActions(operation: Operation): void {
+    this.pendingRowActionsOperation.set(operation);
+  }
+
+  closeRowActions(): void {
+    this.nextRowAction = null;
+    this.pendingRowActionsOperation.set(null);
+  }
+
+  editFromRowActions(operation: Operation): void {
+    this.nextRowAction = { type: 'edit', operation };
+    this.pendingRowActionsOperation.set(null);
+  }
+
+  deleteFromRowActions(operation: Operation): void {
+    this.nextRowAction = { type: 'delete', operation };
+    this.pendingRowActionsOperation.set(null);
+  }
+
+  onRowActionsDialogClosed(): void {
+    const next = this.nextRowAction;
+    this.nextRowAction = null;
+    if (next?.type === 'edit') {
+      this.openEditForm(next.operation);
+    } else if (next?.type === 'delete') {
+      this.requestDeleteConfirm(next.operation);
+    }
+  }
+
   saveOperation(request: CreateOperationRequest | UpdateOperationRequest): void {
     if (this.isSubmitting()) {
       return;
@@ -240,10 +314,24 @@ export class OperationsComponent implements OnInit {
     });
   }
 
-  deleteOperation(operation: Operation): void {
+  requestDeleteConfirm(operation: Operation): void {
     if (operation.transferId) {
       return;
     }
+    this.deleteError.set(null);
+    this.pendingDeleteOperation.set(operation);
+  }
+
+  cancelDeleteConfirm(): void {
+    this.pendingDeleteOperation.set(null);
+  }
+
+  confirmDeleteOperation(): void {
+    const operation = this.pendingDeleteOperation();
+    if (!operation) {
+      return;
+    }
+    this.pendingDeleteOperation.set(null);
     this.deleteError.set(null);
 
     this.operationsService.delete(operation.id).subscribe({
@@ -264,6 +352,12 @@ export class OperationsComponent implements OnInit {
 
   walletName(walletId: string): string {
     return this.wallets().find((wallet) => wallet.id === walletId)?.name ?? walletId;
+  }
+
+  /** Currency code by wallet id — for showing an amount with its currency explicitly (ui-kit §5). */
+  walletCurrencyCode(walletId: string): string | undefined {
+    const currencyId = this.wallets().find((wallet) => wallet.id === walletId)?.currencyId;
+    return this.currencies().find((currency) => currency.id === currencyId)?.code;
   }
 
   operationTypeName(operationTypeId: string): string {
@@ -313,3 +407,10 @@ export class OperationsComponent implements OnInit {
     return '';
   }
 }
+
+/** screen-spec.md "Операции": обратный диапазон дат показывает ошибку. */
+const reverseDateRangeValidator: ValidatorFn = (group: AbstractControl): ValidationErrors | null => {
+  const dateFrom = group.get('dateFrom')?.value;
+  const dateTo = group.get('dateTo')?.value;
+  return dateFrom && dateTo && dateFrom > dateTo ? { reverseDateRange: true } : null;
+};

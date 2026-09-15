@@ -213,7 +213,7 @@ public sealed class OperationsApiTests(ApiTestFixture fixture) : IntegrationTest
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
-    // ---- ADR-0009, случай b (решение пользователя, 2026-09-11): граница "история" — сегодня ----
+    // ---- Прежнее правило до мягкого удаления (ADR-0002, §3, «Состояние реализации»): граница "история" — сегодня ----
 
     [Fact]
     public async Task DeleteOperation_DatedToday_ReturnsNoContent()
@@ -239,7 +239,7 @@ public sealed class OperationsApiTests(ApiTestFixture fixture) : IntegrationTest
 
         var response = await Client.DeleteAsync($"/api/v1/operations/{operation.Id}");
 
-        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "операция с датой строго раньше сегодня уже считается отраженной в истории баланса (ADR-0009, случай b)");
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "операция с датой строго раньше сегодня уже считается отраженной в истории баланса (прежнее правило, ADR-0002, «Состояние реализации»)");
     }
 
     [Fact]

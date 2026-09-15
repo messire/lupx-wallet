@@ -5,7 +5,7 @@ using MediatR;
 namespace LupexWallet.Audit.Infrastructure;
 
 /// <summary>
-/// Subscribers to Wallets domain events (ADR-0010, following ADR-0008) — live in
+/// Subscribers to Wallets domain events (ADR-0006, following ADR-0003) — live in
 /// Infrastructure (reference DomainEventNotification&lt;T&gt; and Wallets.Domain, which the
 /// Application layer must not reference, high-level-architecture.md, §2). Registered manually
 /// in AuditModuleExtensions.
@@ -52,7 +52,7 @@ public sealed class WalletCurrencyChangedAuditHandler(AuditRecorder recorder) : 
 /// Not in the plan's literal list (docs/PROGRESS.md, W2.2 "Task"), but covered by "ALL domain
 /// events" of the Wallets module, as the plan itself requires (W2.2 scope) and ddd-model.md §5
 /// ("any mutating action ... must produce an AuditEntry") — the effect on wallet balance
-/// (Operations → IWalletBalanceGateway, ADR-0007) is itself a mutation of the Wallet record,
+/// (Operations → IWalletBalanceGateway, ADR-0001) is itself a mutation of the Wallet record,
 /// separate from OperationCreated (a different aggregate).
 /// </summary>
 public sealed class WalletBalanceChangedAuditHandler(AuditRecorder recorder) : INotificationHandler<DomainEventNotification<WalletBalanceChanged>>

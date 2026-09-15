@@ -1,17 +1,6 @@
 /* UI kit v0.2 (docs/design/ui-kit.md §4, §5) — токены --lw-* напрямую, без
    локальных hex/px значений там, где есть соответствующая переменная. */
 
-.page__header {
-  margin-bottom: var(--lw-space-6);
-}
-
-.page__title {
-  margin: 0;
-  font-size: var(--lw-type-page);
-  font-weight: 400;
-  color: var(--lw-text);
-}
-
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -68,6 +57,29 @@
   color: var(--lw-text-muted);
 }
 
+/* Дополнительные настройки формы создания кошелька (docs/design/screen-spec.md
+   «Полная форма кошелька», docs/design/wallet-form.html): свёрнуты по умолчанию.
+   Форма редактирования показывает те же поля плоско, без <details> — они и так
+   видны сразу, сворачивать раскрытую форму незачем. Нативный <details> — без
+   своего состояния и обработчиков клавиатуры, Escape/фокус формы не затрагивает. */
+.advanced-fields {
+  border-top: 1px solid var(--lw-divider);
+  padding-top: var(--lw-space-2);
+  margin-top: var(--lw-space-1);
+
+  > summary {
+    min-height: var(--lw-control-height);
+    padding: var(--lw-space-2) 0;
+    color: var(--lw-accent);
+    font-size: var(--lw-type-small);
+    cursor: pointer;
+  }
+
+  &[open] > summary {
+    margin-bottom: var(--lw-space-2);
+  }
+}
+
 .form-actions {
   display: flex;
   flex-wrap: wrap;
@@ -103,9 +115,17 @@
 
 .wallet-card__header {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--lw-space-2);
+}
+
+.wallet-card__header-text {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--lw-space-2);
+  min-width: 0;
 }
 
 .wallet-card__name {
@@ -121,6 +141,95 @@
   font-size: var(--lw-type-badge);
   font-weight: 500;
   color: var(--lw-accent);
+}
+
+/* Card actions (ui-kit §5 "Карточка кошелька") collapsed under "···" in the
+   card's top-right corner (docs/design/wallets.html .wallet-menu) instead of
+   six always-visible buttons competing with the balance for space. */
+.wallet-card__menu {
+  flex: none;
+}
+
+.wallet-card__menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: var(--lw-radius-sm);
+  background: transparent;
+  color: var(--lw-text-secondary);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--lw-motion-fast) ease-out;
+
+  &:hover {
+    background: var(--lw-accent-soft);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--lw-accent);
+    outline-offset: 2px;
+  }
+
+  &[aria-expanded='true'] {
+    background: var(--lw-accent-soft);
+  }
+}
+
+.wallet-card__menu-popover {
+  /* position: fixed (not the card-nested absolute this replaced) — app-card
+     establishes a stacking context per card (isolation: isolate +
+     backdrop-filter), so a popover nested inside one card would paint *behind*
+     any card in a row below it that it happens to overlap — confirmed in the
+     browser. Coordinates (top/right, in px) are set inline from the trigger's
+     own getBoundingClientRect() (see toggleWalletMenu) — same right edge as
+     the trigger it belongs to, same as the position it replaced. */
+  position: fixed;
+  z-index: 20;
+  display: grid;
+  gap: var(--lw-space-1);
+  width: 200px;
+  /* Backstop for viewports narrower than 200px + the page's side padding. */
+  max-width: calc(100vw - var(--lw-space-8));
+  padding: var(--lw-space-2);
+  border: 1px solid var(--lw-surface-border);
+  border-radius: var(--lw-radius-sm);
+  background: var(--lw-glass-strong);
+  backdrop-filter: blur(var(--lw-blur));
+  box-shadow: var(--lw-shadow);
+}
+
+.wallet-card__menu-item {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--lw-space-2) var(--lw-space-3);
+  border: none;
+  border-radius: var(--lw-radius-sm);
+  background: transparent;
+  color: var(--lw-text);
+  font: inherit;
+  font-size: var(--lw-type-small);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--lw-accent-soft);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--lw-accent);
+    outline-offset: -2px;
+  }
+}
+
+.wallet-card__menu-item--danger {
+  color: var(--lw-danger);
 }
 
 .wallet-card__meta {
@@ -158,27 +267,12 @@
   }
 }
 
-.wallet-card__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--lw-space-2);
-  margin-top: auto;
-  padding-top: var(--lw-space-2);
-}
-
-.wallet-card__link {
-  color: var(--lw-accent);
-  font-size: var(--lw-type-small);
-  text-decoration: underline;
-}
-
 .wallet-card-skeleton {
   display: flex;
   flex-direction: column;
   gap: var(--lw-space-3);
   padding: 28px;
-  border: 1px solid var(--lw-border);
+  border: 1px solid var(--lw-surface-border);
   border-radius: var(--lw-radius-md);
   background: var(--lw-glass);
 }

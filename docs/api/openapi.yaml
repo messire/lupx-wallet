@@ -574,7 +574,7 @@ paths:
           description: >
             Операция — часть перевода (удалите через DELETE /transfers/{id}) либо
             её дата строго раньше сегодняшнего дня — уже отражена в истории баланса,
-            отредактируйте вместо удаления (ADR-0002, ADR-0009).
+            отредактируйте вместо удаления (прежнее правило, ADR-0002, «Состояние реализации»).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -646,7 +646,7 @@ paths:
         "204": { description: Удален }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: Дата перевода строго раньше сегодняшнего дня (ADR-0009).
+          description: Дата перевода строго раньше сегодняшнего дня (прежнее правило, ADR-0002, «Состояние реализации»).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -669,6 +669,7 @@ paths:
     post:
       tags: [ExchangeRates]
       summary: Ручное обновление курсов (UC-09) — сбрасывает суточный таймер
+      description: Обновляет курсы всех валют справочника, включая деактивированные, к валюте основного кошелька независимо от наличия кошельков в этих валютах. Пара валюты с самой собой пропускается; без основного кошелька обновление не выполняется.
       operationId: refreshExchangeRates
       responses:
         "200":

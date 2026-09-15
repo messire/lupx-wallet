@@ -38,7 +38,7 @@ public sealed class WalletBalanceOnDateLookup(
         }
 
         // Слепок на дату еще не материализован — считаем на лету, не сохраняя результат
-        // (материализация — забота BalanceRecalculationService/плановой задачи, ADR-0004).
+        // (материализация — забота BalanceRecalculationService/плановой задачи, ADR-0003).
         var deltas = await operationsLookup.GetDailyDeltasUpToAsync(walletId, date, cancellationToken);
         return wallet.InitialBalance.Amount + deltas.Sum(d => d.DeltaAmount);
     }

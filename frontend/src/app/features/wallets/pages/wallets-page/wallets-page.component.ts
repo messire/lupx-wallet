@@ -1,4 +1,4 @@
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, effect, ElementRef, HostListener, inject, OnInit, signal, viewChild } from '@angular/core';
 import { finalize } from 'rxjs';
 import { FormBuilder, FormControl, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -9,7 +9,7 @@ import { ISO_CURRENCIES } from '@shared/currencies/iso-currencies';
 import { CurrencySelectComponent } from '@shared/currencies/currency-select/currency-select.component';
 import { Currency, ReferenceItem } from '../../../../data-access/reference-data/reference-data-api.models';
 import { ReferenceDataApiService } from '../../../../data-access/reference-data/reference-data-api.service';
-import { UpdateWalletRequest, Wallet } from '../../../../data-access/wallets/wallets-api.models';
+import { CreateWalletRequest, UpdateWalletRequest, Wallet } from '../../../../data-access/wallets/wallets-api.models';
 import { WalletsApiService } from '../../../../data-access/wallets/wallets-api.service';
 import { ButtonComponent } from '@shared/ui/button/button.component';
 import { FieldComponent } from '@shared/ui/field/field.component';
@@ -29,6 +29,9 @@ interface PendingWalletAction {
   walletId: string;
   action: 'archive' | 'delete';
 }
+
+/** The five commands and one navigation link collapsed under the card's "···" menu. */
+type WalletMenuAction = 'edit' | 'primary' | 'archive' | 'currency' | 'delete';
 
 /**
  * UC-01 (create), UC-02…UC-06 (edit, archive, set primary, change currency,
@@ -113,6 +116,14 @@ export class WalletsComponent implements OnInit {
     currencyId: ['', Validators.required],
     initialBalanceAmount: ['0', [Validators.required, amountValidator]],
     accountingStartDate: [this.today(), Validators.required],
+    // Дополнительные настройки (docs/design/wallet-form.html «Дополнительные настройки»,
+    // свёрнуты при создании) — уже поддержаны CreateWalletRequest, но раньше не были
+    // доступны в форме создания (docs/design/screen-spec.md «Полная форма кошелька»).
+    purposeDescription: [''],
+    includeInTotal: [true],
+    displayOrder: [0],
+    color: [''],
+    icon: [''],
   });
 
   /** UC-02 — PATCH /wallets/{id}, no currency field (see currencyForm below for UC-06). */
@@ -144,6 +155,46 @@ export class WalletsComponent implements OnInit {
   /** UC-03…UC-05: shared error message for archive/set-primary/delete. */
   readonly actionError = signal<string | null>(null);
 
+  /** Wallet card actions collapsed under "···" (ui-kit §5 "Карточка кошелька") — at
+   *  most one open at a time, so a single id is enough. Rendered as one popover
+   *  outside the card grid, not one per card — see the template for why. */
+  readonly openMenuWalletId = signal<string | null>(null);
+  readonly openMenuWallet = computed(() => {
+    const id = this.openMenuWalletId();
+    return id ? (this.wallets().find((wallet) => wallet.id === id) ?? null) : null;
+  });
+  /** Viewport-relative, computed from the trigger's own rect when opened (`position:
+   *  fixed`) — matches the previous per-card `position: absolute; right: 0` anchor
+   *  (same right edge as the trigger) without being contained by the card. Anchored
+   *  from the bottom instead of the top when the trigger is close enough to the
+   *  bottom of the viewport that opening downward would push part of the menu below
+   *  the fold — with no way back to it afterwards, since scrolling closes the menu
+   *  (see onWindowScrollForMenu). */
+  readonly menuPopoverPosition = signal<{ top: number | null; bottom: number | null; right: number } | null>(null);
+  /** Conservative estimate of the tallest possible popover (5 items + padding/gaps,
+   *  see .wallet-card__menu-item/-popover) — used only to decide open-up vs
+   *  open-down; a couple of px of slack here has no visible effect either way. */
+  private static readonly MENU_POPOVER_MAX_HEIGHT = 260;
+
+  /** First field of the edit/change-currency forms — focused once the form opens
+   *  from a menu selection, since "Изменить"/"Сменить валюту" hand focus to the
+   *  opened form rather than back to the "···" trigger. */
+  private readonly editNameInput = viewChild<ElementRef<HTMLInputElement>>('editNameInput');
+  private readonly currencyFormSelect = viewChild<ElementRef<HTMLSelectElement>>('currencyFormSelect');
+
+  constructor() {
+    effect(() => {
+      if (this.editingWallet()) {
+        this.editNameInput()?.nativeElement.focus();
+      }
+    });
+    effect(() => {
+      if (this.changingCurrencyWalletId()) {
+        this.currencyFormSelect()?.nativeElement.focus();
+      }
+    });
+  }
+
   ngOnInit(): void {
     this.loadWallets();
     this.loadWalletTypes();
@@ -154,7 +205,10 @@ export class WalletsComponent implements OnInit {
     this.isLoading.set(true);
     this.loadError.set(null);
 
-    this.walletsService.list({ includeArchived: this.showArchived() }).subscribe({
+    // limit: 100 for parity with OperationsComponent.loadWallets() — the grid has no
+    // "load more"/paging of its own yet (known gap, see docs/PROGRESS.md), this only
+    // raises how many wallets fit on the one page it does show.
+    this.walletsService.list({ includeArchived: this.showArchived(), limit: 100 }).subscribe({
       next: (page) => {
         this.wallets.set(page.data);
         this.isLoading.set(false);
@@ -204,7 +258,19 @@ export class WalletsComponent implements OnInit {
 
   cancelForm(): void {
     this.isFormOpen.set(false);
-    this.form.reset({ name: '', walletTypeId: '', currencyId: '', initialBalanceAmount: '0', accountingStartDate: this.today() });
+    this.form.enable({ emitEvent: false });
+    this.form.reset({
+      name: '',
+      walletTypeId: '',
+      currencyId: '',
+      initialBalanceAmount: '0',
+      accountingStartDate: this.today(),
+      purposeDescription: '',
+      includeInTotal: true,
+      displayOrder: 0,
+      color: '',
+      icon: '',
+    });
   }
 
   submit(): void {
@@ -214,8 +280,26 @@ export class WalletsComponent implements OnInit {
 
     this.submitError.set(null);
     this.isSubmitting.set(true);
+    // screen-spec.md "Полная форма кошелька": ожидание блокирует поля, не только повторную отправку.
+    this.form.disable({ emitEvent: false });
 
-    this.walletsService.create(this.form.getRawValue()).subscribe({
+    const raw = this.form.getRawValue();
+    const request: CreateWalletRequest = {
+      name: raw.name,
+      walletTypeId: raw.walletTypeId,
+      currencyId: raw.currencyId,
+      initialBalanceAmount: raw.initialBalanceAmount,
+      accountingStartDate: raw.accountingStartDate,
+      includeInTotal: raw.includeInTotal,
+      // Native number input emits null (not NaN) when cleared — the control's declared
+      // type (number) lies about this without the coalesce.
+      displayOrder: raw.displayOrder ?? 0,
+      ...(raw.purposeDescription && { purposeDescription: raw.purposeDescription }),
+      ...(raw.color && { color: raw.color }),
+      ...(raw.icon && { icon: raw.icon }),
+    };
+
+    this.walletsService.create(request).subscribe({
       next: () => {
         this.isSubmitting.set(false);
         this.cancelForm();
@@ -224,6 +308,7 @@ export class WalletsComponent implements OnInit {
       },
       error: (error: unknown) => {
         this.isSubmitting.set(false);
+        this.form.enable({ emitEvent: false });
         this.submitError.set(extractErrorMessage(error, 'Не удалось создать кошелек.'));
       },
     });
@@ -273,10 +358,14 @@ export class WalletsComponent implements OnInit {
 
     this.isSubmittingCurrency.set(true);
     this.addCurrencyError.set(null);
+    this.newCurrencyIsoCode.disable({ emitEvent: false });
 
     this.referenceDataService
       .createCurrency(isoCurrency.code, isoCurrency.name)
-      .pipe(finalize(() => this.isSubmittingCurrency.set(false)))
+      .pipe(finalize(() => {
+        this.isSubmittingCurrency.set(false);
+        this.newCurrencyIsoCode.enable({ emitEvent: false });
+      }))
       .subscribe({
         next: (created) => {
           this.loadCurrencies();
@@ -296,6 +385,7 @@ export class WalletsComponent implements OnInit {
     this.editError.set(null);
     this.changingCurrencyWalletId.set(null);
     this.editingWallet.set(wallet);
+    this.editForm.enable({ emitEvent: false });
     this.editForm.reset({
       name: wallet.name,
       walletTypeId: wallet.walletTypeId,
@@ -305,10 +395,15 @@ export class WalletsComponent implements OnInit {
       color: wallet.color ?? '',
       icon: wallet.icon ?? '',
     });
+    this.applyIncludeInTotalLock(wallet);
+  }
 
-    // Q8: includeInTotal cannot be turned off for the primary wallet — the backend
-    // silently ignores it (not a 409), so the field is disabled in the form to avoid
-    // giving the false impression that turning it off would be saved.
+  /**
+   * Q8: includeInTotal cannot be turned off for the primary wallet — the backend
+   * silently ignores it (not a 409), so the field is disabled in the form to avoid
+   * giving the false impression that turning it off would be saved.
+   */
+  private applyIncludeInTotalLock(wallet: Wallet): void {
     if (wallet.isPrimary) {
       this.editForm.controls.includeInTotal.disable();
     } else {
@@ -329,6 +424,7 @@ export class WalletsComponent implements OnInit {
 
     this.isEditSubmitting.set(true);
     this.editError.set(null);
+    this.editForm.disable({ emitEvent: false });
 
     const raw = this.editForm.getRawValue();
     const request: UpdateWalletRequest = {
@@ -336,7 +432,7 @@ export class WalletsComponent implements OnInit {
       walletTypeId: raw.walletTypeId,
       purposeDescription: raw.purposeDescription || null,
       includeInTotal: raw.includeInTotal,
-      displayOrder: raw.displayOrder,
+      displayOrder: raw.displayOrder ?? 0,
       color: raw.color || null,
       icon: raw.icon || null,
     };
@@ -350,6 +446,8 @@ export class WalletsComponent implements OnInit {
       },
       error: (error: unknown) => {
         this.isEditSubmitting.set(false);
+        this.editForm.enable({ emitEvent: false });
+        this.applyIncludeInTotalLock(wallet);
         this.editError.set(extractErrorMessage(error, 'Не удалось изменить кошелек.'));
       },
     });
@@ -361,6 +459,7 @@ export class WalletsComponent implements OnInit {
     this.actionError.set(null);
     this.currencyError.set(null);
     this.editingWallet.set(null);
+    this.currencyForm.enable({ emitEvent: false });
     this.currencyForm.reset({ currencyId: wallet.currencyId });
     this.changingCurrencyWalletId.set(wallet.id);
   }
@@ -378,6 +477,7 @@ export class WalletsComponent implements OnInit {
 
     this.isCurrencySubmitting.set(true);
     this.currencyError.set(null);
+    this.currencyForm.disable({ emitEvent: false });
 
     this.walletsService.changeCurrency(walletId, this.currencyForm.getRawValue()).subscribe({
       next: () => {
@@ -388,6 +488,7 @@ export class WalletsComponent implements OnInit {
       },
       error: (error: unknown) => {
         this.isCurrencySubmitting.set(false);
+        this.currencyForm.enable({ emitEvent: false });
         this.currencyError.set(
           extractErrorMessage(error, 'Не удалось сменить валюту: у кошелька уже есть операции или слепки баланса.'),
         );
@@ -461,6 +562,111 @@ export class WalletsComponent implements OnInit {
           );
         },
       });
+    }
+  }
+
+  // ---- Wallet card "···" menu ----
+
+  toggleWalletMenu(walletId: string): void {
+    if (this.openMenuWalletId() === walletId) {
+      this.openMenuWalletId.set(null);
+      this.menuPopoverPosition.set(null);
+      return;
+    }
+
+    const trigger = document.querySelector<HTMLElement>(`[data-wallet-menu-trigger="${walletId}"]`);
+    if (trigger) {
+      const rect = trigger.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const openUpward = spaceBelow < WalletsComponent.MENU_POPOVER_MAX_HEIGHT && rect.top > spaceBelow;
+      this.menuPopoverPosition.set(
+        openUpward
+          ? { top: null, bottom: window.innerHeight - rect.top + 4, right: window.innerWidth - rect.right }
+          : { top: rect.bottom + 4, bottom: null, right: window.innerWidth - rect.right },
+      );
+    }
+    this.openMenuWalletId.set(walletId);
+  }
+
+  /**
+   * Runs one of the card's actions and closes the menu. "Изменить"/"Сменить валюту"
+   * hand focus to the form they open (see the two `effect()`s in the constructor)
+   * instead of the trigger button — closing the menu without refocusing lets that
+   * happen; refocusing here first would move focus to the trigger for an instant
+   * and then immediately away from it again, which is a distinction the task's
+   * exception clause draws for a reason (a screen reader would announce the
+   * trigger as focused before announcing the form). "Сделать основным" has no
+   * follow-up surface, so it returns focus to the trigger directly. "Архивировать"/
+   * "Удалить" open the existing confirm dialog — focus is returned to the trigger
+   * first so that dialog captures the trigger (not a document.activeElement left
+   * behind by a click on a button this menu is about to remove) as the element to
+   * restore focus to once *it* closes.
+   */
+  selectWalletMenuAction(wallet: Wallet, action: WalletMenuAction): void {
+    if (action === 'edit') {
+      this.openMenuWalletId.set(null);
+      this.openEditForm(wallet);
+      return;
+    }
+    if (action === 'currency') {
+      this.openMenuWalletId.set(null);
+      this.openChangeCurrency(wallet);
+      return;
+    }
+
+    this.closeWalletMenu(wallet.id);
+    if (action === 'primary') {
+      this.setPrimary(wallet);
+    } else {
+      this.requestConfirm(wallet.id, action);
+    }
+  }
+
+  /** Closes the menu and returns focus to its trigger — the default per the task's
+   *  spec ("после закрытия фокус возвращается на кнопку"), used by Escape, an
+   *  outside click, and the two menu actions that don't hand off to a form. */
+  private closeWalletMenu(walletId?: string): void {
+    const idToRefocus = walletId ?? this.openMenuWalletId();
+    this.openMenuWalletId.set(null);
+    this.menuPopoverPosition.set(null);
+    if (idToRefocus) {
+      document.querySelector<HTMLElement>(`[data-wallet-menu-trigger="${idToRefocus}"]`)?.focus();
+    }
+  }
+
+  @HostListener('document:keydown.escape')
+  onDocumentEscapeForMenu(): void {
+    if (this.openMenuWalletId()) {
+      this.closeWalletMenu();
+    }
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClickForMenu(event: MouseEvent): void {
+    const openId = this.openMenuWalletId();
+    if (!openId) {
+      return;
+    }
+    const target = event.target as HTMLElement | null;
+    const insideTrigger = target?.closest(`[data-wallet-menu-trigger="${openId}"]`);
+    const insidePopover = target?.closest(`[data-wallet-menu-popover="${openId}"]`);
+    if (!insideTrigger && !insidePopover) {
+      // A plain dismissal, not a cancel gesture — don't fight whatever the user
+      // just clicked by yanking focus back to the trigger.
+      this.openMenuWalletId.set(null);
+      this.menuPopoverPosition.set(null);
+    }
+  }
+
+  /** The popover's position is computed once, on open (`toggleWalletMenu`) — it
+   *  does not track scrolling. Closing on scroll avoids showing it drifted away
+   *  from its trigger; a plain dismissal, so no refocus (same reasoning as the
+   *  outside-click case above). */
+  @HostListener('window:scroll')
+  onWindowScrollForMenu(): void {
+    if (this.openMenuWalletId()) {
+      this.openMenuWalletId.set(null);
+      this.menuPopoverPosition.set(null);
     }
   }
 

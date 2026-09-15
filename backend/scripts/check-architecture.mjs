@@ -1,10 +1,10 @@
 // Architecture check for the backend project-reference graph
-// (high-level-architecture.md §2, ADR-0006/0007/0009,
+// (high-level-architecture.md §2, ADR-0001,
 // docs/conventions/backend.md):
 //   - a project may only reference the projects allowed for its layer
 //     (see scripts/lib/module-rules.mjs for the full allow-list and the
 //     documented exceptions it preserves — e.g. Infrastructure implementing
-//     a port declared in another module's Application, ADR-0009);
+//     a port declared in another module's Application, ADR-0001);
 //   - Domain must not reference any NuGet package; Application must not
 //     reference persistence/web-hosting packages;
 //   - the project-reference graph must stay free of cycles.
@@ -62,7 +62,7 @@ for (const file of csprojFiles) {
   const relDir = toSrcRelative(dirname(file));
   const sourceInfo = classifyProject(relDir);
   if (!sourceInfo) {
-    unresolvedReferences.push(`${relDir}: not classifiable under the ADR-0012 §2 module template (unexpected path shape)`);
+    unresolvedReferences.push(`${relDir}: not classifiable under the ADR-0007 §2 module template (unexpected path shape)`);
     continue;
   }
 

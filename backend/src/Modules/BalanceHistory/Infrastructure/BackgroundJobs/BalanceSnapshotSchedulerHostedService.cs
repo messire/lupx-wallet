@@ -9,8 +9,8 @@ using Microsoft.Extensions.Logging;
 namespace LupexWallet.BalanceHistory.Infrastructure;
 
 /// <summary>
-/// Implements ADR-0004 (scheduled snapshot creation at 12:00 UTC + backfilling missed runs
-/// on startup) on top of the shared BalanceRecalculationService (ADR-0003/ADR-0004: both
+/// Implements ADR-0003 (scheduled snapshot creation at 12:00 UTC + backfilling missed runs
+/// on startup) on top of the shared BalanceRecalculationService (ADR-0003: both
 /// triggers must use the same balance-on-date algorithm).
 ///
 /// Both triggers (application startup and the daily 12:00 UTC run) perform the same pass —
@@ -65,7 +65,7 @@ public sealed class BalanceSnapshotSchedulerHostedService(
         {
             using var scope = scopeFactory.CreateScope();
 
-            // ADR-0010: помечаем этот scope как System до отправки любых команд — иначе
+            // ADR-0006: помечаем этот scope как System до отправки любых команд — иначе
             // AuditEntry, порождённые пересчётом внутри этого прохода, по умолчанию были бы
             // помечены как User (см. AuditActorAccessor).
             scope.ServiceProvider.GetRequiredService<IAuditActorAccessor>()

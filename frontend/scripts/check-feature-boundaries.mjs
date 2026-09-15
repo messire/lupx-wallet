@@ -1,4 +1,4 @@
-// Architecture check for the frontend dependency graph (ADR-0012 §3,
+// Architecture check for the frontend dependency graph (ADR-0007 §3,
 // docs/conventions/frontend.md):
 //   - a feature must not import another feature directly;
 //   - core/shared/data-access must not depend on any feature;
@@ -113,7 +113,7 @@ if (unresolved.length > 0) {
 
 if (violations.length > 0) {
   hasErrors = true;
-  console.error('Feature boundary violations (ADR-0012 §3):\n');
+  console.error('Feature boundary violations (ADR-0007 §3):\n');
   for (const v of violations) console.error(`  - ${v}`);
   console.error(`\n${violations.length} violation(s). Use data-access/<domain>, core, or shared instead.\n`);
 }
@@ -124,7 +124,7 @@ if (distinctCycles.length > 0) {
   for (const cycle of distinctCycles) {
     console.error(`  - ${cycle.join(' -> ')}`);
   }
-  console.error(`\n${distinctCycles.length} cycle(s) found. The dependency graph must stay acyclic (ADR-0012 §3).\n`);
+  console.error(`\n${distinctCycles.length} cycle(s) found. The dependency graph must stay acyclic (ADR-0007 §3).\n`);
 }
 
 if (hasErrors) {

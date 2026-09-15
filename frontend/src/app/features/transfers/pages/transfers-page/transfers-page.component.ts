@@ -1,8 +1,11 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { appendPage } from '@shared/pagination/cursor-page';
 import { extractErrorMessage } from '../../../../core/http/problem-details';
 import { formatMoney } from '@shared/money/money';
+import { Currency } from '../../../../data-access/reference-data/reference-data-api.models';
+import { ReferenceDataApiService } from '../../../../data-access/reference-data/reference-data-api.service';
 import { Wallet } from '../../../../data-access/wallets/wallets-api.models';
 import { WalletsApiService } from '../../../../data-access/wallets/wallets-api.service';
 import { CreateTransferRequest, Transfer } from '../../../../data-access/transfers/transfers-api.models';
@@ -10,6 +13,7 @@ import { TransfersApiService } from '../../../../data-access/transfers/transfers
 import { TransferFormComponent, TransferWalletOption } from '../../components/transfer-form/transfer-form.component';
 import { ButtonComponent } from '@shared/ui/button/button.component';
 import { CardComponent } from '@shared/ui/card/card.component';
+import { DialogComponent } from '@shared/ui/dialog/dialog.component';
 import { EmptyStateComponent } from '@shared/ui/empty-state/empty-state.component';
 import { ErrorStateComponent } from '@shared/ui/error-state/error-state.component';
 import { FieldComponent } from '@shared/ui/field/field.component';
@@ -29,9 +33,11 @@ import { ToastComponent } from '@shared/ui/toast/toast.component';
   standalone: true,
   imports: [
     ReactiveFormsModule,
+    RouterLink,
     TransferFormComponent,
     ButtonComponent,
     CardComponent,
+    DialogComponent,
     EmptyStateComponent,
     ErrorStateComponent,
     FieldComponent,
@@ -47,11 +53,15 @@ import { ToastComponent } from '@shared/ui/toast/toast.component';
 export class TransfersComponent implements OnInit {
   private readonly transfersService = inject(TransfersApiService);
   private readonly walletsService = inject(WalletsApiService);
+  private readonly referenceDataService = inject(ReferenceDataApiService);
   private readonly formBuilder = inject(FormBuilder);
 
   protected readonly formatMoney = formatMoney;
 
+  private readonly transferFormRef = viewChild(TransferFormComponent);
+
   readonly wallets = signal<Wallet[]>([]);
+  readonly currencies = signal<Currency[]>([]);
 
   readonly transfers = signal<Transfer[]>([]);
   readonly nextCursor = signal<string | null>(null);
@@ -64,20 +74,39 @@ export class TransfersComponent implements OnInit {
   readonly isSubmitting = signal(false);
   readonly submitError = signal<string | null>(null);
   readonly successMessage = signal<string | null>(null);
+  /** screen-spec.md "Переводы": Escape/«Отмена» на изменённой форме требует подтверждения. */
+  readonly discardConfirmOpen = signal(false);
 
   readonly deleteError = signal<string | null>(null);
+  readonly isDeleting = signal(false);
+  readonly pendingDeleteTransfer = signal<Transfer | null>(null);
+  /** screen-spec.md "Переводы": действия строки находятся под «···» (тот же паттерн, что в Operations). */
+  readonly pendingRowActionsTransfer = signal<Transfer | null>(null);
+  private nextRowAction: { type: 'delete'; transfer: Transfer } | null = null;
 
   readonly filterForm = this.formBuilder.nonNullable.group({
     walletId: [''],
   });
 
-  /** Wallets for the form/filter dropdowns, with currency — used to filter the target wallet (UC-16). */
-  readonly walletOptions = computed<TransferWalletOption[]>(() =>
-    this.wallets().map((wallet) => ({ id: wallet.id, name: wallet.name, currencyId: wallet.currencyId })),
-  );
+  /** screen-spec.md "Переводы": пустой результат фильтра предлагает сброс, снимок на
+   *  момент последней успешно применённой загрузки (по образцу Operations). */
+  readonly hasActiveFilters = signal(false);
+
+  /** Wallets for the form/filter dropdowns, with currency code and accounting start date. */
+  readonly walletOptions = computed<TransferWalletOption[]>(() => {
+    const currencies = new Map(this.currencies().map((currency) => [currency.id, currency.code]));
+    return this.wallets().map((wallet) => ({
+      id: wallet.id,
+      name: wallet.name,
+      currencyId: wallet.currencyId,
+      currencyCode: currencies.get(wallet.currencyId) ?? '',
+      accountingStartDate: wallet.accountingStartDate,
+    }));
+  });
 
   ngOnInit(): void {
     this.loadWallets();
+    this.loadCurrencies();
     this.loadTransfers();
   }
 
@@ -85,11 +114,16 @@ export class TransfersComponent implements OnInit {
     this.walletsService.list({ includeArchived: true, limit: 100 }).subscribe((page) => this.wallets.set(page.data));
   }
 
+  loadCurrencies(): void {
+    this.referenceDataService.listCurrencies({ limit: 100 }).subscribe((page) => this.currencies.set(page.data));
+  }
+
   loadTransfers(): void {
     this.isLoading.set(true);
     this.loadError.set(null);
 
     const filters = this.filterForm.getRawValue();
+    this.hasActiveFilters.set(!!filters.walletId);
     this.transfersService.list({ walletId: filters.walletId || undefined }).subscribe({
       next: (page) => {
         this.transfers.set(page.data);
@@ -144,6 +178,40 @@ export class TransfersComponent implements OnInit {
   cancelForm(): void {
     this.isFormOpen.set(false);
     this.submitError.set(null);
+    this.discardConfirmOpen.set(false);
+  }
+
+  /**
+   * The form's own "Отмена" button — unlike Escape/backdrop (native `cancel`
+   * event, handled by `onFormDismissRequested`), this is a direct call, so the
+   * dirty check happens here rather than via `event.preventDefault()`.
+   */
+  requestCloseForm(): void {
+    if (this.transferFormRef()?.form.dirty) {
+      this.discardConfirmOpen.set(true);
+    } else {
+      this.cancelForm();
+    }
+  }
+
+  /** Escape/backdrop on the dialog (native `cancel` event) — same dirty check, but must
+   *  call `preventDefault()` to stop the native close before the confirm sub-dialog opens. */
+  onFormDismissRequested(event: Event): void {
+    if (this.transferFormRef()?.form.dirty) {
+      event.preventDefault();
+      this.discardConfirmOpen.set(true);
+    } else {
+      this.cancelForm();
+    }
+  }
+
+  continueEditing(): void {
+    this.discardConfirmOpen.set(false);
+  }
+
+  confirmDiscard(): void {
+    this.discardConfirmOpen.set(false);
+    this.cancelForm();
   }
 
   saveTransfer(request: CreateTransferRequest): void {
@@ -163,26 +231,89 @@ export class TransfersComponent implements OnInit {
       error: (error: unknown) => {
         this.isSubmitting.set(false);
         this.submitError.set(
-          extractErrorMessage(error, 'Не удалось создать перевод: возможно, кошельки имеют разные валюты (UC-17).'),
+          extractErrorMessage(error, 'Не удалось создать перевод: возможно, кошельки имеют разные валюты.'),
         );
       },
     });
   }
 
-  deleteTransfer(transfer: Transfer): void {
+  openRowActions(transfer: Transfer): void {
+    this.pendingRowActionsTransfer.set(transfer);
+  }
+
+  closeRowActions(): void {
+    this.nextRowAction = null;
+    this.pendingRowActionsTransfer.set(null);
+  }
+
+  deleteFromRowActions(transfer: Transfer): void {
+    this.nextRowAction = { type: 'delete', transfer };
+    this.pendingRowActionsTransfer.set(null);
+  }
+
+  /**
+   * Wired to the row-actions dialog's `(closed)` — opens the delete-confirm dialog
+   * only after the row-actions dialog has actually finished closing (mirrors
+   * Operations' `onRowActionsDialogClosed`, see that file for why the synchronous
+   * alternative races two independent `DialogComponent`/`<dialog>` effects).
+   */
+  onRowActionsDialogClosed(): void {
+    const next = this.nextRowAction;
+    this.nextRowAction = null;
+    if (next?.type === 'delete') {
+      this.requestDeleteConfirm(next.transfer);
+    }
+  }
+
+  requestDeleteConfirm(transfer: Transfer): void {
+    this.deleteError.set(null);
+    this.pendingDeleteTransfer.set(transfer);
+  }
+
+  cancelDeleteConfirm(): void {
+    if (this.isDeleting()) {
+      return;
+    }
+    this.pendingDeleteTransfer.set(null);
+    this.deleteError.set(null);
+  }
+
+  /** Escape/backdrop on the delete-confirm dialog (native `cancel` event) — mirrors
+   *  `onFormDismissRequested`: must call `preventDefault()` to stop the native
+   *  `<dialog>` from closing while a DELETE request is in flight (MAJOR-2). Without
+   *  it, the dialog closes natively on Escape but `pendingDeleteTransfer`/`open`
+   *  stay unchanged, so a subsequent 409 error has nowhere visible to render, and
+   *  re-opening the confirm dialog for the same transfer (same signal value, no
+   *  change) fails to re-trigger `DialogComponent`'s `showModal()`. */
+  onDeleteDismissRequested(event: Event): void {
+    if (this.isDeleting()) {
+      event.preventDefault();
+      return;
+    }
+    this.pendingDeleteTransfer.set(null);
+    this.deleteError.set(null);
+  }
+
+  confirmDeleteTransfer(): void {
+    const transfer = this.pendingDeleteTransfer();
+    if (!transfer || this.isDeleting()) {
+      return;
+    }
+    this.isDeleting.set(true);
     this.deleteError.set(null);
 
     this.transfersService.delete(transfer.id).subscribe({
       next: () => {
+        this.isDeleting.set(false);
+        this.pendingDeleteTransfer.set(null);
         this.loadTransfers();
         this.successMessage.set('Перевод удалён');
       },
       error: (error: unknown) => {
+        this.isDeleting.set(false);
+        // 409 (ADR-0002, "Состояние реализации" — today-boundary rule still in the backend): a past-dated transfer is already reflected in balance history.
         this.deleteError.set(
-          extractErrorMessage(
-            error,
-            'Не удалось удалить перевод: возможно, он уже учтен в истории баланса одного из кошельков.',
-          ),
+          extractErrorMessage(error, 'Не удалось удалить перевод: дата перевода уже в прошлом — отредактируйте связанные операции вместо удаления.'),
         );
       },
     });
@@ -190,5 +321,25 @@ export class TransfersComponent implements OnInit {
 
   walletName(walletId: string): string {
     return this.wallets().find((wallet) => wallet.id === walletId)?.name ?? walletId;
+  }
+
+  /** Currency code by wallet id — for showing an amount with its currency explicitly (ui-kit §5). */
+  walletCurrencyCode(walletId: string): string | undefined {
+    const currencyId = this.wallets().find((wallet) => wallet.id === walletId)?.currencyId;
+    return this.currencies().find((currency) => currency.id === currencyId)?.code;
+  }
+
+  /**
+   * UX minor: the "прошедшей датой удалить нельзя" warning in the row-actions
+   * dialog only applies to a transfer dated strictly before today (ADR-0002, current backend rule) — a
+   * same-day transfer can still be deleted and should not show a misleading
+   * "cannot delete" message.
+   */
+  isPastDated(transfer: Transfer): boolean {
+    return transfer.transferDate < this.today();
+  }
+
+  private today(): string {
+    return new Date().toISOString().slice(0, 10);
   }
 }

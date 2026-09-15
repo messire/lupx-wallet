@@ -10,7 +10,7 @@ using Xunit;
 namespace LupexWallet.UnitTests.Audit;
 
 /// <summary>
-/// AuditRecorder (ADR-0010) — единая точка записи AuditEntry, используемая всеми
+/// AuditRecorder (ADR-0006) — единая точка записи AuditEntry, используемая всеми
 /// *AuditHandlers.cs. Полный расчет diff из EF Core ChangeTracker
 /// (DispatchDomainEventsInterceptor.ComputeFieldChanges) требует реального DbContext и
 /// покрыт интеграционными тестами (AuditApiTests — changes видны в ответе GET
@@ -55,7 +55,7 @@ public sealed class AuditRecorderTests
         recorded.Changes.Should().BeEquivalentTo(changes);
     }
 
-    /// <summary>W2.2 DoD п.4: actorKind = System для записей фоновых задач (ADR-0010, "Механизм актора").</summary>
+    /// <summary>W2.2 DoD п.4: actorKind = System для записей фоновых задач (ADR-0006, "Механизм актора").</summary>
     [Fact]
     public async Task RecordAsync_SystemActorAccessor_CreatesEntryWithSystemActorAndProcessName()
     {

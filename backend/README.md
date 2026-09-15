@@ -1,6 +1,6 @@
 # LupexWallet — backend
 
-ASP.NET Core / EF Core / PostgreSQL, модульный монолит. Структура модуля и конвенции размещения — см. [ADR-0012](../docs/architecture/adr/0012-repository-structure-and-conventions.md) и [docs/architecture/high-level-architecture.md](../docs/architecture/high-level-architecture.md).
+ASP.NET Core / EF Core / PostgreSQL, модульный монолит. Структура модуля и конвенции размещения — см. [ADR-0007](../docs/architecture/adr/0007-repository-structure.md) и [docs/architecture/high-level-architecture.md](../docs/architecture/high-level-architecture.md).
 
 ## Структура
 
@@ -72,11 +72,11 @@ dotnet test tests/LupexWallet.IntegrationTests/LupexWallet.IntegrationTests.cspr
 node scripts/check-architecture.mjs
 ```
 
-Проверяет граф `ProjectReference`/`PackageReference` в `backend/src/**/*.csproj` против правила границы модуля (`high-level-architecture.md` §2, ADR-0006/0007/0009): какой слой какому может ссылаться, что Domain не подключает NuGet-пакеты, что Application не подключает EF Core/ASP.NET Core напрямую, и что граф ссылок между проектами не содержит циклов. Не требует сборки решения — читает `.csproj` напрямую, поэтому ловит нарушение раньше и быстрее, чем `dotnet build` (успешная компиляция сама по себе не гарантирует соблюдение правила границы модуля). Область — только `backend/src`; `backend/tests` намеренно не проверяется (интеграционные тесты закономерно ссылаются на несколько модулей и Host). Правила проверки покрыты примерами разрешённых/запрещённых зависимостей — `scripts/lib/module-rules.test.mjs` (`node --test scripts/lib/module-rules.test.mjs`).
+Проверяет граф `ProjectReference`/`PackageReference` в `backend/src/**/*.csproj` против правила границы модуля (`high-level-architecture.md` §2, ADR-0001): какой слой какому может ссылаться, что Domain не подключает NuGet-пакеты, что Application не подключает EF Core/ASP.NET Core напрямую, и что граф ссылок между проектами не содержит циклов. Не требует сборки решения — читает `.csproj` напрямую, поэтому ловит нарушение раньше и быстрее, чем `dotnet build` (успешная компиляция сама по себе не гарантирует соблюдение правила границы модуля). Область — только `backend/src`; `backend/tests` намеренно не проверяется (интеграционные тесты закономерно ссылаются на несколько модулей и Host). Правила проверки покрыты примерами разрешённых/запрещённых зависимостей — `scripts/lib/module-rules.test.mjs` (`node --test scripts/lib/module-rules.test.mjs`).
 
 ## Деплой (Railway)
 
-Топология и обоснование — [ADR-0013](../docs/architecture/adr/0013-deployment-topology.md). `Dockerfile` в корне `backend/` — Root Directory сервиса в Railway должен быть `backend/`.
+Топология и обоснование — [ADR-0008](../docs/architecture/adr/0008-deployment.md). `Dockerfile` в корне `backend/` — Root Directory сервиса в Railway должен быть `backend/`.
 
 Обязательные переменные окружения (приложение не стартует без них вне Development):
 

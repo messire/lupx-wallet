@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>История баланса — Lupex Wallet · UI kit v0.3</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="wallets.css">
+  <link rel="stylesheet" href="screens.css">
+  <link rel="stylesheet" href="select.css">
+  <script src="specimen.js" defer></script>
+  <link rel="stylesheet" href="extended-screens.css">
+  <script src="extended-common.js" defer></script>
+  <script src="balance-history.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Перейти к содержимому</a>
+  <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="wallet" viewBox="0 0 24 24"><path d="M20 8V5a2 2 0 0 0-2-2H5a3 3 0 0 0 0 6h16v11H5a3 3 0 0 1-3-3V6m19 7h-6v4h6"/></symbol>
+    <symbol id="list" viewBox="0 0 24 24"><path d="M8 5h13M8 12h13M8 19h13M3 5h.01M3 12h.01M3 19h.01"/></symbol>
+    <symbol id="transfer" viewBox="0 0 24 24"><path d="M3 7h17l-4-4m5 14H4l4 4M20 7l-4 4M4 17l4-4"/></symbol>
+    <symbol id="history" viewBox="0 0 24 24"><path d="M4 20V9m8 11V3m8 17V13"/></symbol>
+    <symbol id="rates" viewBox="0 0 24 24"><path d="m2 17 6-9 6 6 8-11"/></symbol>
+    <symbol id="report" viewBox="0 0 24 24"><path d="M5 2h10l5 5v15H5zM14 2v6h6M9 12h7M9 16h7"/></symbol>
+    <symbol id="book" viewBox="0 0 24 24"><path d="M12 5C8 2 4 3 2 4v16c4-2 7-1 10 1 3-2 6-3 10-1V4c-2-1-6-2-10 1v16"/></symbol>
+    <symbol id="audit" viewBox="0 0 24 24"><path d="m12 2 9 4v6c0 5-5 8-9 10-4-2-9-5-9-10V6zM8 12l3 3 5-6"/></symbol>
+    <symbol id="exit" viewBox="0 0 24 24"><path d="M10 3h10v18H10M3 12h12m-4-4 4 4-4 4"/></symbol>
+    <symbol id="home" viewBox="0 0 24 24"><path d="m3 10 9-8 9 8v12H3z"/></symbol>
+    <symbol id="menu" viewBox="0 0 24 24"><path d="M3 5h18M3 12h18M3 19h18"/></symbol>
+  </svg>
+  <div class="app-shell">
+    <aside class="sidebar" id="navigation">
+      <a class="wordmark" href="wallets.html">Lupex Wallet</a>
+      <nav aria-label="Разделы приложения">
+        <a class="nav-item" href="wallets.html"><svg><use href="#wallet"/></svg>Кошельки</a>
+        <a class="nav-item" href="operations.html"><svg><use href="#list"/></svg>Операции</a>
+        <a class="nav-item" href="transfers.html"><svg><use href="#transfer"/></svg>Переводы</a>
+        <a class="nav-item current" href="balance-history.html" aria-current="page"><svg><use href="#history"/></svg>История баланса</a>
+        <a class="nav-item" href="exchange-rates.html"><svg><use href="#rates"/></svg>Курсы валют</a>
+        <button class="nav-item" data-preview="Отчёт"><svg><use href="#report"/></svg>Отчёт</button>
+        <button class="nav-item" data-preview="Справочники"><svg><use href="#book"/></svg>Справочники</button>
+        <button class="nav-item" data-preview="Аудит"><svg><use href="#audit"/></svg>Аудит</button>
+      </nav>
+      <button class="nav-item sign-out" data-preview="Выйти"><svg><use href="#exit"/></svg>Выйти</button>
+    </aside>
+    <div class="workspace">
+      <header class="topbar">
+        <button class="menu-toggle" aria-expanded="false" aria-controls="navigation"><svg><use href="#menu"/></svg><span>Меню</span></button>
+        <span class="context"><svg><use href="#home"/></svg>Личные финансы</span>
+      </header>
+      <main id="main" tabindex="-1"><div class="page-heading"><h1>История баланса</h1></div><section class="glass filters-form compact-filter"><div class="field"><label for="history-wallet">Кошелёк</label><select id="history-wallet" name="history-wallet" ><option value="">Выберите кошелёк</option><option value="daily" selected>Ежедневные расходы · EUR</option><option value="savings">Накопления · EUR</option><option value="travel">Путешествия · EUR</option><option value="usd">Долларовый запас · USD</option></select></div><p id="accounting-note" class="helper"></p></section>
+<div id="history-pick" class="list-state" hidden><h2>Выберите кошелёк</h2><p class="metadata">Чтобы увидеть баланс на дату и историю за период.</p></div>
+<div id="history-content"><section class="glass balance-query" aria-labelledby="balance-heading"><div class="balance-query-controls"><h2 id="balance-heading">Баланс на дату</h2><form id="balance-query-form" class="filter-inline"><div class="field"><label for="balance-date">Дата</label><input id="balance-date" name="balance-date" type="date" value="2026-09-15" aria-describedby="balance-date-help"></div><button class="secondary">Показать</button></form><p id="balance-date-help" class="helper">Оставьте дату пустой, чтобы увидеть текущий баланс.</p></div><div id="balance-result" class="balance-result" role="status" tabindex="-1"><p id="balance-date-label" class="metadata"></p><p id="balance-value" class="balance"></p><p id="balance-note" class="helper"></p><button id="balance-retry" class="secondary" hidden>Повторить</button></div></section>
+<section class="transactions" id="history-list" aria-labelledby="history-heading"><div class="section-heading"><h2 id="history-heading">История за период</h2><span id="history-count" class="metadata"></span></div><form id="history-range" class="history-range filter-inline" novalidate><div class="field"><label for="history-from">С даты</label><input id="history-from" name="history-from" type="date" value="2026-09-09" required aria-describedby="history-range-error"></div><div class="field"><label for="history-to">По дату</label><input id="history-to" name="history-to" type="date" value="2026-09-15" required aria-describedby="history-range-error"></div><button class="secondary">Показать историю</button></form><p id="history-range-error" class="field-error" role="alert" hidden></p><p id="history-period" class="helper"></p><div class="table-scroll" id="history-table" role="region" aria-label="Ежедневный баланс выбранного кошелька, таблица с горизонтальной прокруткой" tabindex="0"><table><caption class="sr-only">Ежедневный баланс выбранного кошелька</caption><thead><tr><th scope="col">Дата</th><th scope="col" class="amount">Баланс</th><th scope="col">Примечание</th></tr></thead><tbody id="history-rows"></tbody></table></div><div id="history-state" class="list-state" hidden><h3 id="history-state-title"></h3><p id="history-state-copy" class="metadata"></p><button id="history-retry" class="secondary" hidden>Повторить</button></div><div class="pagination"><button id="history-more" class="secondary">Загрузить ещё</button></div></section></div></main><footer class="review-tools"><details><summary>Проверка макета</summary><div class="review-controls"><p>UI kit v0.3 · Вымышленные данные. Контрольная дата 15.09.2026. Действия выполняются только в памяти страницы; запросов к приложению нет.</p><div class="field"><label for="demo-state">Состояние экрана</label><select id="demo-state" name="demo-state" ><option value="default">Обычное</option><option value="empty">Нет данных</option><option value="loading">Загрузка</option><option value="error">Ошибка загрузки</option><option value="long">Длинные значения</option><option value="unselected">Кошелёк не выбран</option><option value="before-start">До начала учёта</option></select></div><div class="field"><label for="demo-result">Результат запроса</label><select id="demo-result" name="demo-result" ><option value="success">Успех</option><option value="error">Ошибка с сохранением данных</option></select></div><p><a href="extended-screen-spec.md">Спецификация экранов</a> · <a href="README.md">UI kit v0.3</a></p></div></details></footer></div></div><dialog id="screen-note" aria-labelledby="screen-note-title"><h2 id="screen-note-title"></h2><p>Отдельный макет этого раздела ещё не подготовлен.</p><form method="dialog"><button class="secondary" autofocus>Закрыть</button></form></dialog><p class="sr-only" id="announcement" role="status" aria-live="polite"></p></body></html>

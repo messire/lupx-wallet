@@ -5,7 +5,7 @@ namespace LupexWallet.Audit.Application;
 /// <summary>
 /// Cursor over the (OccurredAt, Id) pair — like WalletCursor/OperationCursor/NameCursor, needs
 /// a tiebreaker. AuditEntry.OccurredAt is guaranteed strictly increasing only within the CLR
-/// process (Audit.Domain.MonotonicClock, ADR-0010, 100ns resolution), but the PostgreSQL
+/// process (Audit.Domain.MonotonicClock, ADR-0006, 100ns resolution), but the PostgreSQL
 /// timestamptz column only stores microseconds — rounding can collapse two distinct in-process
 /// timestamps into the same stored value. Without the tiebreaker, cursor pagination on
 /// OccurredAt alone could lose or duplicate rows on such a collision. Id (a non-sequential Guid)

@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 namespace LupexWallet.ExchangeRates.Infrastructure;
 
 /// <summary>
-/// ADR-0009, case c — one of the ReferenceData.Application.IReferenceItemUsageProbe
+/// ADR-0002, §4 — one of the ReferenceData.Application.IReferenceItemUsageProbe
 /// implementations: data owner is ExchangeRates. Checks Currency usage in
 /// exchange_rates.latest_exchange_rates/historical_exchange_rates (a targeted EXISTS, not a
 /// collection dump). WalletType/OperationType are not relevant to this module — false.

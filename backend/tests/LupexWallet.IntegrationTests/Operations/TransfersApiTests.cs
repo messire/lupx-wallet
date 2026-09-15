@@ -213,7 +213,7 @@ public sealed class TransfersApiTests(ApiTestFixture fixture) : IntegrationTestB
     [Fact]
     public async Task DeleteTransfer_DatedBeforeToday_ReturnsConflict()
     {
-        // ADR-0009, случай b (решение пользователя, 2026-09-11): та же граница "сегодня",
+        // Прежнее правило до мягкого удаления (ADR-0002, §3, «Состояние реализации»): та же граница "сегодня",
         // что и для одиночной операции, но по TransferDate.
         await AuthenticateAsync();
         var (source, target) = await CreateWalletPairAsync(sourceBalance: 500m, targetBalance: 100m);

@@ -11,7 +11,7 @@ namespace LupexWallet.UnitTests.Operations;
 
 /// <summary>
 /// CreateOperationCommandHandler — оркестрация лукапов (ReferenceData/Wallets) и применение
-/// дельты к балансу (ADR-0007) через моки портов. Регресс: попытка создать операцию с
+/// дельты к балансу (ADR-0001) через моки портов. Регресс: попытка создать операцию с
 /// behaviorKind=Transfer напрямую должна давать доменное исключение (400/409), а не 500
 /// (docs/PROGRESS.md, "Баги, найденные и исправленные").
 /// </summary>

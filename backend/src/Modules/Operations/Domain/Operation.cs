@@ -165,7 +165,7 @@ public sealed class Operation : AggregateRoot<OperationId>
         Raise(new OperationUpdated(Id, WalletId, OperationDate, previousOperationDate, previousWalletId));
     }
 
-    /// <summary>UC-14 — hasHistory is computed by the caller (Application); see DeleteOperationCommand and ADR-0009, case b.</summary>
+    /// <summary>UC-14 — hasHistory is computed by the caller (Application); see DeleteOperationCommand and ADR-0002, §3 ("Состояние реализации": today-boundary rule still in code).</summary>
     public void EnsureCanBeDeleted(bool hasHistory)
     {
         EnsureNotPartOfTransfer();

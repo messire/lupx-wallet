@@ -41,7 +41,7 @@ public sealed class LupexWalletApiFactory : WebApplicationFactory<Program>
         // ExchangeRateRefreshBackgroundService) работают в собственном DI-scope, независимом
         // от HTTP-запроса теста, и могут выполнять запросы к БД в произвольный момент —
         // в частности, ExchangeRateRefreshBackgroundService просыпается по сигналу на КАЖДОЕ
-        // создание первого/основного кошелька (ADR-0001 п.5), что в тестах происходит в
+        // создание первого/основного кошелька (ADR-0004 п.5), что в тестах происходит в
         // каждом тесте после Respawn-сброса. Без отключения это гонится с
         // ApiTestFixture.ResetAsync() (Respawn TRUNCATE) между тестами и может привести к
         // 40P01 deadlock detected на стороне PostgreSQL. Бизнес-логика самих фоновых задач
@@ -53,7 +53,7 @@ public sealed class LupexWalletApiFactory : WebApplicationFactory<Program>
     }
 
     /// <summary>
-    /// Применяет EF Core-миграции всех модулей (каждый — своя схема, ADR-0006).
+    /// Применяет EF Core-миграции всех модулей (каждый — своя схема, ADR-0001).
     /// Вызывать один раз на контейнер (ApiTestFixture), не на каждый тест.
     /// Модули без своих таблиц (Reporting) сюда добавляются по мере появления в них домена/миграций.
     /// </summary>

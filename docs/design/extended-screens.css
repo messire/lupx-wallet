@@ -1,0 +1,36 @@
+/* Additional v0.3 layouts; palette and surfaces remain shared. */
+.compact-filter { max-width: 760px; }
+.compact-filter .field { margin: 0; }
+.filter-inline { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; }
+.filter-inline .field { flex: 1 1 180px; margin-bottom: 0; }
+.filter-inline > button, .filter-inline .filter-actions { margin-bottom: 0; min-height: 48px; }
+.filter-inline .filter-actions { margin-left: 0; }
+.transactions .section-heading { flex-wrap: wrap; }
+.transactions td:nth-child(2), .transactions td:nth-child(3) { white-space: normal; overflow-wrap: anywhere; max-width: 260px; }
+.transactions td.amount { white-space: nowrap; }
+#transfer-table table { min-width: 680px; }
+#transfer-table td:nth-child(2), #transfer-table td:nth-child(3) { min-width: 160px; }
+.balance-query { margin-top: 24px; padding: 28px; display: grid; grid-template-columns: minmax(240px,1fr) minmax(220px,1fr); gap: 32px; }
+.balance-query h2 { margin-bottom: 20px; }
+.balance-result { align-self: center; min-width: 0; }
+.balance-result .balance { margin: 8px 0; font-size: clamp(28px,3vw,40px); }
+.balance-result button { margin-top: 12px; }
+.history-range { margin: 24px 0 16px; }
+#history-period { margin: 0 0 12px; }
+.rates-update { padding: 24px 28px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px 32px; }
+#rates-updated { margin-top: 6px; }
+#rates-warning { color: var(--lw-text-secondary); }
+#transfer-dialog .field-error { margin: -8px 0 20px; }
+#transfer-dialog .field .field-error { margin: 8px 0 0; }
+#transfer-dialog #target-help { margin: -8px 0 20px; }
+#transfer-dialog #date-help { margin: 0; }
+#transfer-dialog #transfer-save-error { margin: 16px 0 0; }
+#transfer-dialog .form-intro { margin-bottom: 24px; }
+.table-scroll { position: relative; }
+@media (max-width:767px) {
+  .filter-inline { align-items: stretch; }
+  .filter-inline .field { flex-basis: 100%; }
+  .balance-query { grid-template-columns: minmax(0,1fr); padding: 22px; gap: 24px; }
+  .rates-update { padding: 22px; }
+  .balance-result .balance { font-size: 32px; }
+}

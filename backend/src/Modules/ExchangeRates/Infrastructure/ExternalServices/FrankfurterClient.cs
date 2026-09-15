@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace LupexWallet.ExchangeRates.Infrastructure;
 
 /// <summary>
-/// Frankfurter service client (ADR-0001) via IHttpClientFactory — the timeout is configured
+/// Frankfurter service client (ADR-0004) via IHttpClientFactory — the timeout is configured
 /// on the named HttpClient (see ExchangeRatesModuleExtensions); here — up to 3 attempts with
 /// an increasing delay on network error/timeout/5xx (the solution has no Polly package —
 /// retries are hand-rolled, matching the absence of external retry libraries in the rest of

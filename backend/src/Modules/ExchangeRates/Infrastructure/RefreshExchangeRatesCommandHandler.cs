@@ -38,7 +38,9 @@ public sealed class RefreshExchangeRatesCommandHandler(
             var updatedPairs = new List<ExchangeRatePairResult>();
             var now = DateTimeOffset.UtcNow;
 
-            var pairsToRefresh = currencySet.AllWalletCurrencyIds
+            var catalogCurrencies = await currencyLookup.GetAllAsync(cancellationToken);
+            var pairsToRefresh = catalogCurrencies
+                .Select(currency => currency.Id)
                 .Where(currencyId => currencyId != primaryCurrencyId)
                 .Distinct()
                 .ToList();
@@ -77,7 +79,7 @@ public sealed class RefreshExchangeRatesCommandHandler(
         if (request.IsManualTrigger)
         {
             // Сам ручной прогон уже выполнен выше (или пропущен — нет основного кошелька) —
-            // фоновому сервису остаётся только перезапустить суточный отсчёт (ADR-0001 п.3).
+            // фоновому сервису остаётся только перезапустить суточный отсчёт (ADR-0004 п.3).
             refreshSignal.NotifyManualRefreshCompleted();
         }
 
@@ -127,7 +129,7 @@ public sealed class RefreshExchangeRatesCommandHandler(
         catch (FrankfurterUnsupportedCurrencyException ex)
         {
             // Постоянное свойство валюты — не временный сбой источника, пропускаем молча,
-            // не эскалируем до 502/ExchangeRateUpdateFailed (ADR-0001, "Последствия";
+            // не эскалируем до 502/ExchangeRateUpdateFailed (ADR-0004, "Последствия";
             // docs/PROGRESS.md, W1.1 DoD п.6).
             logger.LogInformation(
                 ex, "Валюта не поддерживается Frankfurter — пара {From}->{To} пропущена", fromCurrency.Code, toCurrency.Code);
@@ -135,7 +137,7 @@ public sealed class RefreshExchangeRatesCommandHandler(
         catch (FrankfurterUnavailableException ex)
         {
             // Временная недоступность источника — прежний курс сохраняется без изменений
-            // (ADR-0001 п.6), fetched_at не трогаем.
+            // (ADR-0004 п.6), fetched_at не трогаем.
             logger.LogWarning(ex, "Frankfurter недоступен для пары {From}->{To}", fromCurrency.Code, toCurrency.Code);
             failedPairs.Add(new ExchangeRatePairFailure(fromCurrencyId, primaryCurrencyId, ex.Message));
         }

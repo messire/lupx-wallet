@@ -19,7 +19,8 @@ public sealed class DeleteTransferCommandHandler(
         var transfer = await transferRepository.GetByIdAsync(new TransferId(request.Id), cancellationToken)
             ?? throw new KeyNotFoundException($"Transfer {request.Id} не найден.");
 
-        // ADR-0009, случай b — решение пользователя от 2026-09-11, см. подробный комментарий
+        // Прежнее правило (решение от 2026-09-11), действует до реализации мягкого удаления
+        // (ADR-0002, §3 и «Состояние реализации»), см. подробный комментарий
         // в DeleteOperationCommand. Для перевода используется его собственная TransferDate
         // (совпадает по построению с OperationDate обеих частей, см. Transfer.Create).
         var today = DateOnly.FromDateTime(DateTime.UtcNow);

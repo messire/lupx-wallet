@@ -94,13 +94,20 @@ describe('WalletsComponent', () => {
 
   it('does not offer archiving for an already archived wallet', () => {
     const fixture = createComponent([primaryWallet, archivedWallet]);
-    const compiled = fixture.nativeElement as HTMLElement;
+    const component = fixture.componentInstance;
 
+    // The card's actions live inside its "···" menu popover, only rendered while open.
+    component.toggleWalletMenu(archivedWallet.id);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
     const cards = Array.from(compiled.querySelectorAll('.wallet-card'));
     const archivedCard = cards.find((card) => card.textContent?.includes('Архивный кошелек'));
-    const buttonLabels = Array.from(archivedCard!.querySelectorAll('button')).map((b) => b.textContent?.trim());
+    const menuItemLabels = Array.from(archivedCard!.querySelectorAll('.wallet-card__menu-item')).map((el) =>
+      el.textContent?.trim(),
+    );
 
-    expect(buttonLabels).not.toContain('Архивировать');
+    expect(menuItemLabels).not.toContain('Архивировать');
   });
 
   it('disables includeInTotal in the edit form for the primary wallet (Q8)', () => {
@@ -414,5 +421,177 @@ describe('WalletsComponent', () => {
     httpMock
       .expectOne((r) => r.url === `${environment.apiBaseUrl}/currencies`)
       .flush({ data: [{ id: 'c-eur', code: 'EUR', name: 'Евро', isActive: true }], pagination: { nextCursor: null, hasMore: false } });
+  });
+
+  describe('wallet card "···" menu', () => {
+    function trigger(fixture: ReturnType<typeof createComponent>, walletId: string): HTMLButtonElement {
+      return fixture.nativeElement.querySelector(`[data-wallet-menu-trigger="${walletId}"]`);
+    }
+
+    it('opens on trigger click and only one menu is open at a time', () => {
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+
+      component.toggleWalletMenu(primaryWallet.id);
+      expect(component.openMenuWalletId()).toBe(primaryWallet.id);
+
+      component.toggleWalletMenu(secondaryWallet.id);
+      expect(component.openMenuWalletId()).toBe(secondaryWallet.id);
+    });
+
+    it('toggling the same wallet a second time closes its menu', () => {
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+
+      component.toggleWalletMenu(primaryWallet.id);
+      component.toggleWalletMenu(primaryWallet.id);
+
+      expect(component.openMenuWalletId()).toBeNull();
+    });
+
+    it('does not offer "Сделать основным" for the wallet that is already primary', () => {
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+
+      component.toggleWalletMenu(primaryWallet.id);
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const cards = Array.from(compiled.querySelectorAll('.wallet-card'));
+      const primaryCard = cards.find((card) => card.textContent?.includes(primaryWallet.name));
+      const menuItemLabels = Array.from(primaryCard!.querySelectorAll('.wallet-card__menu-item')).map((el) =>
+        el.textContent?.trim(),
+      );
+
+      expect(menuItemLabels).not.toContain('Сделать основным');
+    });
+
+    it('Escape closes the open menu and returns focus to its trigger', () => {
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+      fixture.detectChanges();
+
+      component.toggleWalletMenu(primaryWallet.id);
+      fixture.detectChanges();
+
+      component.onDocumentEscapeForMenu();
+
+      expect(component.openMenuWalletId()).toBeNull();
+      expect(document.activeElement).toBe(trigger(fixture, primaryWallet.id));
+    });
+
+    it('Escape does nothing when no menu is open', () => {
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+
+      expect(() => component.onDocumentEscapeForMenu()).not.toThrow();
+      expect(component.openMenuWalletId()).toBeNull();
+    });
+
+    it('a click outside the open menu closes it', () => {
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+      fixture.detectChanges();
+
+      component.toggleWalletMenu(primaryWallet.id);
+      fixture.detectChanges();
+
+      const outside = document.createElement('div');
+      document.body.appendChild(outside);
+
+      component.onDocumentClickForMenu({ target: outside } as unknown as MouseEvent);
+
+      expect(component.openMenuWalletId()).toBeNull();
+      outside.remove();
+    });
+
+    it('a click on the trigger itself (or inside the popover) does not close the menu via the outside-click handler', () => {
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+      fixture.detectChanges();
+
+      component.toggleWalletMenu(primaryWallet.id);
+      fixture.detectChanges();
+
+      component.onDocumentClickForMenu({ target: trigger(fixture, primaryWallet.id) } as unknown as MouseEvent);
+
+      expect(component.openMenuWalletId()).toBe(primaryWallet.id);
+    });
+
+    it('"Сделать основным": closes the menu, returns focus to the trigger, and calls the API', () => {
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+      fixture.detectChanges();
+
+      component.toggleWalletMenu(secondaryWallet.id);
+      fixture.detectChanges();
+
+      component.selectWalletMenuAction(secondaryWallet, 'primary');
+
+      expect(component.openMenuWalletId()).toBeNull();
+      expect(document.activeElement).toBe(trigger(fixture, secondaryWallet.id));
+
+      httpMock.expectOne(`${environment.apiBaseUrl}/wallets/${secondaryWallet.id}/set-primary`).flush({});
+      httpMock
+        .expectOne((r) => r.url === `${environment.apiBaseUrl}/wallets`)
+        .flush({ data: [primaryWallet, secondaryWallet], pagination: { nextCursor: null, hasMore: false } });
+    });
+
+    it('"Изменить": closes the menu, opens the edit form, and moves focus into its first field', () => {
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+      fixture.detectChanges();
+
+      component.toggleWalletMenu(secondaryWallet.id);
+      fixture.detectChanges();
+
+      component.selectWalletMenuAction(secondaryWallet, 'edit');
+      fixture.detectChanges();
+
+      expect(component.openMenuWalletId()).toBeNull();
+      expect(component.editingWallet()).toEqual(secondaryWallet);
+
+      const nameInput = fixture.nativeElement.querySelector('input[formcontrolname="name"]') as HTMLInputElement;
+      expect(document.activeElement).toBe(nameInput);
+    });
+
+    it('"Сменить валюту": closes the menu, opens the currency form, and moves focus into its select', () => {
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+      fixture.detectChanges();
+
+      component.toggleWalletMenu(secondaryWallet.id);
+      fixture.detectChanges();
+
+      component.selectWalletMenuAction(secondaryWallet, 'currency');
+      fixture.detectChanges();
+
+      expect(component.openMenuWalletId()).toBeNull();
+      expect(component.changingCurrencyWalletId()).toBe(secondaryWallet.id);
+
+      const currencySelect = fixture.nativeElement.querySelector('select[formcontrolname="currencyId"]') as HTMLSelectElement;
+      expect(document.activeElement).toBe(currencySelect);
+    });
+
+    it('"Удалить": closes the menu, returns focus to the trigger, and opens the confirm dialog', () => {
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+      fixture.detectChanges();
+
+      component.toggleWalletMenu(secondaryWallet.id);
+      fixture.detectChanges();
+
+      component.selectWalletMenuAction(secondaryWallet, 'delete');
+
+      expect(component.openMenuWalletId()).toBeNull();
+      expect(component.pendingConfirm()).toEqual({ walletId: secondaryWallet.id, action: 'delete' });
+      expect(document.activeElement).toBe(trigger(fixture, secondaryWallet.id));
+    });
+
+    it('the trigger has an accessible name that includes the wallet name', () => {
+      const fixture = createComponent();
+
+      expect(trigger(fixture, primaryWallet.id).getAttribute('aria-label')).toBe(`Действия: ${primaryWallet.name}`);
+    });
   });
 });

@@ -3,7 +3,7 @@ using LupexWallet.SharedKernel;
 namespace LupexWallet.ReferenceData.Application;
 
 /// <summary>
-/// Narrow read-only contract published by ReferenceData for Operations (ADR-0007) —
+/// Narrow read-only contract published by ReferenceData for Operations (ADR-0001) —
 /// synchronous resolution of an operation type's behavior, required for the correctness of
 /// operation/transfer creation commands.
 /// </summary>

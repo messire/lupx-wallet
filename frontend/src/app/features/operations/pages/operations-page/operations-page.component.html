@@ -1,5 +1,8 @@
 <div class="page">
-  <h1>Операции</h1>
+  <div class="page-heading">
+    <h1>Операции</h1>
+    <app-button variant="primary" (click)="openCreateForm()">Добавить операцию</app-button>
+  </div>
 
   @if (successMessage(); as message) {
     <app-toast class="page-toast" [message]="message" tone="success" (dismissed)="successMessage.set(null)" />
@@ -33,6 +36,10 @@
         <input appFieldControl type="date" formControlName="dateTo" />
       </app-field>
 
+      @if (filterForm.errors?.['reverseDateRange']) {
+        <p class="form-error" role="alert">Дата начала периода не может быть позже даты окончания.</p>
+      }
+
       <div class="filter-actions app-field-align">
         <app-button type="submit" variant="secondary">Применить</app-button>
         <app-button type="button" variant="ghost" (click)="resetFilters()">Сбросить</app-button>
@@ -40,21 +47,28 @@
     </form>
   </app-card>
 
-  <section class="toolbar">
-    <app-button variant="primary" (click)="openCreateForm()" [disabled]="isFormOpen()">Добавить операцию</app-button>
-  </section>
-
-  @if (isFormOpen()) {
-    <app-operation-form
-      [wallets]="walletOptions()"
-      [operationTypes]="creatableOperationTypeOptions()"
-      [editingOperation]="editingOperation()"
-      [isSubmitting]="isSubmitting()"
-      [errorMessage]="submitError()"
-      (save)="saveOperation($event)"
-      (cancel)="cancelForm()"
-    />
-  }
+  <app-dialog
+    [open]="isFormOpen()"
+    [titleText]="editingOperation() ? 'Изменить операцию' : 'Новая операция'"
+    size="md"
+    (dismissRequested)="cancelForm()"
+    (closed)="cancelForm()"
+  >
+    @if (isFormOpen()) {
+      <!-- Пересоздаётся при каждом открытии (а не остаётся смонтированным между
+           закрытиями) — иначе форма/её FormGroup сохраняли бы значения и touched-
+           состояние прошлого открытия при следующем открытии в другом режиме. -->
+      <app-operation-form
+        [wallets]="walletOptions()"
+        [operationTypes]="creatableOperationTypeOptions()"
+        [editingOperation]="editingOperation()"
+        [isSubmitting]="isSubmitting()"
+        [errorMessage]="submitError()"
+        (save)="saveOperation($event)"
+        (cancel)="cancelForm()"
+      />
+    }
+  </app-dialog>
 
   @if (deleteError()) {
     <app-error-state [message]="deleteError()!" [showRetry]="false" />
@@ -68,6 +82,10 @@
     </app-loading-state>
   } @else if (loadError()) {
     <app-error-state [message]="loadError()!" (retry)="loadOperations()" />
+  } @else if (operations().length === 0 && hasActiveFilters()) {
+    <app-empty-state title="По этим условиям ничего не найдено" description="Попробуйте изменить условия или сбросить фильтры">
+      <app-button variant="secondary" (click)="resetFilters()">Сбросить фильтры</app-button>
+    </app-empty-state>
   } @else if (operations().length === 0) {
     <app-empty-state title="Операций пока нет" description="Добавьте первую операцию, чтобы начать учёт">
       <app-button variant="primary" (click)="openCreateForm()">Добавить операцию</app-button>
@@ -102,7 +120,9 @@
                     [class.amount--income]="operationBehaviorKindCode(operation.operationTypeId) === 'Income'"
                     [class.amount--expense]="operationBehaviorKindCode(operation.operationTypeId) === 'Expense'"
                   >
-                    {{ amountSign(operationBehaviorKindCode(operation.operationTypeId)) }}{{ formatMoney(operation.amount) }}
+                    {{ amountSign(operationBehaviorKindCode(operation.operationTypeId)) }}{{
+                      formatMoney(operation.amount, walletCurrencyCode(operation.walletId))
+                    }}
                   </span>
                   @if (amountCategoryLabel(operationBehaviorKindCode(operation.operationTypeId)); as categoryLabel) {
                     <span class="amount-category">{{ categoryLabel }}</span>
@@ -112,13 +132,23 @@
                 <td class="actions">
                   @if (operation.transferId) {
                     <app-badge tone="neutral" title="Часть перевода — управляется со экрана «Переводы»">часть перевода</app-badge>
+                    <a
+                      class="history-link"
+                      [routerLink]="['/audit']"
+                      [queryParams]="{ entityType: 'Operation', entityId: operation.id }"
+                    >
+                      История изменений
+                    </a>
                   } @else {
-                    <app-button variant="ghost" (click)="openEditForm(operation)">Изменить</app-button>
-                    <app-button variant="danger" (click)="deleteOperation(operation)">Удалить</app-button>
+                    <app-button
+                      variant="ghost"
+                      [iconOnly]="true"
+                      ariaLabel="Действия с операцией"
+                      (click)="openRowActions(operation)"
+                    >
+                      ···
+                    </app-button>
                   }
-                  <a class="history-link" [routerLink]="['/audit']" [queryParams]="{ entityType: 'Operation', entityId: operation.id }">
-                    История изменений
-                  </a>
                 </td>
               </tr>
             }
@@ -141,4 +171,49 @@
       </div>
     }
   }
+
+  <app-dialog
+    [open]="pendingDeleteOperation() !== null"
+    titleText="Удалить операцию"
+    size="sm"
+    (dismissRequested)="cancelDeleteConfirm()"
+    (closed)="cancelDeleteConfirm()"
+  >
+    @if (pendingDeleteOperation(); as pending) {
+      <p>
+        Операция «{{ operationTypeName(pending.operationTypeId) }}» от {{ pending.operationDate }} на сумму
+        {{ formatMoney(pending.amount, walletCurrencyCode(pending.walletId)) }} будет удалена без возможности
+        восстановления. Баланс кошелька «{{ walletName(pending.walletId) }}» будет пересчитан.
+      </p>
+    }
+    <div dialogActions>
+      <app-button variant="secondary" type="button" (click)="cancelDeleteConfirm()">Отмена</app-button>
+      <app-button variant="danger" type="button" (click)="confirmDeleteOperation()">Удалить</app-button>
+    </div>
+  </app-dialog>
+
+  <!-- screen-spec.md "Операции": "Действия строки находятся под «···»" — переиспользует
+       уже принятый app-dialog вместо нового компонента-меню. -->
+  <app-dialog
+    [open]="pendingRowActionsOperation() !== null"
+    titleText="Действия с операцией"
+    size="sm"
+    (dismissRequested)="closeRowActions()"
+    (closed)="onRowActionsDialogClosed()"
+  >
+    @if (pendingRowActionsOperation(); as pending) {
+      <div class="row-actions-list">
+        <app-button variant="secondary" type="button" [fullWidth]="true" (click)="editFromRowActions(pending)">Изменить</app-button>
+        <app-button variant="danger" type="button" [fullWidth]="true" (click)="deleteFromRowActions(pending)">Удалить</app-button>
+        <a
+          class="row-actions-list__link"
+          [routerLink]="['/audit']"
+          [queryParams]="{ entityType: 'Operation', entityId: pending.id }"
+          (click)="closeRowActions()"
+        >
+          История изменений
+        </a>
+      </div>
+    }
+  </app-dialog>
 </div>

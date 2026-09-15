@@ -31,7 +31,7 @@ public sealed class Transfer : AggregateRoot<TransferId>
     /// <summary>
     /// Creates the transfer and both its operations atomically in memory (persistence of both
     /// goes through Application/UnitOfWork in one transaction). Source/target wallet currency
-    /// match is checked by the caller (Application, ADR-0007) — here Money is already
+    /// match is checked by the caller (Application, ADR-0001) — here Money is already
     /// reconciled to a single currency.
     /// </summary>
     public static (Transfer Transfer, Operation SourceOperation, Operation TargetOperation) Create(

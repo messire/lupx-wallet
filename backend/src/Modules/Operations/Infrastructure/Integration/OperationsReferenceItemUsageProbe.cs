@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 namespace LupexWallet.Operations.Infrastructure;
 
 /// <summary>
-/// ADR-0009, case c — one of the implementations of
+/// ADR-0002, §4 — one of the implementations of
 /// ReferenceData.Application.IReferenceItemUsageProbe: data owner is Operations. Checks
 /// OperationType/Currency usage in operations.operations (a targeted EXISTS, not a collection
 /// dump). WalletType is not relevant to this module — returns false. Registered in

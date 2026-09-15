@@ -87,7 +87,7 @@ builder.Services.AddMediatR(cfg =>
     cfg.AddOpenBehavior(typeof(TransactionBehavior<,>));
 });
 builder.Services.AddScoped<IDomainEventDispatcher, MediatRDomainEventDispatcher>();
-// ADR-0010: кто выполняет текущую цепочку обработки (User/System) — читают обработчики
+// ADR-0006: кто выполняет текущую цепочку обработки (User/System) — читают обработчики
 // Audit.Infrastructure и фоновые сервисы BalanceHistory/ExchangeRates.
 builder.Services.AddScoped<IAuditActorAccessor, AuditActorAccessor>();
 
@@ -150,7 +150,7 @@ app.UseForwardedHeaders(new ForwardedHeadersOptions
     ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
 });
 
-// ---- Применение EF Core-миграций всех модулей при старте (каждый — своя схема, ADR-0006) ----
+// ---- Применение EF Core-миграций всех модулей при старте (каждый — своя схема, ADR-0001) ----
 // До этого места ни одна миграция не применялась к реальной БД в продакшен-хосте (только в
 // тестах через LupexWalletApiFactory.MigrateAllAsync) — без этого блока приложение падало бы
 // на первом же запросе с "relation ... does not exist".

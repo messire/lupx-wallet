@@ -1,6 +1,6 @@
 # Конвенция: frontend
 
-Короткая справка по размещению файлов внутри `frontend/src/app/`. Полный шаблон и обоснование — [ADR-0012 §3](../architecture/adr/0012-repository-structure-and-conventions.md#3-frontend-экраны-отдельно-от-доступа-к-данным).
+Короткая справка по размещению файлов внутри `frontend/src/app/`. Полный шаблон и обоснование — [ADR-0007 §3](../architecture/adr/0007-repository-structure.md#3-frontend-экраны-отдельно-от-доступа-к-данным).
 
 ## Куда положить файл
 

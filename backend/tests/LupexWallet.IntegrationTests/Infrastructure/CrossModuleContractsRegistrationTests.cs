@@ -7,7 +7,7 @@ using Xunit;
 namespace LupexWallet.IntegrationTests.Infrastructure;
 
 /// <summary>
-/// ADR-0009, раздел «Обязательное условие: пустой список реализаций — ошибка, не «false»».
+/// ADR-0001, §2, «Обязательное условие: пустой список реализаций — ошибка, не «false»».
 ///
 /// Каждый порт, реализуемый несколькими модулями-владельцами через <c>IEnumerable&lt;TPort&gt;</c>,
 /// фиксирует ОЖИДАЕМОЕ число зарегистрированных реализаций (известное на этапе компоновки Host).
@@ -26,7 +26,7 @@ namespace LupexWallet.IntegrationTests.Infrastructure;
 public sealed class CrossModuleContractsRegistrationTests(ApiTestFixture fixture) : IntegrationTestBase(fixture)
 {
     /// <summary>
-    /// Случай (a) ADR-0009: <see cref="IWalletHistorySource"/> — ровно 2 реализации-владельца:
+    /// ADR-0002, §2 (текущая реализация; целевое число по «Состоянию реализации» — 1): <see cref="IWalletHistorySource"/> — ровно 2 реализации-владельца:
     /// <c>Operations.Infrastructure.OperationsWalletHistorySource</c> и
     /// <c>BalanceHistory.Infrastructure.BalanceHistoryWalletHistorySource</c>.
     /// </summary>
@@ -38,14 +38,14 @@ public sealed class CrossModuleContractsRegistrationTests(ApiTestFixture fixture
         var sources = scope.ServiceProvider.GetServices<IWalletHistorySource>();
 
         sources.Should().HaveCount(2,
-            "ADR-0009 (случай a) ожидает ровно 2 владельца данных истории кошелька " +
+            "текущая реализация ADR-0002 §2 ожидает ровно 2 владельца данных истории кошелька " +
             "(Operations, BalanceHistory) — если их число изменилось, кто-то забыл " +
             "зарегистрировать реализацию в Add<Owner>Module либо ожидание в этом тесте " +
-            "устарело и должно быть обновлено осознанно вместе с ADR-0009");
+            "устарело и должно быть обновлено осознанно вместе с ADR-0002");
     }
 
     /// <summary>
-    /// Случай (c) ADR-0009: <see cref="IReferenceItemUsageProbe"/> — ровно 3 реализации-владельца:
+    /// ADR-0002, §4 (текущая реализация; целевое число по «Состоянию реализации» — 2): <see cref="IReferenceItemUsageProbe"/> — ровно 3 реализации-владельца:
     /// <c>Wallets.Infrastructure.WalletsReferenceItemUsageProbe</c>,
     /// <c>Operations.Infrastructure.OperationsReferenceItemUsageProbe</c>,
     /// <c>ExchangeRates.Infrastructure.ExchangeRatesReferenceItemUsageProbe</c>.
@@ -58,9 +58,9 @@ public sealed class CrossModuleContractsRegistrationTests(ApiTestFixture fixture
         var probes = scope.ServiceProvider.GetServices<IReferenceItemUsageProbe>();
 
         probes.Should().HaveCount(3,
-            "ADR-0009 (случай c) ожидает ровно 3 владельца данных использования элементов " +
+            "текущая реализация ADR-0002 §4 ожидает ровно 3 владельца данных использования элементов " +
             "справочника (Wallets, Operations, ExchangeRates) — если их число изменилось, " +
             "кто-то забыл зарегистрировать пробник в Add<Owner>Module либо ожидание в этом " +
-            "тесте устарело и должно быть обновлено осознанно вместе с ADR-0009");
+            "тесте устарело и должно быть обновлено осознанно вместе с ADR-0002");
     }
 }

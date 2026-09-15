@@ -1,5 +1,4 @@
-import { test, expect } from '@playwright/test';
-import { login, createWallet } from './fixtures';
+import { test, expect, login, createWallet } from './fixtures';
 
 test.beforeEach(async ({ page }) => {
   await login(page);

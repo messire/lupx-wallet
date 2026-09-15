@@ -1,26 +1,35 @@
 
-.wallet-picker {
-  max-width: 360px;
+.filters-card {
   margin-bottom: var(--lw-space-6);
 }
 
-.hint {
-  padding: var(--lw-space-4);
-  border: 1px solid var(--lw-border-light);
-  border-radius: var(--lw-radius-sm);
-  background: var(--lw-glass-strong);
-  color: var(--lw-text-secondary);
-  font-size: var(--lw-type-small);
+.wallet-accounting-note {
   margin: 0 0 var(--lw-space-6);
 }
 
 .section {
   margin-bottom: var(--lw-space-6);
+}
+
+/* Two-column "Balance on date" layout (docs/design/extended-screens.css
+   `.balance-query`): form on the left, result on the right; a single column
+   below 768px (matches the app's shared `.page` breakpoint). */
+.balance-query {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(220px, 1fr);
+  gap: var(--lw-space-8);
 
   h2 {
     font-size: var(--lw-type-section);
     font-weight: 500;
-    margin: 0 0 var(--lw-space-4);
+    margin: 0 0 var(--lw-space-5);
+  }
+}
+
+@media (max-width: 767px) {
+  .balance-query {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--lw-space-6);
   }
 }
 
@@ -36,34 +45,25 @@
 }
 
 .balance-result {
-  display: flex;
-  align-items: center;
-  gap: var(--lw-space-2);
-}
+  align-self: center;
+  min-width: 0;
 
-.money {
-  font-variant-numeric: tabular-nums;
-}
-
-.table-scroll {
-  overflow-x: auto;
-  border-radius: var(--lw-radius-sm);
-
-  &:focus-visible {
-    outline: 2px solid var(--lw-accent);
-    outline-offset: 2px;
+  .balance {
+    margin: var(--lw-space-2) 0;
+    font-size: clamp(28px, 3vw, 40px);
   }
+}
+
+@media (max-width: 767px) {
+  .balance-result .balance {
+    font-size: 32px;
+  }
+}
+
+.history-period {
+  margin: 0 0 var(--lw-space-3);
 }
 
 .history-table {
   min-width: 480px;
-}
-
-.amount-col {
-  text-align: right;
-}
-
-.load-more {
-  display: inline-block;
-  margin-top: var(--lw-space-4);
 }

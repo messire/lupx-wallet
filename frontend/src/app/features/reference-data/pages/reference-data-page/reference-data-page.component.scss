@@ -24,8 +24,7 @@ app-tabs {
   align-items: flex-start;
   gap: var(--lw-space-3);
   padding: var(--lw-space-4) var(--lw-space-6);
-  border: 1px solid var(--lw-border);
-  border-top-color: var(--lw-border-light);
+  border: 1px solid var(--lw-surface-border);
   border-radius: var(--lw-radius-md);
   background: var(--lw-glass);
 }

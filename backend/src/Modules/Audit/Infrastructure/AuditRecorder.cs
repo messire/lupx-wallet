@@ -9,7 +9,7 @@ namespace LupexWallet.Audit.Infrastructure;
 /// Single write point for AuditEntry, used by all domain event handlers in this project (one
 /// handler per event per publisher module, the *AuditHandlers.cs files). Lives in
 /// Infrastructure, not Application (by analogy with
-/// BalanceHistory.Infrastructure.OperationEventHandlers, ADR-0008): it needs access to
+/// BalanceHistory.Infrastructure.OperationEventHandlers, ADR-0001): it needs access to
 /// IAuditActorAccessor and DispatchDomainEventsInterceptor (both BuildingBlocks.Infrastructure),
 /// which the Application layer must not see directly (high-level-architecture.md, §2 —
 /// "Application depends only on Domain").
@@ -21,7 +21,7 @@ public sealed class AuditRecorder(
     DispatchDomainEventsInterceptor interceptor)
 {
     /// <summary>
-    /// ADR-0010, default mechanism: the diff is taken from the EF Core ChangeTracker of the
+    /// ADR-0006, default mechanism: the diff is taken from the EF Core ChangeTracker of the
     /// SaveChanges call that raised this event.
     /// </summary>
     public Task RecordFromChangeTrackerAsync(
@@ -35,7 +35,7 @@ public sealed class AuditRecorder(
     }
 
     /// <summary>
-    /// ADR-0010, targeted enrichment: used where a ChangeTracker diff is meaningless
+    /// ADR-0006, targeted enrichment: used where a ChangeTracker diff is meaningless
     /// (BalanceSnapshot — a composite key without a surrogate Id drops SnapshotDate from the
     /// diff; ExchangeRates* — batched events with no single owning aggregate).
     /// </summary>

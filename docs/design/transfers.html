@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Переводы — Lupex Wallet · UI kit v0.3</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="wallets.css">
+  <link rel="stylesheet" href="screens.css">
+  <link rel="stylesheet" href="select.css">
+  <script src="specimen.js" defer></script>
+  <link rel="stylesheet" href="extended-screens.css">
+  <script src="extended-common.js" defer></script>
+  <script src="transfers.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Перейти к содержимому</a>
+  <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="wallet" viewBox="0 0 24 24"><path d="M20 8V5a2 2 0 0 0-2-2H5a3 3 0 0 0 0 6h16v11H5a3 3 0 0 1-3-3V6m19 7h-6v4h6"/></symbol>
+    <symbol id="list" viewBox="0 0 24 24"><path d="M8 5h13M8 12h13M8 19h13M3 5h.01M3 12h.01M3 19h.01"/></symbol>
+    <symbol id="transfer" viewBox="0 0 24 24"><path d="M3 7h17l-4-4m5 14H4l4 4M20 7l-4 4M4 17l4-4"/></symbol>
+    <symbol id="history" viewBox="0 0 24 24"><path d="M4 20V9m8 11V3m8 17V13"/></symbol>
+    <symbol id="rates" viewBox="0 0 24 24"><path d="m2 17 6-9 6 6 8-11"/></symbol>
+    <symbol id="report" viewBox="0 0 24 24"><path d="M5 2h10l5 5v15H5zM14 2v6h6M9 12h7M9 16h7"/></symbol>
+    <symbol id="book" viewBox="0 0 24 24"><path d="M12 5C8 2 4 3 2 4v16c4-2 7-1 10 1 3-2 6-3 10-1V4c-2-1-6-2-10 1v16"/></symbol>
+    <symbol id="audit" viewBox="0 0 24 24"><path d="m12 2 9 4v6c0 5-5 8-9 10-4-2-9-5-9-10V6zM8 12l3 3 5-6"/></symbol>
+    <symbol id="exit" viewBox="0 0 24 24"><path d="M10 3h10v18H10M3 12h12m-4-4 4 4-4 4"/></symbol>
+    <symbol id="home" viewBox="0 0 24 24"><path d="m3 10 9-8 9 8v12H3z"/></symbol>
+    <symbol id="menu" viewBox="0 0 24 24"><path d="M3 5h18M3 12h18M3 19h18"/></symbol>
+  </svg>
+  <div class="app-shell">
+    <aside class="sidebar" id="navigation">
+      <a class="wordmark" href="wallets.html">Lupex Wallet</a>
+      <nav aria-label="Разделы приложения">
+        <a class="nav-item" href="wallets.html"><svg><use href="#wallet"/></svg>Кошельки</a>
+        <a class="nav-item" href="operations.html"><svg><use href="#list"/></svg>Операции</a>
+        <a class="nav-item current" href="transfers.html" aria-current="page"><svg><use href="#transfer"/></svg>Переводы</a>
+        <a class="nav-item" href="balance-history.html"><svg><use href="#history"/></svg>История баланса</a>
+        <a class="nav-item" href="exchange-rates.html"><svg><use href="#rates"/></svg>Курсы валют</a>
+        <button class="nav-item" data-preview="Отчёт"><svg><use href="#report"/></svg>Отчёт</button>
+        <button class="nav-item" data-preview="Справочники"><svg><use href="#book"/></svg>Справочники</button>
+        <button class="nav-item" data-preview="Аудит"><svg><use href="#audit"/></svg>Аудит</button>
+      </nav>
+      <button class="nav-item sign-out" data-preview="Выйти"><svg><use href="#exit"/></svg>Выйти</button>
+    </aside>
+    <div class="workspace">
+      <header class="topbar">
+        <button class="menu-toggle" aria-expanded="false" aria-controls="navigation"><svg><use href="#menu"/></svg><span>Меню</span></button>
+        <span class="context"><svg><use href="#home"/></svg>Личные финансы</span>
+      </header>
+      <main id="main" tabindex="-1"><div class="page-heading"><h1>Переводы</h1><button class="primary action" id="add-transfer">＋ Добавить перевод</button></div>
+<form id="transfer-filter" class="glass filters-form compact-filter"><div class="filter-inline"><div class="field"><label for="transfer-wallet">Кошелёк</label><select id="transfer-wallet" name="transfer-wallet" ><option value="" selected>Все кошельки</option><option value="daily">Ежедневные расходы · EUR</option><option value="savings">Накопления · EUR</option><option value="travel">Путешествия · EUR</option><option value="usd">Долларовый запас · USD</option></select></div><div class="filter-actions"><button class="secondary">Применить</button><button type="button" id="reset-transfer-filter" class="ghost-action">Сбросить</button></div></div></form>
+<p id="transfer-feedback" class="form-message" role="status" tabindex="-1" hidden></p>
+<section class="transactions" id="transfer-list" aria-labelledby="transfer-heading"><div class="section-heading"><h2 id="transfer-heading">Между кошельками</h2><span id="transfer-count" class="metadata"></span></div><div class="table-scroll" id="transfer-table" role="region" aria-label="Переводы между кошельками, таблица с горизонтальной прокруткой" tabindex="0"><table><caption class="sr-only">Переводы между кошельками</caption><thead><tr><th scope="col">Дата</th><th scope="col">Откуда</th><th scope="col">Куда</th><th scope="col" class="amount">Сумма</th><th scope="col"><span class="sr-only">Действия</span></th></tr></thead><tbody id="transfer-rows"></tbody></table></div><div id="transfer-state" class="list-state" hidden><h3 id="transfer-state-title"></h3><p id="transfer-state-copy" class="metadata"></p><button id="transfer-retry" class="secondary" hidden>Повторить</button></div><div class="pagination"><button id="transfer-more" class="secondary">Загрузить ещё</button></div></section></main><footer class="review-tools"><details><summary>Проверка макета</summary><div class="review-controls"><p>UI kit v0.3 · Вымышленные данные. Контрольная дата 15.09.2026. Действия выполняются только в памяти страницы; запросов к приложению нет.</p><div class="field"><label for="demo-state">Состояние экрана</label><select id="demo-state" name="demo-state" ><option value="default">Обычное</option><option value="empty">Нет данных</option><option value="loading">Загрузка</option><option value="error">Ошибка загрузки</option><option value="long">Длинные значения</option></select></div><div class="field"><label for="demo-result">Результат действия</label><select id="demo-result" name="demo-result" ><option value="success">Успех</option><option value="error">Ошибка с сохранением данных</option></select></div><p><a href="extended-screen-spec.md">Спецификация экранов</a> · <a href="README.md">UI kit v0.3</a></p></div></details></footer></div></div><dialog class="form-dialog" id="transfer-dialog" aria-labelledby="transfer-form-title"><h2 id="transfer-form-title">Новый перевод</h2><p class="helper form-intro">Между разными кошельками одной валюты. Сумма списания равна сумме зачисления.</p><form id="transfer-form" novalidate><fieldset id="transfer-fields"><div class="field"><label for="source">Откуда *</label><select id="source" name="source" required aria-describedby="source-error"><option value="" selected>Выберите кошелёк</option><option value="daily">Ежедневные расходы · EUR</option><option value="savings">Накопления · EUR</option><option value="travel">Путешествия · EUR</option><option value="usd">Долларовый запас · USD</option></select></div><p id="source-error" class="field-error" hidden></p><div class="field"><label for="target">Куда *</label><select id="target" name="target" required disabled aria-describedby="target-help target-error"><option value="" selected>Сначала выберите источник</option></select></div><p id="target-help" class="helper"></p><p id="target-error" class="field-error" hidden></p><div class="field"><label for="transfer-amount">Сумма *</label><div class="input-suffix"><input id="transfer-amount" name="amount" placeholder="0.00" inputmode="decimal" required aria-describedby="amount-help amount-error"><span id="transfer-currency">—</span></div><p id="amount-help" class="helper">Положительное число с точкой, например 250.50.</p><p id="amount-error" class="field-error" hidden></p></div><div class="field"><label for="transfer-date">Дата *</label><input id="transfer-date" name="transfer-date" type="date" value="2026-09-15" required max="2026-09-15" aria-describedby="date-help date-error"></div><p id="date-help" class="helper"></p><p id="date-error" class="field-error" hidden></p></fieldset><p id="transfer-save-error" class="field-error" role="alert" hidden></p><div class="form-actions"><button id="save-transfer" class="primary action">Создать перевод</button><button id="cancel-transfer" type="button" class="secondary">Отмена</button></div></form></dialog>
+<dialog id="transfer-actions" aria-labelledby="transfer-actions-title"><h2 id="transfer-actions-title">Перевод</h2><p id="transfer-description"></p><p id="transfer-delete-rule" class="helper"></p><button id="ask-delete-transfer" class="danger-action action">Удалить перевод</button><form method="dialog" class="form-actions"><button class="secondary" autofocus>Закрыть</button></form></dialog>
+<dialog id="transfer-delete" aria-labelledby="transfer-delete-title"><h2 id="transfer-delete-title">Удалить перевод?</h2><p id="transfer-delete-description"></p><p class="metadata">Обе связанные операции будут удалены, балансы двух кошельков пересчитаны. Отменить удаление нельзя.</p><p id="transfer-delete-error" class="field-error" role="alert" hidden></p><div class="form-actions"><button id="cancel-delete-transfer" class="secondary" autofocus>Отмена</button><button id="confirm-delete-transfer" class="danger-action action">Удалить</button></div></dialog><dialog id="discard-dialog" aria-labelledby="discard-title"><h2 id="discard-title">Отменить изменения?</h2><p>Введённые данные будут потеряны.</p><form method="dialog" class="form-actions"><button class="secondary" value="stay" autofocus>Продолжить заполнение</button><button class="ghost-action" value="discard">Отменить изменения</button></form></dialog><dialog id="screen-note" aria-labelledby="screen-note-title"><h2 id="screen-note-title"></h2><p>Отдельный макет этого раздела ещё не подготовлен.</p><form method="dialog"><button class="secondary" autofocus>Закрыть</button></form></dialog><p class="sr-only" id="announcement" role="status" aria-live="polite"></p></body></html>

@@ -6,7 +6,6 @@ import { fieldError } from '@shared/forms/field-error';
 import { AdjustmentMode, CreateOperationRequest, Operation, UpdateOperationRequest } from '../../../../data-access/operations/operations-api.models';
 import { OperationTypeOption } from '../../operations.models';
 import { ButtonComponent } from '@shared/ui/button/button.component';
-import { CardComponent } from '@shared/ui/card/card.component';
 import { FieldComponent } from '@shared/ui/field/field.component';
 import { FieldControlDirective } from '@shared/ui/field/field-control.directive';
 import { RadioGroupComponent } from '@shared/ui/radio/radio-group.component';
@@ -15,6 +14,7 @@ import { RadioOptionComponent } from '@shared/ui/radio/radio-option.component';
 export interface WalletOption {
   id: string;
   name: string;
+  currencyCode: string;
 }
 
 /**
@@ -32,7 +32,6 @@ export interface WalletOption {
   imports: [
     ReactiveFormsModule,
     ButtonComponent,
-    CardComponent,
     FieldComponent,
     FieldControlDirective,
     RadioGroupComponent,
@@ -60,6 +59,12 @@ export class OperationFormComponent {
   readonly selectedBehaviorKindCode = signal<string | null>(null);
   readonly isAdjustment = computed(() => this.selectedBehaviorKindCode() === 'Adjustment');
 
+  /** ui-kit §5 "Поля, select, checkbox, radio": сумма и валюта показаны рядом. */
+  readonly selectedWalletId = signal<string | null>(null);
+  readonly selectedWalletCurrencyCode = computed(
+    () => this.wallets().find((wallet) => wallet.id === this.selectedWalletId())?.currencyCode ?? '',
+  );
+
   readonly form = this.formBuilder.nonNullable.group({
     walletId: ['', Validators.required],
     operationTypeId: ['', Validators.required],
@@ -73,6 +78,10 @@ export class OperationFormComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((typeId) => this.updateSelectedBehaviorKind(typeId));
 
+    this.form.controls.walletId.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((walletId) => this.selectedWalletId.set(walletId || null));
+
     effect(() => {
       const operation = this.editingOperation();
       if (operation) {
@@ -84,6 +93,17 @@ export class OperationFormComponent {
           adjustmentMode: operation.adjustmentMode ?? 'Delta',
         });
         this.updateSelectedBehaviorKind(operation.operationTypeId);
+        this.selectedWalletId.set(operation.walletId);
+      }
+    });
+
+    // screen-spec.md "Операции": ожидание блокирует поля, не только повторную
+    // отправку (submit() guard above already blocks that part).
+    effect(() => {
+      if (this.isSubmitting()) {
+        this.form.disable({ emitEvent: false });
+      } else {
+        this.form.enable({ emitEvent: false });
       }
     });
   }

@@ -12,8 +12,8 @@ namespace LupexWallet.ExchangeRates.Infrastructure;
 /// <summary>
 /// Composition point for the ExchangeRates module (schema "exchange_rates") — called from
 /// Host/Program.cs. Registers the DbContext, repositories, Frankfurter client, the
-/// auto-refresh background job (ADR-0001) and the PrimaryWalletChanged subscriber
-/// (ADR-0001 p.5, ADR-0011) — the latter is registered manually (not via
+/// auto-refresh background job (ADR-0004) and the PrimaryWalletChanged subscriber
+/// (ADR-0004 p.5, ADR-0004) — the latter is registered manually (not via
 /// MediatR.RegisterServicesFromAssembly, which in Program.cs scans only *.Application
 /// assemblies, while the handler and RefreshExchangeRatesCommand's command handler live in
 /// Infrastructure, see RefreshExchangeRatesCommandHandler.cs).
@@ -24,7 +24,7 @@ public static class ExchangeRatesModuleExtensions
     {
         var connectionString = configuration.GetConnectionString("LupexWallet")
             ?? throw new InvalidOperationException(
-                "Не задана строка подключения ConnectionStrings:LupexWallet — требуется всем модулям (ADR-0006: одна база, схема на модуль).");
+                "Не задана строка подключения ConnectionStrings:LupexWallet — требуется всем модулям (ADR-0001: одна база, схема на модуль).");
 
         services.AddScoped<DispatchDomainEventsInterceptor>();
 
@@ -38,7 +38,7 @@ public static class ExchangeRatesModuleExtensions
         services.AddScoped<IExchangeRatesUnitOfWork, ExchangeRatesUnitOfWork>();
         services.AddScoped<IExchangeRateLookup, ExchangeRateLookup>();
 
-        // Клиент Frankfurter (ADR-0001) — FrankfurterTestableHandler всегда делегирует
+        // Клиент Frankfurter (ADR-0004) — FrankfurterTestableHandler всегда делегирует
         // реальному SocketsHttpHandler в production/разработке; интеграционные тесты
         // подставляют TestOverride через тот же Singleton-экземпляр (без реального сетевого
         // вызова, docs/PROGRESS.md, W1.1 DoD).
@@ -63,7 +63,7 @@ public static class ExchangeRatesModuleExtensions
 
         services.AddHostedService<ExchangeRateRefreshBackgroundService>();
 
-        // ADR-0009, случай c: одна из реализаций ReferenceData.Application.IReferenceItemUsageProbe.
+        // ADR-0002, §4: одна из реализаций ReferenceData.Application.IReferenceItemUsageProbe.
         services.AddScoped<IReferenceItemUsageProbe, ExchangeRatesReferenceItemUsageProbe>();
 
         return services;

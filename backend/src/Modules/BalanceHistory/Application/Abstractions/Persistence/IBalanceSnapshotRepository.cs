@@ -16,7 +16,7 @@ public interface IBalanceSnapshotRepository
     /// <summary>All existing wallet snapshots in the [from, to] range — one query instead of N (used by cascading recalculation, ADR-0003).</summary>
     Task<IReadOnlyList<BalanceSnapshot>> GetRangeAsync(WalletId walletId, DateOnly from, DateOnly to, CancellationToken cancellationToken);
 
-    /// <summary>The latest (maximum) existing snapshot date for the wallet, if any — used by the backfill job (ADR-0004).</summary>
+    /// <summary>The latest (maximum) existing snapshot date for the wallet, if any — used by the backfill job (ADR-0003).</summary>
     Task<DateOnly?> GetLatestSnapshotDateAsync(WalletId walletId, CancellationToken cancellationToken);
 
     /// <summary>A page of wallet snapshots for the period [from, to], ordered by ascending date (docs/api/openapi.yaml: GET /wallets/{id}/balance-history).</summary>

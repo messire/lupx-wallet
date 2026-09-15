@@ -16,7 +16,7 @@ namespace LupexWallet.BuildingBlocks.Infrastructure;
 /// Collection happens in SavingChangesAsync (BEFORE the physical save) — for deleted
 /// aggregates, the entry becomes Detached right after a successful save, so its events
 /// would be lost if collected afterwards. Dispatch (calling subscribers) happens in
-/// SavedChangesAsync (AFTER the physical save, ADR-0008) — this is required for
+/// SavedChangesAsync (AFTER the physical save, ADR-0001) — this is required for
 /// subscribers that read data just written by the current SaveChangesAsync through their
 /// own DbContext in the same DI scope (e.g. BalanceHistory reads Operations via
 /// IWalletOperationsLookup when recalculating balance history, ADR-0003): if dispatch
@@ -36,7 +36,7 @@ namespace LupexWallet.BuildingBlocks.Infrastructure;
 /// another DbContext (exactly what the BalanceHistory subscriber does) would overwrite
 /// the buffer while the outer SaveChanges has not reached dispatch yet.
 ///
-/// ADR-0010: besides collecting events, CollectEvents also computes an old/new diff for
+/// ADR-0006: besides collecting events, CollectEvents also computes an old/new diff for
 /// each changed aggregate field while OriginalValues/CurrentValues still differ
 /// (SavingChangesAsync) and stores it in a separate dictionary keyed by EventId — the
 /// Audit.Infrastructure subscriber retrieves it at dispatch time via TakeChanges(eventId)
@@ -48,7 +48,7 @@ public sealed class DispatchDomainEventsInterceptor(IDomainEventDispatcher dispa
     private readonly ConditionalWeakTable<DbContext, List<IDomainEvent>> _pendingEventsByContext = new();
 
     /// <summary>
-    /// Old/new diff per event (ADR-0010), keyed by IDomainEvent.EventId. Not tied to a
+    /// Old/new diff per event (ADR-0006), keyed by IDomainEvent.EventId. Not tied to a
     /// specific DbContext (unlike _pendingEventsByContext) — subscribers
     /// (Audit.Infrastructure) read it in SavedChangesAsync of the same DbContext that
     /// computed the diff in the preceding SavingChangesAsync, but the interceptor itself
@@ -108,14 +108,14 @@ public sealed class DispatchDomainEventsInterceptor(IDomainEventDispatcher dispa
 
     /// <summary>
     /// Synchronous SaveChanges is not supported — event dispatch is implemented only for
-    /// the async path (ADR-0008). This is a guard: if the sync path were used, events
+    /// the async path (ADR-0001). This is a guard: if the sync path were used, events
     /// would still be collected (aggregates cleared of them) but never dispatched — a
     /// silent loss of balance history instead of a clear error during development.
     /// </summary>
     public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result) =>
         throw new NotSupportedException(
             "Синхронный DbContext.SaveChanges() не поддерживается в этом проекте — " +
-            "диспетчеризация доменных событий (DispatchDomainEventsInterceptor, ADR-0008) " +
+            "диспетчеризация доменных событий (DispatchDomainEventsInterceptor, ADR-0001) " +
             "реализована только для SaveChangesAsync. Используйте SaveChangesAsync.");
 
     private void CollectEvents(DbContext context)
@@ -129,7 +129,7 @@ public sealed class DispatchDomainEventsInterceptor(IDomainEventDispatcher dispa
         foreach (var entry in trackedAggregates)
         {
             // Diff вычисляется здесь (SavingChangesAsync, ДО SaveChanges) — после сохранения
-            // EntityEntry.OriginalValues сравнялись бы с CurrentValues (ADR-0010).
+            // EntityEntry.OriginalValues сравнялись бы с CurrentValues (ADR-0006).
             var changes = ComputeFieldChanges(entry);
 
             foreach (var domainEvent in entry.Entity.DomainEvents)
@@ -157,7 +157,7 @@ public sealed class DispatchDomainEventsInterceptor(IDomainEventDispatcher dispa
 
     /// <summary>
     /// Retrieves (and removes) the diff computed for a specific event — called by
-    /// Audit.Infrastructure subscribers (ADR-0010) at dispatch time (SavedChangesAsync).
+    /// Audit.Infrastructure subscribers (ADR-0006) at dispatch time (SavedChangesAsync).
     /// Removing it right after reading keeps the dictionary from growing beyond the number
     /// of events not yet processed within the current command.
     /// </summary>
@@ -174,7 +174,7 @@ public sealed class DispatchDomainEventsInterceptor(IDomainEventDispatcher dispa
     /// <summary>
     /// Diff over the entity's own (non-navigation) properties — key properties are
     /// excluded (they identify the record rather than represent a "changed value"; see
-    /// ADR-0010, the BalanceSnapshot section, where this exclusion turned out to matter
+    /// ADR-0006, the BalanceSnapshot section, where this exclusion turned out to matter
     /// and required targeted event enrichment on the Audit side).
     /// </summary>
     private static IReadOnlyList<EntityFieldChange> ComputeFieldChanges(EntityEntry entry)

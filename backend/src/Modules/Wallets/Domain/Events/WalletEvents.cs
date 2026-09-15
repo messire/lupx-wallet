@@ -15,6 +15,6 @@ public sealed record PrimaryWalletChanged(WalletId NewPrimaryWalletId, WalletId?
 
 public sealed record WalletCurrencyChanged(WalletId WalletId, CurrencyId OldCurrencyId, CurrencyId NewCurrencyId) : DomainEvent;
 
-/// <summary>Balance changed by applying a delta (ADR-0007); the source operation is not
+/// <summary>Balance changed by applying a delta (ADR-0001); the source operation is not
 /// included — BalanceHistory recalculates from Operation records, not from this event.</summary>
 public sealed record WalletBalanceChanged(WalletId WalletId, Money Delta) : DomainEvent;

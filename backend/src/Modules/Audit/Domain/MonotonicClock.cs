@@ -1,7 +1,7 @@
 namespace LupexWallet.Audit.Domain;
 
 /// <summary>
-/// Timestamps guaranteed strictly increasing within the process (ADR-0010) — needed so
+/// Timestamps guaranteed strictly increasing within the process (ADR-0006) — needed so
 /// GET /audit-entries can use occurred_at as the sole cursor field without duplicates or gaps
 /// between pages. Without this, several AuditEntry records created faster than system clock
 /// resolution (e.g. a cascading balance history recalculation raising many BalanceSnapshotUpdated

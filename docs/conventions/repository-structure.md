@@ -1,6 +1,6 @@
 # Конвенция: структура репозитория
 
-Короткая справка. Обоснование и целевые деревья — в [ADR-0012](../architecture/adr/0012-repository-structure-and-conventions.md).
+Короткая справка. Обоснование и целевые деревья — в [ADR-0007](../architecture/adr/0007-repository-structure.md).
 
 ## Куда положить файл
 

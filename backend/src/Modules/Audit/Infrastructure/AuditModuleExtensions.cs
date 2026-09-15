@@ -15,9 +15,9 @@ namespace LupexWallet.Audit.Infrastructure;
 /// <summary>
 /// Composition root of the Audit module (schema "audit") — called from Host/Program.cs.
 /// Registers the DbContext, the repository, and subscribers to domain events of all modules
-/// (ADR-0010) — handlers live in Infrastructure and are registered manually (not via
+/// (ADR-0006) — handlers live in Infrastructure and are registered manually (not via
 /// MediatR.RegisterServicesFromAssembly, which in Program.cs only scans *.Application
-/// assemblies, see ADR-0008/OperationEventHandlers.cs).
+/// assemblies, see ADR-0001/OperationEventHandlers.cs).
 /// </summary>
 public static class AuditModuleExtensions
 {
@@ -25,11 +25,11 @@ public static class AuditModuleExtensions
     {
         var connectionString = configuration.GetConnectionString("LupexWallet")
             ?? throw new InvalidOperationException(
-                "Не задана строка подключения ConnectionStrings:LupexWallet — требуется всем модулям (ADR-0006: одна база, схема на модуль).");
+                "Не задана строка подключения ConnectionStrings:LupexWallet — требуется всем модулям (ADR-0001: одна база, схема на модуль).");
 
-        // AuditEntry не поднимает собственных доменных событий (append-only, ADR-0010) —
+        // AuditEntry не поднимает собственных доменных событий (append-only, ADR-0006) —
         // DispatchDomainEventsInterceptor на AuditDbContext не подключается, но сам класс
-        // интерцептора (общий на весь DI-scope, см. ADR-0008/ADR-0010) внедряется в
+        // интерцептора (общий на весь DI-scope, см. ADR-0001/ADR-0006) внедряется в
         // AuditRecorder напрямую как обычный Scoped-сервис — регистрация ниже.
         services.AddDbContext<AuditDbContext>((_, options) => options
             .UseNpgsql(connectionString, npgsql => npgsql.MigrationsHistoryTable("__ef_migrations_history", "audit"))

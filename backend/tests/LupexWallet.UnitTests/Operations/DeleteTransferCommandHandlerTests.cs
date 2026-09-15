@@ -40,7 +40,7 @@ public sealed class DeleteTransferCommandHandlerTests
     [Fact]
     public async Task Handle_TransferDatedBeforeToday_ThrowsTransferDeletionNotAllowedExceptionAndDoesNotTouchBalance()
     {
-        // ADR-0009, случай b — решение пользователя от 2026-09-11: та же граница "сегодня",
+        // Прежнее правило до мягкого удаления (ADR-0002, §3, «Состояние реализации»): та же граница "сегодня",
         // что и для одиночной операции, но по TransferDate.
         var yesterday = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1);
         var (transfer, sourceOperation, targetOperation) = Transfer.Create(

@@ -20,7 +20,7 @@ public sealed record AuditEntryPageResponse(IReadOnlyList<AuditEntryResponse> Da
 public sealed record WalletPageResponse(IReadOnlyList<WalletResponse> Data, CursorPageMetaResponse Pagination);
 
 /// <summary>
-/// Audit API (docs/api/openapi.yaml, тег Audit, UC-25) — ADR-0010: неизменяемость журнала,
+/// Audit API (docs/api/openapi.yaml, тег Audit, UC-25) — ADR-0006: неизменяемость журнала,
 /// атомарность с мутирующим действием, курсорная пагинация без дублей.
 /// </summary>
 public sealed class AuditApiTests(ApiTestFixture fixture) : IntegrationTestBase(fixture)
@@ -119,7 +119,7 @@ public sealed class AuditApiTests(ApiTestFixture fixture) : IntegrationTestBase(
     /// UnmarkAsPrimary() не поднимает собственного доменного события (Wallet.cs) — поэтому
     /// эта команда не создает нового AuditEntry на шаге (1), которое можно было бы проверить на
     /// откат напрямую; вместо этого тест проверяет ОБА наблюдаемых следствия отката одной и
-    /// той же гарантии TransactionScope, на которой стоит атомарность аудита (ADR-0008/0010):
+    /// той же гарантии TransactionScope, на которой стоит атомарность аудита (ADR-0001/ADR-0006):
     /// (a) бизнес-состояние (старый основной кошелек остается основным) и (b) журнал аудита
     /// старого основного кошелька не получает НИКАКИХ новых записей от неудачной попытки —
     /// ровно то, что требовалось бы, если бы шаг (1) поднимал событие.

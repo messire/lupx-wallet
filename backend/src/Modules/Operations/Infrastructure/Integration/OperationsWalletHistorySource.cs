@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 namespace LupexWallet.Operations.Infrastructure;
 
 /// <summary>
-/// ADR-0009, case a — one of the two implementations of
+/// ADR-0002, §2 — one of the two implementations of
 /// Wallets.Application.IWalletHistorySource: data owner is Operations. True if the wallet has
 /// at least one Operation (including both transfer legs, stored as plain Operation rows, see
 /// Transfer.Create). Registered in AddOperationsModule.

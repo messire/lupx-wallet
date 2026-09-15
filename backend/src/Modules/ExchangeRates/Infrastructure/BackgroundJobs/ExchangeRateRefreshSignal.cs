@@ -10,7 +10,7 @@ internal enum ExchangeRateRefreshSignalKind
 }
 
 /// <summary>
-/// IExchangeRateRefreshSignal implementation via Channel (ADR-0001 p.3/p.5, ADR-0011) —
+/// IExchangeRateRefreshSignal implementation via Channel (ADR-0004 p.3/p.5, ADR-0004) —
 /// Singleton, so the same channel is shared by both the calling code (endpoint/
 /// PrimaryWalletChanged handler) and the background service (ExchangeRateRefreshBackgroundService).
 /// </summary>

@@ -1,14 +1,14 @@
 <div class="page">
-  <header class="page__header">
-    <h1 class="page__title">Кошельки</h1>
-  </header>
+  <div class="page-heading">
+    <h1>Кошельки</h1>
+    <app-button variant="primary" (click)="openForm()">Добавить кошелек</app-button>
+  </div>
 
   @if (successMessage(); as message) {
     <app-toast class="page-toast" [message]="message" tone="success" (dismissed)="successMessage.set(null)" />
   }
 
   <section class="toolbar">
-    <app-button variant="primary" (click)="openForm()" [disabled]="isFormOpen()">Добавить кошелек</app-button>
     <app-checkbox
       label="Показывать архивные"
       [ngModel]="showArchived()"
@@ -52,6 +52,7 @@
                   type="text"
                   placeholder="Название типа"
                   [value]="newWalletTypeName()"
+                  [disabled]="isSubmittingWalletType()"
                   (input)="newWalletTypeName.set($any($event.target).value)"
                 />
               </app-field>
@@ -128,6 +129,30 @@
           <input appFieldControl type="date" formControlName="accountingStartDate" />
         </app-field>
 
+        <details class="advanced-fields">
+          <summary>Дополнительные настройки</summary>
+
+          <app-field label="Описание">
+            <input appFieldControl type="text" formControlName="purposeDescription" />
+          </app-field>
+
+          <div class="checkbox-field">
+            <app-checkbox label="Учитывать в общей сумме" formControlName="includeInTotal" />
+          </div>
+
+          <app-field label="Порядок отображения">
+            <input appFieldControl type="number" formControlName="displayOrder" />
+          </app-field>
+
+          <app-field label="Цвет">
+            <input appFieldControl type="text" placeholder="#RRGGBB" formControlName="color" />
+          </app-field>
+
+          <app-field label="Иконка">
+            <input appFieldControl type="text" formControlName="icon" />
+          </app-field>
+        </details>
+
         @if (submitError()) {
           <p class="form-error" role="alert">{{ submitError() }}</p>
         }
@@ -148,7 +173,7 @@
         <h2 class="wallet-form-card__title">Изменить кошелек «{{ wallet.name }}»</h2>
 
         <app-field label="Название" [required]="true">
-          <input appFieldControl type="text" formControlName="name" />
+          <input #editNameInput appFieldControl type="text" formControlName="name" />
         </app-field>
 
         <app-field label="Тип кошелька" [required]="true" [error]="walletTypesLoadError()">
@@ -208,7 +233,7 @@
         <h2 class="wallet-form-card__title">Сменить валюту</h2>
 
         <app-field label="Новая валюта" [required]="true" [error]="currenciesLoadError()">
-          <select appFieldControl formControlName="currencyId">
+          <select #currencyFormSelect appFieldControl formControlName="currencyId">
             @for (currency of currencies(); track currency.id) {
               <option [value]="currency.id">{{ currency.code }} — {{ currency.name }}</option>
             }
@@ -267,10 +292,26 @@
           [class.wallet-card--selected]="isWalletSelected(wallet.id)"
         >
           <div class="wallet-card__header">
-            <h3 class="wallet-card__name">{{ wallet.name }}</h3>
-            @if (isWalletSelected(wallet.id)) {
-              <span class="wallet-card__selected-flag">Открыто для редактирования</span>
-            }
+            <div class="wallet-card__header-text">
+              <h3 class="wallet-card__name">{{ wallet.name }}</h3>
+              @if (isWalletSelected(wallet.id)) {
+                <span class="wallet-card__selected-flag">Открыто для редактирования</span>
+              }
+            </div>
+
+            <div class="wallet-card__menu">
+              <button
+                type="button"
+                class="wallet-card__menu-trigger"
+                [attr.data-wallet-menu-trigger]="wallet.id"
+                [attr.aria-expanded]="openMenuWalletId() === wallet.id"
+                aria-haspopup="true"
+                [attr.aria-label]="'Действия: ' + wallet.name"
+                (click)="toggleWalletMenu(wallet.id)"
+              >
+                <span aria-hidden="true">⋯</span>
+              </button>
+            </div>
           </div>
 
           <div class="wallet-card__meta">
@@ -283,25 +324,55 @@
           </div>
 
           <p class="wallet-card__balance">{{ formatMoney(wallet.currentBalance, currencyCode(wallet.currencyId)) }}</p>
-
-          <div class="wallet-card__actions">
-            <app-button variant="ghost" type="button" (click)="openEditForm(wallet)">Изменить</app-button>
-            @if (!wallet.isPrimary) {
-              <app-button variant="ghost" type="button" (click)="setPrimary(wallet)">Сделать основным</app-button>
-            }
-            @if (!wallet.isArchived) {
-              <app-button variant="secondary" type="button" (click)="requestConfirm(wallet.id, 'archive')">
-                Архивировать
-              </app-button>
-            }
-            <app-button variant="ghost" type="button" (click)="openChangeCurrency(wallet)">Сменить валюту</app-button>
-            <app-button variant="danger" type="button" (click)="requestConfirm(wallet.id, 'delete')">Удалить</app-button>
-            <a class="wallet-card__link" [routerLink]="['/audit']" [queryParams]="{ entityType: 'Wallet', entityId: wallet.id }">
-              История изменений
-            </a>
-          </div>
         </app-card>
       }
+    </div>
+  }
+
+  <!-- Rendered once at page level, positioned via the open trigger's own
+       getBoundingClientRect() (see toggleWalletMenu), rather than nested inside
+       its card: `app-card` establishes a stacking context per card
+       (isolation: isolate + backdrop-filter), so a popover nested in one card
+       would paint *behind* any card below it that the popover happens to
+       overlap — confirmed in the browser (the last two items were hidden under
+       the next grid row). Living outside the grid avoids that entirely. -->
+  @if (openMenuWallet(); as wallet) {
+    <div
+      class="wallet-card__menu-popover"
+      [attr.data-wallet-menu-popover]="wallet.id"
+      [style.top.px]="menuPopoverPosition()?.top"
+      [style.bottom.px]="menuPopoverPosition()?.bottom"
+      [style.right.px]="menuPopoverPosition()?.right"
+    >
+      <button type="button" class="wallet-card__menu-item" (click)="selectWalletMenuAction(wallet, 'edit')">Изменить</button>
+      @if (!wallet.isPrimary) {
+        <button type="button" class="wallet-card__menu-item" (click)="selectWalletMenuAction(wallet, 'primary')">
+          Сделать основным
+        </button>
+      }
+      @if (!wallet.isArchived) {
+        <button type="button" class="wallet-card__menu-item" (click)="selectWalletMenuAction(wallet, 'archive')">
+          Архивировать
+        </button>
+      }
+      <button type="button" class="wallet-card__menu-item" (click)="selectWalletMenuAction(wallet, 'currency')">
+        Сменить валюту
+      </button>
+      <button
+        type="button"
+        class="wallet-card__menu-item wallet-card__menu-item--danger"
+        (click)="selectWalletMenuAction(wallet, 'delete')"
+      >
+        Удалить
+      </button>
+      <a
+        class="wallet-card__menu-item"
+        [routerLink]="['/audit']"
+        [queryParams]="{ entityType: 'Wallet', entityId: wallet.id }"
+        (click)="openMenuWalletId.set(null)"
+      >
+        История изменений
+      </a>
     </div>
   }
 

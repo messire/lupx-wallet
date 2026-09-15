@@ -3,7 +3,7 @@ using LupexWallet.SharedKernel;
 namespace LupexWallet.Wallets.Application;
 
 /// <summary>
-/// Inverted read contract (ADR-0009, case a): "does this wallet have operations/balance
+/// Consumer-owned port (ADR-0001, §2, way d; the history rule itself is ADR-0002, §2): "does this wallet have operations/balance
 /// snapshots" — used by DeleteWalletCommand (Q2) and ChangeWalletCurrencyCommand (Q15) to
 /// compute hasHistory. Port declared here, in the consumer's (Wallets) Application layer;
 /// implementations live in the data-owning modules' Infrastructure: exactly two
@@ -11,7 +11,7 @@ namespace LupexWallet.Wallets.Application;
 /// (AddOperationsModule) and BalanceHistory.Infrastructure.BalanceHistoryWalletHistorySource
 /// (AddBalanceHistoryModule). The consumer injects IEnumerable&lt;IWalletHistorySource&gt;
 /// and treats hasHistory as true if any source confirms it; an empty implementation list is
-/// a DI configuration error (fail-fast), not "no history" (ADR-0009).
+/// a DI configuration error (fail-fast), not "no history" (ADR-0002).
 /// </summary>
 public interface IWalletHistorySource
 {
@@ -21,7 +21,7 @@ public interface IWalletHistorySource
 /// <summary>
 /// Shared aggregation point for port consumers (DeleteWalletCommand,
 /// ChangeWalletCurrencyCommand) — avoids duplicating the "empty implementation list is a DI
-/// configuration error" check (ADR-0009) in every handler.
+/// configuration error" check (ADR-0001) in every handler.
 /// </summary>
 public static class WalletHistorySourceExtensions
 {
@@ -36,7 +36,7 @@ public static class WalletHistorySourceExtensions
                 "Operations.Infrastructure.OperationsWalletHistorySource (AddOperationsModule) и " +
                 "BalanceHistory.Infrastructure.BalanceHistoryWalletHistorySource " +
                 "(AddBalanceHistoryModule). Пустой список — ошибка конфигурации DI, не «истории нет» " +
-                "(ADR-0009, «Обязательное условие: пустой список реализаций — ошибка, не «false»»).");
+                "(ADR-0001, «Обязательное условие: пустой список реализаций — ошибка, не «false»»).");
         }
 
         // Последовательно, не Task.WhenAll: несколько источников внутри одной ambient-

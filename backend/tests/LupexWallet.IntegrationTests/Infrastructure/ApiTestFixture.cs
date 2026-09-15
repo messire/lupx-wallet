@@ -77,7 +77,7 @@ public sealed class ApiTestFixture : IAsyncLifetime
         await connection.OpenAsync();
         await _respawner.ResetAsync(connection);
 
-        // ADR-0010 ("Тестовая инфраструктура: audit.audit_entries и Respawn"): схема audit
+        // ADR-0006 ("Тестовая инфраструктура: audit.audit_entries и Respawn"): схема audit
         // намеренно не входит в SchemasToInclude — CREATE RULE ... ON DELETE ... DO INSTEAD
         // NOTHING (schema.md) превращает DELETE, который генерирует Respawn, в no-op, поэтому
         // Respawn не может сбросить эту таблицу. TRUNCATE не перехватывается CREATE RULE

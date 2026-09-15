@@ -16,7 +16,7 @@ public sealed record BalanceSnapshotPageResponse(IReadOnlyList<BalanceSnapshotRe
 /// <summary>
 /// BalanceHistory API (docs/api/openapi.yaml, тег BalanceHistory) — GET /balance,
 /// GET /balance-history (курсорная пагинация, from&gt;to → 400), каскадный пересчет
-/// слепков при создании/изменении/удалении операции задним числом (ADR-0003/ADR-0008).
+/// слепков при создании/изменении/удалении операции задним числом (ADR-0003).
 /// Пересчет запускается синхронно, в рамках той же транзакции, что и команда Operations
 /// (подписчик на доменные события, post-save диспетчеризация) — не требует отдельного
 /// ожидания фоновой задачи.
@@ -169,7 +169,7 @@ public sealed class BalanceHistoryApiTests(ApiTestFixture fixture) : Integration
         var accountingStartDate = Today.AddDays(-10);
         var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m, accountingStartDate: accountingStartDate);
         var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
-        // ADR-0009, случай b (решение пользователя, 2026-09-11): удалить можно только операцию,
+        // Прежнее правило до мягкого удаления (ADR-0002, §3, «Состояние реализации»): удалить можно только операцию,
         // датированную сегодняшним днем — операция с более ранней датой уже считается отраженной
         // в истории и удалению не подлежит (см. DeleteOperation_DatedBeforeToday_ReturnsConflict).
         var operationId = await CreateOperationAsync(wallet.Id, incomeTypeId, 400m, Today);

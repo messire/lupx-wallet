@@ -7,7 +7,7 @@ using MediatR;
 namespace LupexWallet.Audit.Infrastructure;
 
 /// <summary>
-/// Subscribers to BalanceHistory events (ADR-0010) — enriched manually from event fields
+/// Subscribers to BalanceHistory events (ADR-0006) — enriched manually from event fields
 /// instead of via DispatchDomainEventsInterceptor.TakeChanges: BalanceSnapshot is identified by
 /// a composite key (WalletId, SnapshotDate) with no surrogate Id, and SnapshotDate is part of
 /// the primary key, so the default ChangeTracker diff (which excludes key properties) would not
@@ -16,7 +16,7 @@ namespace LupexWallet.Audit.Infrastructure;
 /// explicit field in changes.
 ///
 /// ddd-model.md §6 requires one AuditEntry per recalculated snapshot (not one aggregated record
-/// per cascading recalculation run) — see ADR-0010, audit scope section.
+/// per cascading recalculation run) — see ADR-0006, audit scope section.
 /// </summary>
 public sealed class BalanceSnapshotCreatedAuditHandler(AuditRecorder recorder)
     : INotificationHandler<DomainEventNotification<BalanceSnapshotCreated>>

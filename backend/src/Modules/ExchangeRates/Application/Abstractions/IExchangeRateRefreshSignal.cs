@@ -1,9 +1,9 @@
 namespace LupexWallet.ExchangeRates.Application;
 
 /// <summary>
-/// Signal to the background ExchangeRateRefreshBackgroundService (ADR-0001 p.3, ADR-0011) —
+/// Signal to the background ExchangeRateRefreshBackgroundService (ADR-0004 p.3, ADR-0004) —
 /// the Infrastructure implementation uses a Channel so it does not block the calling thread
-/// or make an HTTP call synchronously inside someone else's transaction (ADR-0011).
+/// or make an HTTP call synchronously inside someone else's transaction (ADR-0004).
 /// </summary>
 public interface IExchangeRateRefreshSignal
 {
@@ -17,7 +17,7 @@ public interface IExchangeRateRefreshSignal
 
     /// <summary>
     /// Asks the background service to refresh rates asynchronously, outside the current
-    /// transaction (e.g. in reaction to PrimaryWalletChanged, ADR-0001 p.5 / ADR-0011) —
+    /// transaction (e.g. in reaction to PrimaryWalletChanged, ADR-0004 p.5 / ADR-0004) —
     /// unlike NotifyManualRefreshCompleted, the signal itself does not mean the refresh has
     /// already happened; the background service must perform it.
     /// </summary>

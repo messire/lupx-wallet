@@ -7,7 +7,7 @@ using MediatR;
 namespace LupexWallet.Audit.Infrastructure;
 
 /// <summary>
-/// Subscribers to ExchangeRates events (ADR-0010) — enriched manually: events are batched (the
+/// Subscribers to ExchangeRates events (ADR-0006) — enriched manually: events are batched (the
 /// result of a whole refresh run, several currency pairs at once), not tied to a single
 /// aggregate/ChangeTracker row (see the comment in ExchangeRatesEvents.cs), so
 /// DispatchDomainEventsInterceptor.TakeChanges is meaningless here.
@@ -16,7 +16,7 @@ namespace LupexWallet.Audit.Infrastructure;
 /// run), but audit.audit_entries.entity_id NOT NULL requires some value (schema.md). Known
 /// simplification: currencies are represented as CurrencyId (Guid), not as a code (e.g. "USD")
 /// — enrichment via ReferenceData.Application.ICurrencyLookup is not implemented in this slice
-/// for simplicity (see ADR-0010).
+/// for simplicity (see ADR-0006).
 /// </summary>
 public sealed class ExchangeRatesUpdatedAuditHandler(AuditRecorder recorder)
     : INotificationHandler<DomainEventNotification<ExchangeRatesUpdated>>

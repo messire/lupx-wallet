@@ -1,6 +1,6 @@
 # Конвенция: backend
 
-Короткая справка по размещению файлов внутри `backend/src/Modules/<Module>/`. Полный шаблон и обоснование — [ADR-0012 §2](../architecture/adr/0012-repository-structure-and-conventions.md#2-единый-шаблон-backend-модуля), границы модулей — [ADR-0006](../architecture/adr/0006-modular-monolith-boundaries.md), [high-level-architecture.md](../architecture/high-level-architecture.md).
+Короткая справка по размещению файлов внутри `backend/src/Modules/<Module>/`. Полный шаблон и обоснование — [ADR-0007 §2](../architecture/adr/0007-repository-structure.md#2-единый-шаблон-backend-модуля), границы модулей — [ADR-0001](../architecture/adr/0001-modular-monolith.md), [high-level-architecture.md](../architecture/high-level-architecture.md).
 
 ## Куда положить файл
 
@@ -21,7 +21,7 @@
 
 `Domain` не зависит ни от чего (кроме `SharedKernel`). `Application` зависит только от своего `Domain` (+ `Application` других модулей — по факту cross-module ссылки). `Infrastructure` реализует интерфейсы `Application`, может ссылаться на `Domain` других модулей (для обработчиков доменных событий — не на их `Application`/`Infrastructure`). `Api` зависит от `Application`, не от `Infrastructure` напрямую (только через DI).
 
-**Правило границы модуля** (ADR-0006/0007/0009): `Domain`/`Application` модуля X не ссылается на `Domain`/`Infrastructure` модуля Y напрямую. Связь — через типизированный Id (`SharedKernel`), доменное событие, или явный consumer-owned порт в `Application/Abstractions/Integration/`.
+**Правило границы модуля** (ADR-0001): `Domain`/`Application` модуля X не ссылается на `Domain`/`Infrastructure` модуля Y напрямую. Связь — через типизированный Id (`SharedKernel`), доменное событие, или явный consumer-owned порт в `Application/Abstractions/Integration/`.
 
 ## Именование и тесты
 

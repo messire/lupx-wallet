@@ -6,13 +6,13 @@ using MediatR;
 namespace LupexWallet.BalanceHistory.Infrastructure;
 
 /// <summary>
-/// Subscribers to Operations domain events (ADR-0008) — live in Infrastructure, not
+/// Subscribers to Operations domain events (ADR-0001) — live in Infrastructure, not
 /// Application, because they reference DomainEventNotification&lt;T&gt; (BuildingBlocks.
 /// Infrastructure, a MediatR wrapper) and Operations.Domain (event types): the Application
 /// layer must not depend on another module's Infrastructure (high-level-architecture.md, §2).
 /// Registered manually in BalanceHistoryModuleExtensions — not via MediatR scanning of the
 /// Application assembly (Program.cs only scans *.Application assemblies, see the
-/// RegisterServicesFromAssemblies list in ADR-0007), not Infrastructure.
+/// RegisterServicesFromAssemblies list in ADR-0001), not Infrastructure.
 ///
 /// TransferCreated/TransferDeleted don't need separate subscribers — both "legs" of a
 /// transfer already raise OperationCreated/OperationDeleted (see Operations.Domain.Operation.

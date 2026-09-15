@@ -30,7 +30,7 @@ public sealed class TransferDeletionNotAllowedException(Guid transferId)
     : OperationsDomainException($"Перевод ({transferId}) уже учтен в истории баланса и не может быть удален.");
 
 /// <summary>
-/// UC-14 (see ADR-0009, case b): an operation can only be deleted if its date is today; an
+/// UC-14 — the pre-soft-delete rule still in code (ADR-0002, §3 and "Состояние реализации"): an operation can only be deleted if its date is today; an
 /// operation dated strictly before today is considered already reflected in the balance
 /// history (after the 12:00 UTC scheduled recalculation) and cannot be deleted — only edited
 /// (UC-13).
@@ -55,9 +55,9 @@ public sealed class WalletReferenceNotFoundException(Guid walletId)
 /// same bounds that already govern balance history materialization (Q13: "balance before
 /// accounting_start_date is zero, snapshots are not materialized"; today is the upper bound
 /// of the daily snapshot, requirements §5). Without this check, an out-of-range operation
-/// would still change Wallet.CurrentBalance (synchronously, ADR-0007) but would not be
+/// would still change Wallet.CurrentBalance (synchronously, ADR-0001) but would not be
 /// correctly reflected in the balance history — a discrepancy found while implementing
-/// BalanceHistory (ADR-0008).
+/// BalanceHistory (ADR-0003).
 /// </summary>
 public sealed class OperationDateOutOfRangeException(DateOnly operationDate, DateOnly accountingStartDate, DateOnly today)
     : OperationsDomainException(

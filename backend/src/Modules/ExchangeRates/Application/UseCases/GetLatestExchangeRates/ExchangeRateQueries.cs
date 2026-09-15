@@ -22,7 +22,7 @@ public sealed class GetLatestExchangeRatesQueryHandler(
         // M5: openapi.yaml — "курсы к текущей основной валюте". RefreshExchangeRatesCommandHandler
         // уже удаляет пары к прежней основной валюте при обновлении, но этот фильтр — страховка
         // на чтение на случай, если обновление ещё не произошло после смены основного кошелька
-        // (окно между PrimaryWalletChanged и фоновым RefreshExchangeRatesCommand, ADR-0011).
+        // (окно между PrimaryWalletChanged и фоновым RefreshExchangeRatesCommand, ADR-0004).
         var currencySet = await walletCurrencySet.GetAsync(cancellationToken);
         var quotes = currencySet.PrimaryCurrencyId is { } primaryCurrencyId
             ? allQuotes.Where(q => q.ToCurrencyId == primaryCurrencyId).ToList()

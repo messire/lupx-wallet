@@ -4,7 +4,7 @@ using MediatR;
 
 namespace LupexWallet.Audit.Infrastructure;
 
-/// <summary>Subscribers to 9 ReferenceData events (3 catalog types x create/deactivate/delete), ADR-0010.</summary>
+/// <summary>Subscribers to 9 ReferenceData events (3 catalog types x create/deactivate/delete), ADR-0006.</summary>
 public sealed class WalletTypeCreatedAuditHandler(AuditRecorder recorder) : INotificationHandler<DomainEventNotification<WalletTypeCreated>>
 {
     public Task Handle(DomainEventNotification<WalletTypeCreated> notification, CancellationToken cancellationToken) =>

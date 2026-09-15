@@ -6,8 +6,8 @@
 
 ## Общие соглашения
 
-- **Схема на модуль**, согласно ADR-0006: `wallets`, `reference_data`, `operations`, `balance_history`, `exchange_rates`, `audit`. `Reporting` собственной схемы не имеет (только читает).
-- **Без внешних ключей между схемами разных модулей.** Ссылка на сущность другого модуля хранится как обычная колонка `uuid` (например, `operations.wallet_id`), без `REFERENCES` на чужую схему — ссылочная целостность обеспечивается на уровне приложения (ADR-0006). Внешние ключи **внутри одной схемы** (например, `operation_types.behavior_kind_id → reference_data.operation_behavior_kinds.id`) используются как обычно.
+- **Схема на модуль**, согласно ADR-0001: `wallets`, `reference_data`, `operations`, `balance_history`, `exchange_rates`, `audit`. `Reporting` собственной схемы не имеет (только читает).
+- **Без внешних ключей между схемами разных модулей.** Ссылка на сущность другого модуля хранится как обычная колонка `uuid` (например, `operations.wallet_id`), без `REFERENCES` на чужую схему — ссылочная целостность обеспечивается на уровне приложения (ADR-0001). Внешние ключи **внутри одной схемы** (например, `operation_types.behavior_kind_id → reference_data.operation_behavior_kinds.id`) используются как обычно.
 - **Идентификаторы** — `uuid`, генерируются на стороне приложения (не `gen_random_uuid()` в БД), чтобы агрегат мог знать свой Id сразу после создания в памяти, до сохранения (типично для .NET/EF Core). Рекомендуется генератор с сортируемым префиксом (например, UUIDv7) для лучшей локальности индекса — конкретная библиотека выбирается на этапе реализации, не фиксируется здесь.
 - **Денежные суммы и курсы** — тип `numeric` без фиксированных precision/scale (произвольная точность, ADR-0005). Округление — только на уровне отображения (UI), не хранения.
 - **Даты** — два разных типа осознанно: `date` для бизнес-дат (`operation_date`, `snapshot_date`, `rate_date`, `accounting_start_date` — это календарные даты без времени и часового пояса, так задумано доменной моделью), `timestamptz` для технических моментов времени (`created_at`, `occurred_at`, `fetched_at`).
@@ -71,7 +71,7 @@ CREATE SCHEMA wallets;
 CREATE TABLE wallets.wallets (
     id                      uuid PRIMARY KEY,
     name                    varchar(200) NOT NULL,
-    wallet_type_id          uuid         NOT NULL,   -- reference_data.wallet_types.id, без FK (ADR-0006)
+    wallet_type_id          uuid         NOT NULL,   -- reference_data.wallet_types.id, без FK (ADR-0001)
     purpose_description     text,
     currency_id             uuid         NOT NULL,   -- reference_data.currencies.id, без FK
     initial_balance_amount  numeric      NOT NULL,
@@ -158,7 +158,7 @@ CREATE INDEX ix_operations_transfer ON operations.operations (transfer_id) WHERE
 
 **Про `applied_delta_amount`.** Добавлена при реализации среза Operations (не было в первой версии схемы) — хранит фактически применённую к `wallets.current_balance_amount` знаковую дельту, отдельно от пользовательского ввода (`amount` + `adjustment_mode`). Нужна, чтобы `UpdateOperation`/`DeleteOperation` могли корректно отменить именно тот эффект, который был применён ранее — особенно для `Adjustment`/`Absolute`, где применённая дельта зависела от баланса кошелька в момент применения и невыводима заново из одного `amount`. Подробности — `Operations.Domain.Operation` и `Operations.Application.OperationEffectCalculator`.
 
-**Про `operations.amount` без CHECK на знак.** Сознательно не ограничен на уровне БД (в отличие от `transfers.amount > 0`): направление влияния на баланс (прибавить/вычесть) для Income/Expense/Transfer определяется через `operation_type_id → behavior_kind_id`, лежащий в другой схеме (`reference_data`) — проверка знака требовала бы либо кросс-схемной ссылки (запрещено ADR-0006), либо триггера с кросс-схемным запросом (хрупко). Для `Adjustment` со значением `Delta` сумма может быть отрицательной по смыслу (уменьшение баланса), поэтому единый CHECK на положительность был бы и технически проблематичным, и семантически неверным. Валидация знака/направления суммы выполняется в Domain-слое модуля `Operations` в момент создания/редактирования операции.
+**Про `operations.amount` без CHECK на знак.** Сознательно не ограничен на уровне БД (в отличие от `transfers.amount > 0`): направление влияния на баланс (прибавить/вычесть) для Income/Expense/Transfer определяется через `operation_type_id → behavior_kind_id`, лежащий в другой схеме (`reference_data`) — проверка знака требовала бы либо кросс-схемной ссылки (запрещено ADR-0001), либо триггера с кросс-схемным запросом (хрупко). Для `Adjustment` со значением `Delta` сумма может быть отрицательной по смыслу (уменьшение баланса), поэтому единый CHECK на положительность был бы и технически проблематичным, и семантически неверным. Валидация знака/направления суммы выполняется в Domain-слое модуля `Operations` в момент создания/редактирования операции.
 
 ## Схема `balance_history`
 

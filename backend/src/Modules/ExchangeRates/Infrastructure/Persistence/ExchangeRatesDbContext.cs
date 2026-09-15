@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LupexWallet.ExchangeRates.Infrastructure;
 
-/// <summary>Schema "exchange_rates" (schema.md) — a separate DbContext per module (ADR-0006).</summary>
+/// <summary>Schema "exchange_rates" (schema.md) — a separate DbContext per module (ADR-0001).</summary>
 public sealed class ExchangeRatesDbContext(DbContextOptions<ExchangeRatesDbContext> options) : DbContext(options)
 {
     public DbSet<ExchangeRateQuote> LatestExchangeRates => Set<ExchangeRateQuote>();

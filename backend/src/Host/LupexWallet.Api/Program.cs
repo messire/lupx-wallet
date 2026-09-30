@@ -1,4 +1,5 @@
 using System.Text;
+using LupexWallet.Api;
 using LupexWallet.Api.Auth;
 using LupexWallet.Audit.Api;
 using LupexWallet.Audit.Infrastructure;
@@ -75,14 +76,7 @@ builder.Services.AddAuthorization();
 // ---- MediatR + сквозные behaviors (high-level-architecture.md, §4) ----
 builder.Services.AddMediatR(cfg =>
 {
-    cfg.RegisterServicesFromAssemblies(
-        typeof(LupexWallet.Wallets.Application.AssemblyMarker).Assembly,
-        typeof(LupexWallet.ReferenceData.Application.AssemblyMarker).Assembly,
-        typeof(LupexWallet.Operations.Application.AssemblyMarker).Assembly,
-        typeof(LupexWallet.BalanceHistory.Application.AssemblyMarker).Assembly,
-        typeof(LupexWallet.ExchangeRates.Application.AssemblyMarker).Assembly,
-        typeof(LupexWallet.Audit.Application.AssemblyMarker).Assembly,
-        typeof(LupexWallet.Reporting.Application.AssemblyMarker).Assembly);
+    cfg.RegisterServicesFromAssemblies(ModuleAssemblies.Application.ToArray());
 
     cfg.AddOpenBehavior(typeof(TransactionBehavior<,>));
 });

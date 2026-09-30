@@ -21,9 +21,12 @@ public interface IFrankfurterClient
 
 public abstract class FrankfurterClientException(string message, Exception? inner = null) : Exception(message, inner);
 
-/// <summary>Network/timeout/5xx after retries are exhausted — a temporary source outage (ADR-0004 p.6).</summary>
+/// <summary>
+/// The source is unusable: network/timeout/5xx after retries are exhausted, a wrong base
+/// address (404), or an unparsable/unexpected response body (ADR-0004 p.6).
+/// </summary>
 public sealed class FrankfurterUnavailableException(string message, Exception? inner = null) : FrankfurterClientException(message, inner);
 
-/// <summary>Frankfurter does not know this currency/pair — a permanent currency property, not a transient failure (ADR-0004, "Consequences").</summary>
+/// <summary>Frankfurter has no data for this currency/pair/date — a permanent property of the pair, not a transient failure (ADR-0004, "Consequences").</summary>
 public sealed class FrankfurterUnsupportedCurrencyException(string fromCurrencyCode, string toCurrencyCode)
-    : FrankfurterClientException($"Frankfurter не поддерживает пару {fromCurrencyCode}->{toCurrencyCode}.");
+    : FrankfurterClientException($"Frankfurter не имеет данных по паре {fromCurrencyCode}->{toCurrencyCode} (на запрошенную дату).");

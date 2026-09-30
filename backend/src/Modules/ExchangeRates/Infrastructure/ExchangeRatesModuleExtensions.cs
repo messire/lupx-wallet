@@ -46,8 +46,8 @@ public static class ExchangeRatesModuleExtensions
         services
             .AddHttpClient(FrankfurterClient.HttpClientName, client =>
             {
-                var baseUrl = configuration["ExchangeRates:FrankfurterBaseUrl"] ?? "https://api.frankfurter.app/";
-                client.BaseAddress = new Uri(baseUrl);
+                var baseUrl = configuration["ExchangeRates:FrankfurterBaseUrl"] ?? "https://api.frankfurter.dev/v2/";
+                client.BaseAddress = NormalizeBaseAddress(baseUrl);
                 client.Timeout = TimeSpan.FromSeconds(10);
             })
             .ConfigurePrimaryHttpMessageHandler(provider => provider.GetRequiredService<FrankfurterTestableHandler>());
@@ -67,5 +67,15 @@ public static class ExchangeRatesModuleExtensions
         services.AddScoped<IReferenceItemUsageProbe, ExchangeRatesReferenceItemUsageProbe>();
 
         return services;
+    }
+
+    /// <summary>
+    /// Ensures the trailing slash: without it <c>new Uri(base, "rates?...")</c> drops the last
+    /// path segment (".../v2" + "rates" → ".../rates").
+    /// </summary>
+    public static Uri NormalizeBaseAddress(string baseUrl)
+    {
+        var trimmed = baseUrl.Trim();
+        return new Uri(trimmed.EndsWith('/') ? trimmed : trimmed + "/");
     }
 }

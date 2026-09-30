@@ -152,6 +152,257 @@ Preview-сборки, со слов пользователя, открывают
 - Ограничение «ровно один экземпляр backend» теперь записано явно (ADR-0001, §8).
 - Модуль Reporting не приведён к шаблону ADR-0007 §2. Записи ниже в этом файле «CI/CD пока не настроен» и «Аудит — модуль-заглушка» устарели.
 
+## Внедрение ADR — шаг 1: инженерные исправления без изменения поведения (2026-10-01)
+
+Ветка `release-candidates/v0.3.0`. Два независимых исправления шли параллельно двумя `backend-services-engineer`, затем `code-quality-reviewer`, затем два агента-исправителя по его находкам.
+
+**1. Плановый проход слепков — через команду и транзакцию (ADR-0001 §4/§6, ADR-0003 §4).** Новая команда `BackfillWalletBalanceSnapshotsCommand` (`BalanceHistory.Application/UseCases/BackfillWalletBalanceSnapshots/`) вычисляет `fromDate` и вызывает `BalanceRecalculationService`; `BalanceSnapshotSchedulerHostedService` шлёт её через `ISender` в **отдельном DI-scope на каждый кошелёк** (внешний scope — только для `IWalletDirectory`). Слепки, их `AuditEntry` и advisory lock одного кошелька — одна транзакция PostgreSQL (интеграционный тест проверяет одинаковый `xmin`). Регрессионный тест на изоляцию кошельков: триггер БД роняет вставку слепков первого кошелька, второй получает N слепков и N записей аудита; на общем scope тест красный (слепки первого утекали в транзакцию второго без аудита).
+
+**2. `TransactionBehavior` не подключался к командам без результата.** В MediatR 12 void-`IRequest` не наследует `IRequest<Unit>`, а ограничение behavior'а требовало `IRequest<TResponse>` — все `Delete*Command` (операции, переводы, кошельки, три справочника) выполнялись **без** `TransactionScope`. Ограничение ослаблено до `ICommand<TResponse>`; регрессионный тест `TransactionBehaviorRegistrationTests` обходит все `ICommand<>` во всех Application-сборках (общий список `ModuleAssemblies` в Host, используется и `Program.cs`), выводит `TResponse` из `IRequest<>` и проверяет наличие behavior'а и совпадение `ICommand<T>` с `IRequest<T>`; на старом ограничении падал на `DeleteWalletCommand`.
+
+**3. Клиент Frankfurter — API v2 (ADR-0004 §1).** `FrankfurterClient`: `rates?base=&quotes=[&date=]`, ответ-массив, адрес по умолчанию `https://api.frankfurter.dev/v2/` (нормализация завершающего `/`). Классификация ответов: 422 и `200 []` → `FrankfurterUnsupportedCurrencyException` (пропуск пары); 404 (неверный адрес), тело не-JSON, неверная форма элемента → `FrankfurterUnavailableException` без ретраев; сеть/таймаут/5xx/IOException → 3 попытки; отмена вызывающим кодом пробрасывается как `OperationCanceledException`. Фейки в интеграционных тестах переведены на v2. 20+ юнит-тестов клиента без сети (`FrankfurterClientTests`). Проверено живыми запросами: выходной день → сервис отдаёт ближайшую более раннюю дату; дата раньше начала данных → `200 []`.
+
+**Документация:** ADR-0001 («Отклонения в коде» — остался только пункт про аудит курсов; §4 — привязка behavior'а к `ICommand<TResponse>`), ADR-0003 §4 и «Состояние реализации», ADR-0004 §6 и «Состояние реализации», ADR-0006 «Состояние реализации», `high-level-architecture.md` §5.
+
+**Проверки:** `dotnet build` — 0 ошибок; юнит-тесты 225/225; интеграционные 86/86 (Testcontainers).
+
+**Отложено (из ревью, не блокирует):**
+- Одновременные переводы A→B и B→A (создание/правка/удаление) могут взаимно заблокироваться в PostgreSQL (40P01 → 500): блокировки строк двух кошельков плюс два advisory lock в одной транзакции. Было и раньше для create/update; варианты — детерминированный порядок по `WalletId` или повтор при 40P01.
+- Лимит `TransactionScope` 60 с теперь распространяется на первичное досоздание слепков кошелька с далёкой датой начала учёта (N слепков + N записей аудита); при подтверждении риска — явный `Timeout` команды или досоздание порциями.
+- Нет теста атомарности путей `Delete*` (одинаковый `xmin` у `audit_entries`/`wallets`/`balance_snapshots`) — добавить в волне тестов блока A.
+- Тесты планировщика могут быть нестабильны около полуночи UTC (`Today` в тесте vs `UtcNow` в сервисе); `TimeProvider` в проекте не внедрён — общий долг.
+- Оставшиеся предупреждения CS9107 в `AuditApiTests`/`CrossModuleContractsRegistrationTests` снимаются переходом на `IntegrationTestBase.Fixture`.
+
+## ПЛАН: внедрение ADR-0002 — жизненный цикл записей (2026-10-01)
+
+Источник правды: [ADR-0002](architecture/adr/0002-record-lifecycle.md) (§2–§5, «Состояние реализации»), смежные [ADR-0001](architecture/adr/0001-modular-monolith.md) §2, §5; [ADR-0003](architecture/adr/0003-balance-history.md) §2, §3, §5; [ADR-0006](architecture/adr/0006-audit.md); решения по вопросам 2–4 выше. План составлен по фактическому коду ветки `release-candidates/v0.3.0` (коммит `cc8d3f5`). Scope — **XL** (Operations + BalanceHistory + Wallets + ReferenceData + ExchangeRates + Audit + миграция + UI двух экранов), поэтому разбит на независимые по файлам пункты.
+
+### П.0. Вне объёма (сознательно)
+
+- **Заявленный баланс и корректирующая сумма** (ADR-0003 §6) — следующий блок. Правило «корректирующая сумма не удаляется мягко» (ADR-0002 §3, последний пункт) и удаление заявленных балансов вместе с кошельком (ADR-0002 §2) реализуются там же: сейчас таких записей нет.
+- **Доступные/активные валюты, отказ от состояния «деактивирована» у валюты** (ADR-0004 §7). В этом блоке `POST /currencies/{id}/deactivate` и `DeactivateCurrencyCommand` остаются как есть; меняется только определение «используется» и судьба курсов при `DELETE /currencies/{id}`.
+- `FrankfurterClient.cs` и `BalanceSnapshotSchedulerHostedService.cs` — их параллельно меняет другой агент; в этом блоке **не трогать**.
+- HTML/JS-макеты `docs/design/*.html|*.js` (витрина) — не переделываются; текстовые спецификации экранов (`screen-spec.md`, `extended-screen-spec.md`, `verification.md`) обновляются. Расхождение витрины с правилом фиксируется одной строкой в `screen-spec.md`.
+- Синхронное применение дельты к `Wallet.CurrentBalance` не пересматривается (пересмотр — вместе с ADR-0003 §6, см. его «Последствия»).
+
+### П.1. Definition of Done (по пунктам ADR-0002)
+
+**§2 Кошелёк**
+- D2.1 У `IWalletHistorySource` ровно **одна** реализация — `OperationsWalletHistorySource`; она считает любые строки `operations.operations` кошелька, включая мягко удалённые и обе «ноги» переводов. `BalanceHistoryWalletHistorySource` удалён вместе с регистрацией. `CrossModuleContractsRegistrationTests` ожидает **1**.
+- D2.2 Кошелёк без операций, но со слепками: `DELETE /wallets/{id}` → 204; все его слепки удалены в той же транзакции; в аудите — запись `WalletDeleted` и по записи `SnapshotDeleted` на каждый удалённый слепок (значение до удаления: дата и баланс).
+- D2.3 Кошелёк, у которого есть только мягко удалённые операции: `DELETE` → 409, `POST /archive` → 200.
+- D2.4 Смена валюты кошелька без операций, но со слепками: `PUT /wallets/{id}/currency` → 200; слепки перестраиваются в новой валюте (старые удаляются, новые создаются, оба действия в аудите). Последующее создание операции и плановый проход **не падают** на инварианте `BalanceSnapshot.UpdateBalance` (валюта слепка неизменяема). С операцией (в том числе удалённой) → 409.
+- D2.5 Правила основного кошелька и архива не изменились (регрессия зелёная).
+
+**§3 Операция и перевод**
+- D3.1 `DELETE /operations/{id}` и `DELETE /transfers/{id}` → 204 для записи **с любой датой**; строка в БД остаётся, `deleted_at` заполнено. Физического удаления операций и переводов в коде нет (`IOperationRepository.Remove`/`ITransferRepository.Remove` удалены).
+- D3.2 Удалённая запись исключена из `Wallet.CurrentBalance` (обратная дельта при удалении), из слепков и баланса на дату (`IWalletOperationsLookup`), из текущей и исторической общей суммы (`GET /reporting/total-amount`).
+- D3.3 `POST /operations/{id}/restore` и `POST /transfers/{id}/restore` → 200 с восстановленной записью; дельта применяется заново, слепки пересчитываются от даты операции.
+- D3.4 Перевод удаляется и восстанавливается только целиком: три записи получают один и тот же `DeletedAt`; `DELETE`/`restore` «ноги» через `/operations/{id}` → 409.
+- D3.5 `PATCH /operations/{id}` удалённой операции → 409 (включая перенос на другой кошелёк); баланс не меняется.
+- D3.6 Повторный `DELETE` удалённой записи → 409; `restore` не удалённой → 409; неизвестный id → 404.
+- D3.7 Удаление и восстановление запускают каскадный пересчёт от даты операции до сегодня (ADR-0003 §2); для перевода — оба кошелька.
+- D3.8 Аудит: `Operation`/`Deleted`, `Operation`/`Restored`, `Transfer`/`Deleted`, `Transfer`/`Restored` с diff `DeletedAt`; плюс существующие записи `WalletBalanceChanged` и слепков.
+- D3.9 `GET /operations`, `GET /transfers`, `GET /operations/{id}`, `GET /transfers/{id}` отдают удалённые записи с `isDeleted: true` и `deletedAt`; порядок и курсорная пагинация прежние, параметра скрытия удалённых нет.
+- D3.10 UI «Операции» и «Переводы»: удалённая строка остаётся в списке, текст серый (`--lw-text-muted`) и перечёркнут красной линией (`--lw-danger`), рядом текстовый бейдж «Удалена»/«Удалён» (цвет не заменяет текст, ui-kit §2 п.8). Для удалённой записи в «···» только «Восстановить» (для «ноги» перевода — прежнее «Открыть перевод»); «Изменить» недоступно. Подтверждение удаления больше не обещает необратимость и не упоминает запрет прошлых дат.
+
+**§4 Справочники**
+- D4.1 У `IReferenceItemUsageProbe` ровно **две** реализации (Wallets, Operations); `ExchangeRatesReferenceItemUsageProbe` удалён вместе с регистрацией. `CrossModuleContractsRegistrationTests` ожидает **2**.
+- D4.2 Тип операции, на который ссылается только удалённая операция: `DELETE /operation-types/{id}` → 409, деактивация → 200.
+- D4.3 Валюта, на которую ссылается удалённая операция, считается используемой (проверка пробника Operations). Валюта без кошельков и операций, но с курсами: `DELETE /currencies/{id}` → 204, её курсы (последние и исторические, в обе стороны пары) удалены в той же транзакции.
+
+**§5 Аудит и списки**
+- D5.1 Все действия D2.2, D2.4, D3.8 видны в `GET /audit-entries` по своим `entityType`/`entityId`.
+- D5.2 Мягко удалённые операции и переводы видны в списках всегда (D3.9).
+
+**Качество (для всех пунктов):** `dotnet build` без предупреждений-новичков; `dotnet test` (unit + integration) зелёные; `node backend/scripts/check-architecture.mjs` — OK; `ng build`, `ng test`, `npm run check:boundaries` — OK; e2e-смоук П.5 зелёный локально; `docs/api/openapi.yaml` совпадает с реализацией (проверка `code-quality-reviewer` через `dotnet-api-compatibility`).
+
+### П.2. Проектные решения уровня реализации (приняты планировщиком, бизнес-правил не меняют)
+
+| # | Решение | Обоснование |
+|---|---|---|
+| R1 | `Operation` и `Transfer` получают `DeletedAt: DateTimeOffset?` и вычисляемое `IsDeleted => DeletedAt is not null`. Колонка `deleted_at timestamptz NULL` в `operations.operations` и `operations.transfers`. | Одна колонка даёт и признак, и момент удаления; `NULL` для всех существующих строк = «не удалена», миграция без потери данных. |
+| R2 | **Без глобального `HasQueryFilter`.** Удалённые исключаются явно и только там, где идёт расчёт: `WalletOperationsLookup.GetDailyDeltasUpToAsync` (`&& x.DeletedAt == null`). `OperationsWalletHistorySource` и `OperationsReferenceItemUsageProbe` по-прежнему видят все строки (меняются только комментарии). Репозитории списков удалённые не фильтруют. | Глобальный фильтр молча сломал бы `hasHistory`/`isUsed` (ADR-0002 §2, §4: удалённые считаются) и списки (§3: видны всегда). Все расчёты баланса (слепки, баланс на дату, историческая общая сумма) идут через единственный порт `IWalletOperationsLookup`, текущая общая сумма — через `Wallet.CurrentBalance`. |
+| R3 | Домен `Operation`: `SoftDelete()` (проверки «не часть перевода», «ещё не удалена»; ставит `DeletedAt`, поднимает `OperationDeleted`), `Restore()` (проверки «не часть перевода», «удалена»; сбрасывает `DeletedAt`, поднимает `OperationRestored`). `Update`/`MoveToWallet` бросают `OperationIsDeletedException` для удалённой. Для «ног» — `internal` `SoftDeleteAsTransferLeg(DateTimeOffset)`/`RestoreAsTransferLeg()`, вызываемые только из `Transfer`. `UpdatedAt` при удалении/восстановлении не меняется. | Инварианты в агрегате, а не в обработчике; `UpdatedAt` остаётся моментом правки содержимого, момент удаления — в `DeletedAt`. |
+| R4 | Домен `Transfer`: `SoftDelete(Operation source, Operation target)` и `Restore(Operation source, Operation target)` — проверяют, что переданы именно его «ноги» (`SourceOperationId`/`TargetOperationId`), ставят один `DeletedAt` на все три записи, поднимают `TransferDeleted`/`TransferRestored`; «ноги» поднимают свои `OperationDeleted`/`OperationRestored`. | Перевод целиком (ADR-0002 §3); BalanceHistory, как и сейчас, реагирует только на события операций (два кошелька пересчитываются через события «ног»). |
+| R5 | Удаляются `Operation.EnsureCanBeDeleted`, `Transfer.EnsureCanBeDeleted`, `OperationDeletionNotAllowedException`, `TransferDeletionNotAllowedException`, правило «граница — сегодня» в обработчиках. Новые исключения (все → 409): `OperationAlreadyDeletedException`, `OperationNotDeletedException`, `OperationIsDeletedException` (правка удалённой), `TransferAlreadyDeletedException`, `TransferNotDeletedException`, `TransferLegMismatchException` (защитное, внутреннее). | Прежнее правило отменено ADR-0002 §3. |
+| R6 | `CurrentBalance`: при мягком удалении — `IWalletBalanceGateway.ApplyDeltaAsync(walletId, AppliedDelta.Negate())` (как сейчас), при восстановлении — `ApplyDeltaAsync(walletId, AppliedDelta)`. Для перевода — по обеим «ногам». Дата и активность типа операции/архивность кошелька при восстановлении **не** перепроверяются. | Сохраняет существующую модель синхронного эффекта (ADR-0001 §3). «Восстановление возможно всегда» (вопрос 4, п.8); `AccountingStartDate` неизменяема, а дата операции уже прошла проверку диапазона при создании. Операции сейчас не проверяют архивность кошелька ни при создании, ни при правке — новый запрет не вводится. |
+| R7 | Новые команды: `RestoreOperationCommand`, `RestoreTransferCommand` (`ICommand`, в `TransactionScope`). Эндпоинты `POST /operations/{id}/restore` → 200 `Operation`, `POST /transfers/{id}/restore` → 200 `Transfer` (по образцу `POST /wallets/{id}/archive`). `DELETE` остаётся глаголом мягкого удаления → 204. | Явное действие-глагол, как у архивирования; семантика `DELETE` для клиента не меняется по форме. |
+| R8 | DTO/контракт: в `Operation` и `Transfer` добавляются обязательные `isDeleted: boolean` и `deletedAt: date-time | null`. Параметра фильтрации удалённых в `GET /operations`/`GET /transfers` нет. | ADR-0002 §5: видны всегда. `isDeleted` — по образцу `Wallet.isArchived`; `deletedAt` — для подсказки в UI и аудита. |
+| R9 | Новые события: `OperationRestored(OperationId, WalletId, OperationDate)`, `TransferRestored(TransferId)` в `Operations.Domain/Events/OperationEvents.cs`; `BalanceSnapshotDeleted(WalletId, SnapshotDate, Money Balance)` в `BalanceHistory.Domain/Events/BalanceHistoryEvents.cs`. Сигнатуры существующих событий не меняются. | Контракт событий фиксируется в волне 0, чтобы подписчики в BalanceHistory и Audit писались параллельно с издателями. |
+| R10 | BalanceHistory: `OperationRestoredHandler` → `RecalculateFromAsync(walletId, OperationDate)` (рядом с `OperationDeletedHandler`, который не меняется: `OperationDeleted` по-прежнему несёт дату). | ADR-0003 §2, §5. |
+| R11 | BalanceHistory: `WalletDeletedHandler` (`INotificationHandler<DomainEventNotification<WalletDeleted>>`, `BalanceHistory.Infrastructure/Integration/WalletEventHandlers.cs`) — берёт `AcquireWalletLockAsync(walletId)`, загружает все слепки кошелька, для каждого `BalanceSnapshot.MarkAsDeleted()` (поднимает `BalanceSnapshotDeleted`) и удаляет, `SaveChangesAsync`. Регистрация вручную в `AddBalanceHistoryModule`; новая ссылка `BalanceHistory.Infrastructure → Wallets.Domain` (ADR-0001 способ e, допустимо `module-rules.mjs`). | ADR-0002 §2 и «Последствия»: реакция на событие удаления кошелька. Блокировка сериализует удаление с плановым проходом; `BalanceRecalculationService` для удалённого кошелька уже возвращается без действий (`wallet is null`). |
+| R12 | BalanceHistory: `WalletCurrencyChangedHandler` — под той же блокировкой удаляет все слепки кошелька (как R11), **отдельным** `SaveChangesAsync`, затем `RecalculateFromAsync(walletId, AccountingStartDate)` создаёт слепки в новой валюте. | Инженерная необходимость, вытекающая из ADR-0002 §1–§2: после удаления `BalanceHistoryWalletHistorySource` смена валюты кошелька со слепками становится разрешённой, а `BalanceSnapshot.UpdateBalance` бросает исключение при смене валюты — первое же создание операции в этом кошельке упало бы (подписчик в транзакции команды). Отдельный `SaveChanges` нужен, чтобы удаление и вставка слепка с тем же ключом `(WalletId, SnapshotDate)` не конфликтовали в `ChangeTracker`. Следствие (не обсуждалось отдельно, выводится из §1 «рассчитанное системой пересчитывается»): историческая общая сумма за прошлые даты у такого кошелька пересчитывается в новой валюте — аналог принятого следствия про удаление кошелька с начальным балансом. |
+| R13 | Аудит удаления/восстановления операций и переводов — стандартный diff из `ChangeTracker` (`RecordFromChangeTrackerAsync`, действие `Deleted`/`Restored`, поле `DeletedAt`). Аудит `BalanceSnapshotDeleted` — точечное обогащение (`RecordAsync`, действие `SnapshotDeleted`, поля `SnapshotDate` и `Balance` из события, `entity_id = WalletId`), по одной записи на слепок. | ADR-0006 §1 (Modified → изменённые поля, так же фиксируется архивирование/деактивация) и §2 (составной ключ слепка — обогащение по аналогии с `SnapshotCreated/Updated`); значения полей мягко удалённой записи не теряются — строка остаётся в БД, её история есть в предыдущих записях аудита. Одна запись на слепок — по аналогии с ADR-0006 §4. |
+| R14 | ExchangeRates: `CurrencyDeletedHandler` (`ExchangeRates.Infrastructure/Integration/CurrencyDeletedHandler.cs`) удаляет последние и исторические курсы, где валюта — `From` или `To`, в транзакции команды удаления валюты (методы репозиториев `RemoveAllForCurrencyAsync`, реализация через `ExecuteDeleteAsync` либо загрузка+`Remove`). Новая ссылка `ExchangeRates.Infrastructure → ReferenceData.Domain`. Отдельной записи аудита на удалённые курсы нет (факт удаления валюты уже в аудите; удаление устаревших пар при обновлении курсов тоже не аудитируется построчно). | Вопрос 3, п.2 («при удалении валюты её курсы удаляются вместе с ней»); без этого снятие `ExchangeRatesReferenceItemUsageProbe` оставило бы осиротевшие курсы (межсхемных FK нет, ADR-0001 §1). |
+| R15 | Миграция `Operations`: `AddRecordSoftDelete` (`dotnet ef migrations add` в `Operations.Infrastructure`, обновляется `OperationsDbContextModelSnapshot.cs`) — `ADD COLUMN deleted_at timestamptz NULL` в обе таблицы. Новых индексов нет (выборки по-прежнему по `ix_operations_wallet_date`). `Down` удаляет колонки. | Добавление nullable-колонки не теряет данных — «Критичный стоп» п.2 не срабатывает. |
+| R16 | UI: глобальный модификатор строки `.app-table tr.is-deleted` в `frontend/src/styles.scss` (владелец — W1.5): ячейки с данными `color: var(--lw-text-muted)`, `text-decoration: line-through`, `text-decoration-color: var(--lw-danger)`, толщина 1–2 px; ячейка действий не перечёркивается. Бейдж `app-badge` с текстом «Удалена» (операция) / «Удалён» (перевод), тон `neutral`. Удаление — через существующий диалог подтверждения с новым текстом («запись останется в списке, исключится из расчётов, её можно восстановить»); восстановление — без подтверждения (действие обратимо), с тостом «Операция восстановлена»/«Перевод восстановлен» и перезагрузкой списка. | ADR-0002 §3 (серая, перечёркнутая красной линией), ui-kit §2 п.8, §5 «Modal»: «не обещать откат, если его нет» — теперь откат есть. |
+
+### П.3. Волны выполнения
+
+Параллельность определяется границами модулей (`high-level-architecture.md` §2) и непересечением файлов. Каждый backend-вызов собирает **только свои проекты** (`dotnet build <проект>`), полный `dotnet test` решения — в волне 2: в волне 1 решение временно может не собираться целиком из-за параллельных правок.
+
+| Волна | Вызовы | Запуск |
+|---|---|---|
+| **W0** | 1 × `backend-services-engineer` | один, блокирует всё остальное |
+| **W1** | 4 × `backend-services-engineer` + 2 × `ui-builder` + 1 × `architecture-documenter` | **7 вызовов одним сообщением** |
+| **W2** | 2 × `tdd-test-engineer` (backend; frontend + e2e) | одним сообщением |
+| **W3** | `code-quality-reviewer` + `ux-parity-reviewer` | одним сообщением |
+| W3.1 | исправления по ревью — владельцам модулей из W1, параллельно по модулям | только при находках |
+| **W4** | 1 × `architecture-documenter` (итоговая сверка ADR) | один |
+
+Итого 13 вызовов (+ условные исправления W3.1).
+
+#### W0. Контракт API и контракт событий — `backend-services-engineer` (скиллы `api-designer`, `dotnet-api-compatibility`)
+
+Контракт — источник истины, поэтому обновляется до реализации; тем же агентом фиксируются записи новых событий (без логики), чтобы подписчики писались параллельно с издателями.
+
+- `docs/api/openapi.yaml`:
+  - схемы `Operation`, `Transfer`: `isDeleted` (required, boolean, readOnly), `deletedAt` (required, `[string, "null"]`, date-time, readOnly);
+  - `DELETE /operations/{id}`: мягкое удаление с любой датой, 204; 409 — часть перевода или уже удалена; убрать текст о «прежнем правиле»;
+  - новый `POST /operations/{id}/restore` (`operationId: restoreOperation`): 200 `Operation`, 404, 409 — часть перевода или не удалена;
+  - `PATCH /operations/{id}`: 409 дополняется «операция удалена — сначала восстановите»;
+  - `DELETE /transfers/{id}`: мягкое удаление обеих «ног», 204; 409 — уже удалён;
+  - новый `POST /transfers/{id}/restore` (`operationId: restoreTransfer`): 200 `Transfer`, 404, 409 — не удалён;
+  - `GET /operations`, `GET /transfers`: описание — удалённые записи включаются всегда, признак `isDeleted`;
+  - `DELETE /wallets/{id}`: 409 — «у кошелька есть операции (включая удалённые)… или он основной»; 204 — «слепки удаляются вместе с кошельком»;
+  - `PUT /wallets/{id}/currency`: 409 — «есть операции (включая удалённые)»; описание — слепки перестраиваются в новой валюте;
+  - `DELETE /currencies/{id}`, `DELETE /operation-types/{id}`: 409 — «используется кошельком или операцией (включая удалённые)»; для валюты — «курсы использованием не считаются и удаляются вместе с ней»;
+  - `GET /wallets/{id}/balance`: удалённые операции не учитываются.
+- `backend/src/Modules/Operations/Domain/Events/OperationEvents.cs`: + `OperationRestored`, `TransferRestored` (R9), комментарий класса.
+- `backend/src/Modules/BalanceHistory/Domain/Events/BalanceHistoryEvents.cs`: + `BalanceSnapshotDeleted` (R9).
+- Проверка: `dotnet build` проектов `Operations.Domain`, `BalanceHistory.Domain`; YAML валиден.
+- Риски: несовместимость проводного формата для preview-frontend против backend из `master` (ADR-0008) — принято пользователем (вопрос 6); новые поля только добавляются.
+
+#### W1 — семь параллельных вызовов (одним сообщением)
+
+**W1.1. Operations — `backend-services-engineer`** (`dotnet-core-expert`, `dotnet-ddd-clean-architecture`, `dotnet-efcore-data`)
+- Файлы: `Operations/Domain/Operation.cs`, `Transfer.cs`, `Exceptions/OperationExceptions.cs` (R1, R3–R5); `Application/UseCases/DeleteOperation/DeleteOperationCommand.cs`, `DeleteTransfer/DeleteTransferCommand.cs` (R6), новые `UseCases/RestoreOperation/RestoreOperationCommand.cs`, `UseCases/RestoreTransfer/RestoreTransferCommand.cs` (R7); `UpdateOperation/UpdateOperationCommand.cs` (исключение для удалённой — до вызовов `IWalletBalanceGateway`); `Models/OperationDto.cs`, `TransferDto.cs` (R8); `Abstractions/Persistence/IOperationRepository.cs`, `ITransferRepository.cs` (убрать `Remove`); `Abstractions/Integration/IWalletOperationsLookup.cs` (док: только не удалённые); `Infrastructure/Integration/WalletOperationsLookup.cs` (R2); `OperationsWalletHistorySource.cs`, `OperationsReferenceItemUsageProbe.cs`, `OperationsModuleExtensions.cs` (только комментарии: «одна реализация», «удалённые считаются»); `Persistence/Configurations/OperationConfiguration.cs`, `TransferConfiguration.cs`; `Persistence/Repositories/*`; новая миграция + `OperationsDbContextModelSnapshot.cs` (R15); `Api/Endpoints/OperationsEndpointsExtensions.cs` (DELETE/restore/PATCH → коды по контракту W0), `Api/Contracts/OperationsContracts.cs`.
+- Тесты — только восстановление компиляции и инверсия устаревших ожиданий, без нового покрытия: `UnitTests/Operations/{OperationTests,TransferTests,DeleteOperationCommandHandlerTests,DeleteTransferCommandHandlerTests,UpdateOperationCommandHandlerTests}.cs`, `IntegrationTests/Operations/{OperationsApiTests,TransfersApiTests}.cs` (`*_DatedBeforeToday_ReturnsConflict` → 204 + `isDeleted`).
+- Зависимости: W0. Риски: забыть проверку «удалена» в `MoveToWallet`; `ChangeTracker` должен видеть `Modified` (не `Deleted`) — иначе аудит даст полный снимок вместо diff; миграция генерируется инструментом, а не вручную.
+
+**W1.2. BalanceHistory + Wallets — `backend-services-engineer`** (`dotnet-core-expert`, `dotnet-ddd-clean-architecture`, `dotnet-efcore-data`)
+- Файлы: удалить `BalanceHistory/Infrastructure/Integration/BalanceHistoryWalletHistorySource.cs`; `BalanceHistory/Domain/BalanceSnapshot.cs` (`MarkAsDeleted()` → `BalanceSnapshotDeleted`); `Application/Abstractions/Persistence/IBalanceSnapshotRepository.cs` + `Infrastructure/Persistence/Repositories/BalanceSnapshotRepository.cs` (`GetAllForWalletAsync`, `Remove`); `Infrastructure/Integration/OperationEventHandlers.cs` (+ `OperationRestoredHandler`, комментарий про `TransferRestored`, R10); новый `Infrastructure/Integration/WalletEventHandlers.cs` (R11, R12); `BalanceHistoryModuleExtensions.cs` (снять регистрацию history source, убрать устаревший комментарий про границу «сегодня», зарегистрировать 3 новых обработчика); `LupexWallet.BalanceHistory.Infrastructure.csproj` (+ `Wallets.Domain`); `Application/Policies/BalanceRecalculationService.cs` (только комментарий про удалённый кошелёк). Wallets: `Application/Abstractions/Integration/IWalletHistorySource.cs` (док и текст исключения в `WalletHistorySourceExtensions`: один владелец), `UseCases/DeleteWallet/DeleteWalletCommand.cs`, `UseCases/ChangeWalletCurrency/ChangeWalletCurrencyCommand.cs` (комментарии).
+- Тесты: `IntegrationTests/Infrastructure/CrossModuleContractsRegistrationTests.cs` — **владелец файла W1.2**, выставляет обе цифры: 1 и 2 (вторая станет зелёной после W1.3); `UnitTests/Wallets/WalletHistorySourceExtensionsTests.cs`, `UnitTests/BalanceHistory/*` — восстановление компиляции.
+- Не трогать: `BackgroundJobs/BalanceSnapshotSchedulerHostedService.cs`.
+- Зависимости: W0. Риски: см. П.6 (R12 — порядок `SaveChanges`; объём аудита при удалении кошелька с длинной историей).
+
+**W1.3. ExchangeRates + ReferenceData — `backend-services-engineer`** (`dotnet-core-expert`, `dotnet-efcore-data`)
+- Файлы: удалить `ExchangeRates/Infrastructure/Integration/ExchangeRatesReferenceItemUsageProbe.cs`; `ExchangeRatesModuleExtensions.cs` — снять регистрацию пробника, зарегистрировать `CurrencyDeletedHandler` (**только эти строки**; файл перечитать непосредственно перед правкой — возможна параллельная работа другого агента над модулем); новый `Infrastructure/Integration/CurrencyDeletedHandler.cs` (R14); `Application/Abstractions/Persistence/ILatestExchangeRateRepository.cs`, `IHistoricalExchangeRateRepository.cs` + реализации в `Infrastructure/Persistence/Repositories/`; `LupexWallet.ExchangeRates.Infrastructure.csproj` (+ `ReferenceData.Domain`). ReferenceData: `Application/Abstractions/Integration/IReferenceItemUsageProbe.cs` (док и текст исключения: ровно два владельца, удалённые операции считаются, курсы — нет), `UseCases/Currencies/Currencies.cs` (комментарии).
+- Тесты: `UnitTests/ReferenceData/DeleteCommandHandlersTests.cs`, `IntegrationTests/ReferenceData/ReferenceDataApiTests.cs`, `IntegrationTests/ExchangeRates/ExchangeRatesApiTests.cs` — восстановление компиляции/ожиданий.
+- Не трогать: `ExternalServices/FrankfurterClient.cs`, `BackgroundJobs/*`.
+- Зависимости: W0 (контракт). Риски: конфликт слияния в `ExchangeRatesModuleExtensions.cs`; гонка фонового обновления с удалением валюты (П.6).
+
+**W1.4. Audit — `backend-services-engineer`** (`dotnet-core-expert`)
+- Файлы: `Audit/Infrastructure/Integration/OperationsAuditHandlers.cs` (+ `OperationRestoredAuditHandler`, `TransferRestoredAuditHandler`, действие `Restored`, R13), `BalanceHistoryAuditHandlers.cs` (+ `BalanceSnapshotDeletedAuditHandler`, действие `SnapshotDeleted`), `AuditModuleExtensions.cs` (3 регистрации). `WalletAuditHandlers.cs` не меняется (проверить, что `WalletDeleted` уже фиксируется).
+- Тесты: `UnitTests/Audit/*` — только если ломается компиляция.
+- Зависимости: W0 (типы событий). Риски: минимальные.
+
+**W1.5. UI «Операции» + общий стиль удалённой строки — `ui-builder`** (`angular-architect`)
+- Файлы: `frontend/src/styles.scss` (R16, **владелец класса `.is-deleted`**); `data-access/operations/operations-api.models.ts` (`isDeleted`, `deletedAt`), `operations-api.service.ts` (`restore(id): Observable<Operation>`); `features/operations/pages/operations-page/operations-page.component.{ts,html,scss}` — строка удалённой операции, бейдж «Удалена», «···» → «Восстановить», скрыть «Изменить», новый текст подтверждения и сообщений об ошибке (убрать «уже учтена в истории баланса»); `docs/design/ui-kit.md` §5 «Таблица / строка списка» — состояние «удалённая»; `docs/design/screen-spec.md` (раздел «Операции»: новое правило удаления/восстановления, пометка об устаревшей витрине); `docs/design/verification.md` (строка «Правила действий»).
+- Зависимости: W0. Риски: контраст `--lw-text-muted` на `--lw-glass-strong` ≥ 4.5:1 проверить; перечёркивание не объявляется скринридером — поэтому бейдж обязателен.
+
+**W1.6. UI «Переводы» + тексты кошельков — `ui-builder`** (`angular-architect`)
+- Файлы: `data-access/transfers/transfers-api.models.ts`, `transfers-api.service.ts` (`restore`); `features/transfers/pages/transfers-page/transfers-page.component.{ts,html,scss}` — удалённая строка (класс `.is-deleted` из W1.5, бейдж «Удалён»), «···» → «Восстановить перевод», тексты подтверждения без «без возможности восстановления»/«Отменить нельзя» и без правила прошлых дат; `features/wallets/pages/wallets-page/wallets-page.component.ts` — тексты ошибок смены валюты/удаления («операции, включая удалённые», без «слепков»); `docs/design/extended-screen-spec.md` (раздел «Переводы», ссылка на ADR-0002).
+- Не трогать: `styles.scss` (класс только использовать).
+- Зависимости: W0; визуальная проверка — после W1.5. Риски: расхождение стиля с W1.5 — класс и тексты зафиксированы в R16.
+
+**W1.7. Требования и модель — `architecture-documenter`**
+- Файлы (описывают целевое поведение по ADR-0002, чтобы `ux-parity-reviewer` в W3 сверял с актуальным эталоном): `docs/requirements/user-scenarios.md` — UC-02 (валюта: только без операций), UC-04 (кошелёк без операций, слепки удаляются вместе), UC-14 (мягкое удаление с любой датой, восстановление, запрет правки удалённой), UC-16 (удаление/восстановление перевода целиком), UC-23 (пересчёт при удалении/восстановлении), UC-28 (использование включает удалённые операции; курсы — нет); `docs/requirements/glossary.md` (мягкое удаление, восстановление, история кошелька, использование элемента справочника); `docs/architecture/ddd-model.md` §2.4, §2.5, §5 (инварианты Operation/Transfer/Wallet/справочников), §6 (команды `RestoreOperation`/`RestoreTransfer`, события `OperationRestored`, `TransferRestored`, `BalanceSnapshotDeleted`, реакции на `WalletDeleted`/`WalletCurrencyChanged`/`CurrencyDeleted`); `docs/api/api-design.md` (мягкое удаление, восстановление, коды 409); `docs/database/schema.md` (схема `operations`: `deleted_at` в обеих таблицах, без новых индексов).
+- Не трогать: ADR (итоговая сверка — W4), `docs/PROGRESS.md` (ведёт основной агент).
+- Зависимости: W0. Риски: расхождение с реализацией — снимается в W4.
+
+#### W2 — тесты (одним сообщением, 2 вызова `tdd-test-engineer`)
+
+- **W2.1 backend** → `backend/tests/LupexWallet.UnitTests/`, `backend/tests/LupexWallet.IntegrationTests/` по существующей структуре (П.5). Прогон: полный `dotnet test`, `check-architecture.mjs`.
+- **W2.2 frontend + e2e** → `frontend/src/app/**/*.spec.ts`, `frontend/e2e/{operations,transfers}.spec.ts` (П.5). Прогон: `ng test`, `ng build`, `check:boundaries`, e2e локально.
+- Зависимости: вся W1.
+
+#### W3 — ревью (одним сообщением)
+
+- `code-quality-reviewer` (+ `dotnet-api-compatibility` против `openapi.yaml`, `postgres-pro`/`database-optimizer` для миграции `AddRecordSoftDelete`).
+- `ux-parity-reviewer` — эталон: обновлённые в W1.7 `user-scenarios.md` и `api-design.md`, плюс ADR-0002 §3, §5 и ui-kit §2 п.8.
+- Находки: тривиальные — исправляются в W3.1 и фиксируются одной записью в «Баги, найденные и исправленные»; требующие решения пользователя — отдельный пункт следующего цикла.
+
+#### W4 — итоговая сверка документации — `architecture-documenter`
+
+- `docs/architecture/adr/0002-record-lifecycle.md` — «Состояние реализации»: реализовано (кроме заявленных балансов и валют — ссылки на ADR-0003 §6 и ADR-0004 §7); технические решения R1, R2, R7, R11, R12, R14 кратко; выведенное следствие R12 — в «Последствия» с пометкой «выведено, отдельно не обсуждалось».
+- `0003-balance-history.md` — «Состояние реализации» (пересчёт при мягком удалении и восстановлении реализован; перестройка слепков при смене валюты); таблица триггеров §3 — `OperationRestored`.
+- `0006-audit.md` — «Состояние реализации» (мягкое удаление и восстановление фиксируются; `SnapshotDeleted`).
+- `0001-modular-monolith.md` — проверить, что §2 не называет устаревших реализаций портов; `docs/architecture/adr/README.md` — статусы.
+- Основной агент после W4 записывает итог блока в `docs/PROGRESS.md` (отдельным разделом) и закрывает этот план.
+
+### П.4. Граф зависимостей
+
+```mermaid
+graph LR
+  W0["W0 контракт + события"] --> W11["W1.1 Operations"]
+  W0 --> W12["W1.2 BalanceHistory+Wallets"]
+  W0 --> W13["W1.3 ExchangeRates+ReferenceData"]
+  W0 --> W14["W1.4 Audit"]
+  W0 --> W15["W1.5 UI Операции + стиль"]
+  W0 --> W16["W1.6 UI Переводы"]
+  W0 --> W17["W1.7 Документы требований"]
+  W11 & W12 & W13 & W14 --> W21["W2.1 тесты backend"]
+  W15 & W16 --> W22["W2.2 тесты frontend + e2e"]
+  W11 --> W22
+  W21 & W22 & W17 --> W3["W3 ревью x2"]
+  W3 --> W4["W4 сверка ADR"]
+```
+
+### П.5. План тестов
+
+**Unit (`LupexWallet.UnitTests`)**
+- `Operations/OperationTests`: `SoftDelete` ставит `DeletedAt` и поднимает `OperationDeleted`; повторный — `OperationAlreadyDeletedException`; `Restore` удалённой — `OperationRestored`, `DeletedAt == null`; `Restore` не удалённой — исключение; `SoftDelete`/`Restore` «ноги» перевода — `OperationPartOfTransferException`; `Update`/`MoveToWallet` удалённой — `OperationIsDeletedException`; `UpdatedAt` не меняется.
+- `Operations/TransferTests`: `SoftDelete(source, target)` — один `DeletedAt` на три записи, события `TransferDeleted` + 2 × `OperationDeleted`; чужая «нога» — исключение; `Restore` симметрично; повторы — исключения.
+- `Operations/DeleteOperationCommandHandlerTests`: прошлая дата → обратная дельта, `Remove` не вызывается; `RestoreOperationCommandHandlerTests` (новый): дельта применяется заново; `DeleteTransferCommandHandlerTests`/`RestoreTransferCommandHandlerTests` (новый): обе «ноги», оба кошелька; `UpdateOperationCommandHandlerTests`: удалённая → исключение, `IWalletBalanceGateway` не вызывается.
+- `BalanceHistory/BalanceSnapshotTests`: `MarkAsDeleted` → `BalanceSnapshotDeleted` с балансом; `BalanceHistory/WalletEventHandlersTests` (новый, на фейках): удаление всех слепков; перестройка при смене валюты вызывает пересчёт от `AccountingStartDate`.
+- `ReferenceData/DeleteCommandHandlersTests`, `Wallets/WalletHistorySourceExtensionsTests`: тексты и агрегация без удалённых владельцев.
+- `Audit`: обработчики `Restored` и `SnapshotDeleted` формируют ожидаемые `changes`/`action`/`entityId`.
+
+**Integration (`LupexWallet.IntegrationTests`, реальный Postgres, Respawn)**
+- `Operations/OperationsApiTests`: удаление вчерашней операции → 204; `GET` → `isDeleted: true`, `deletedAt` задан; баланс кошелька без её эффекта; запись есть в `GET /operations` на прежнем месте курсора; `restore` → 200, баланс вернулся; `PATCH` удалённой → 409 (и с переносом кошелька); повторный `DELETE` → 409; `restore` не удалённой → 409; `restore` неизвестной → 404; `restore` «ноги» → 409.
+- `Operations/TransfersApiTests`: удаление перевода с прошлой датой → 204, обе «ноги» `isDeleted`, оба баланса; восстановление; перевод в `GET /transfers` с `isDeleted`.
+- `BalanceHistory/BalanceHistoryApiTests`: удаление операции прошлой даты пересчитывает слепки от её даты; восстановление возвращает значения; `GET /wallets/{id}/balance?date=` не учитывает удалённую.
+- `Reporting/ReportingApiTests`: текущая и историческая общая сумма без удалённой операции и с ней после восстановления.
+- `Wallets/WalletsApiTests`: кошелёк с датой начала учёта в прошлом, слепки созданы досозданием (`BackfillWalletBalanceSnapshotsCommand`) → `DELETE` 204, `GET /balance-history` → 404, в аудите `SnapshotDeleted` по числу слепков; кошелёк только с удалённой операцией → `DELETE` 409, `archive` 200; смена валюты кошелька со слепками без операций → 200, слепки в новой валюте, затем создание операции → 201 (регресс R12); с удалённой операцией → 409.
+- `ReferenceData/ReferenceDataApiTests`: тип операции только с удалённой операцией → `DELETE` 409, `deactivate` 200; валюта с курсами без кошельков и операций → `DELETE` 204, курсы удалены (засев через `FrankfurterTestableHandler` или напрямую через `ExchangeRatesDbContext`); пробник Operations возвращает `true` для валюты удалённой операции (через `IEnumerable<IReferenceItemUsageProbe>` из DI — изолировать через API невозможно, кошелёк той же валюты сам даёт использование).
+- `Audit/AuditApiTests`: `Operation`/`Deleted` и `Restored` с полем `DeletedAt`; `Transfer`/`Deleted`, `Restored`.
+- `Infrastructure/CrossModuleContractsRegistrationTests`: 1 и 2.
+
+**Frontend unit (`ng test`)**
+- `data-access/operations/operations-api.service.spec.ts`, `data-access/transfers/transfers-api.service.spec.ts` (новые): `restore` → `POST .../restore`.
+- `features/operations/pages/operations-page/operations-page.component.spec.ts` (**сейчас отсутствует — создать**): удалённая строка имеет класс `is-deleted` и бейдж «Удалена»; в меню только «Восстановить»; «Изменить» недоступно; восстановление перезагружает список и показывает тост; текст подтверждения без «без возможности восстановления».
+- `features/transfers/pages/transfers-page/transfers-page.component.spec.ts`: то же для перевода; обновить ожидание текста «Удаление пересчитает балансы».
+- `features/wallets/pages/wallets-page/wallets-page.component.spec.ts`: новые тексты ошибок.
+
+**E2E-смоук (Playwright, локально против dev-backend; не против боевого backend)**
+- `frontend/e2e/operations.spec.ts`: «confirms deletion…» → строка остаётся с бейджем «Удалена», затем «Восстановить» → бейдж исчез.
+- `frontend/e2e/transfers.spec.ts`: то же для перевода.
+- `fixtures.ts` не меняется: кошельки с удалёнными операциями уходят в архив по 409 (ожидаемо).
+
+### П.6. Риски
+
+1. **Смена валюты кошелька со слепками (R12).** Без перестройки слепков первое создание операции в кошельке после смены валюты упадёт (подписчик в транзакции). Покрыто интеграционным тестом; порядок «удалить → `SaveChanges` → пересчитать» обязателен.
+2. **Объём одной транзакции.** Удаление кошелька с давней датой начала учёта удаляет сотни/тысячи слепков с записью аудита на каждый; удаление/восстановление давней операции — каскад с аудитом. Известный потолок `TransactionScope` в 1 минуту (ADR-0001, ADR-0003 «Последствия») — не решается в этом блоке.
+3. **Параллельная правка ExchangeRates другим агентом.** Возможен конфликт в `ExchangeRatesModuleExtensions.cs`. W1.3 меняет только две строки регистрации и перечитывает файл непосредственно перед правкой; основной агент запускает W1.3 после слияния работы другого агента либо сводит конфликт вручную.
+4. **Временная несобираемость решения в W1.** Семь агентов правят одно решение параллельно; каждый собирает только свои проекты, полный прогон — W2.1.
+5. **Абсолютная корректировка при восстановлении.** Восстанавливается замороженная дельта (`OperationEffectCalculator`), а не «баланс = X»; смысл абсолютной корректировки после удаления/восстановления теряется. Все данные тестовые (итог 2026-09-30, п.2); переопределяется ADR-0003 §6.
+6. **Гонка фонового обновления курсов и удаления валюты.** Прогон, прочитавший список валют до удаления, может записать курс удалённой валюты. Последствие — осиротевшая строка курса без влияния на расчёты (курсы читаются по валютам кошельков). Низкий; фиксируется в ADR-0004 «Состояние реализации» при W4, если ревью подтвердит.
+7. **Preview-frontend против backend из `master`** (ADR-0008, принято): до слияния preview не увидит `isDeleted` и получит 404/405 на `restore`. UI трактует отсутствующее `isDeleted` как `false`.
+8. **Боевые данные.** После этого блока любая операция, внесённая через preview/e2e в боевой backend, стирается только мягко; e2e запускать только против локального backend.
+9. **Аудит мягкого удаления — diff, а не полный снимок (R13).** Соответствует ADR-0006 §1 и текущему аудиту архивирования; `ux-parity-reviewer` сверяет с ADR-0002 §5 — при разногласии оформить пункт следующего цикла, не менять молча.
+
+### П.7. Ручная проверка (непроверяемо автотестами в текущей среде)
+
+- Визуально: удалённая строка в «Операциях» и «Переводах» на 360, 768, 1440 px и при масштабе 200 %; контраст серого текста на реальной поверхности ≥ 4.5:1; режим `forced-colors` — перечёркивание видно, бейдж читается.
+- Скринридер (NVDA/Narrator, Windows): строка объявляется с «Удалена»/«Удалён».
+- Миграция `AddRecordSoftDelete` на Railway применяется при старте хоста (ADR-0001 §8) — проверить лог первого запуска после слияния в `master`.
+
+### П.8. Открытые вопросы
+
+Бизнес-неоднозначностей, не закрытых ADR-0002/0003/0006 и решениями по вопросам 2–4, не найдено: видимость удалённых в списках, восстановление «всегда», перевод целиком, запрет правки удалённой, судьба слепков и курсов, определение истории и использования — решены. `CLARIFICATION_NEEDED` нет; критичного стопа по правилам `CLAUDE.md` нет (миграция без потери данных, конфликта ADR нет). Выведенное следствие R12 (историческая общая сумма кошелька, сменившего валюту, пересчитывается в новой валюте) фиксируется в ADR-0002 «Последствия» с пометкой «выведено, отдельно не обсуждалось» — по образцу следствия п.12 вопроса 1.
+
 ## Очистка мусорных тестовых записей и автоочистка в e2e (2026-09-16)
 
 Пользователь заметил накопление мусорных записей в общем dev-стенде — результат многих сессий Playwright-прогонов без уборки за собой. Проверка (`SELECT` по `wallets.wallets`) подтвердила: из 64 кошельков только «Наличные» (`357d27a0-…`) настоящий, остальные 63 — тестовые фикстуры («E2E …», «Очень длинное название…», «Отчёт кошелёк…») с 2026-09-13 по 2026-09-15.

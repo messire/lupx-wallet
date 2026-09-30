@@ -13,9 +13,12 @@ public abstract class IntegrationTestBase(ApiTestFixture fixture) : IAsyncLifeti
     /// <summary>Пароль для локальной разработки/тестов — appsettings.Development.json, см. docs/PROGRESS.md.</summary>
     public const string DevPassword = "ChangeMe123!";
 
+    /// <summary>Shared fixture; derived classes use it instead of capturing their own constructor parameter (CS9107).</summary>
+    protected ApiTestFixture Fixture { get; } = fixture;
+
     protected HttpClient Client { get; } = fixture.Factory.CreateClient();
 
-    public Task InitializeAsync() => fixture.ResetAsync();
+    public Task InitializeAsync() => Fixture.ResetAsync();
 
     public Task DisposeAsync() => Task.CompletedTask;
 
@@ -27,7 +30,7 @@ public abstract class IntegrationTestBase(ApiTestFixture fixture) : IAsyncLifeti
     /// </summary>
     protected Task AuthenticateAsync()
     {
-        Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.Token);
+        Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Fixture.Token);
         return Task.CompletedTask;
     }
 }

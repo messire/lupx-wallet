@@ -50,7 +50,7 @@
 
 ### 4. Одна транзакция на команду
 
-- `TransactionBehavior` (MediatR pipeline behavior) открывает `System.Transactions.TransactionScope` вокруг обработки каждой команды (`ICommand`), но не запросов (`IQuery`).
+- `TransactionBehavior` (MediatR pipeline behavior) открывает `System.Transactions.TransactionScope` вокруг обработки каждой команды (`ICommand`), но не запросов (`IQuery`). `TransactionBehavior` привязан к маркеру `ICommand<TResponse>`, а не к `IRequest<TResponse>`, чтобы команды без результата (`IRequest, ICommand<Unit>`, например все `Delete*Command`) тоже попадали в транзакцию: в MediatR 12 `IRequest` не наследует `IRequest<Unit>`, и ограничение по `IRequest<TResponse>` заставляло бы DI-контейнер молча пропускать поведение. Регрессию ловит `TransactionBehaviorRegistrationTests` (обходит все команды `*.Application`-сборок).
 - Несколько `DbContext` разных модулей участвуют в одной физической транзакции на одном соединении к одной базе PostgreSQL; распределённой транзакции не возникает.
 - Сильная согласованность вместо eventual consistency и outbox: либо сохраняется всё (операция, баланс, слепки, аудит), либо ничего.
 - Команда, выполняющая внешний HTTP-вызов, намеренно не является `ICommand` и управляет атомарностью сама в рамках своего `DbContext` (`RefreshExchangeRatesCommand`, см. [ADR-0004](./0004-currencies-and-exchange-rates.md)): лимит `TransactionScope` по умолчанию — 1 минута, а последовательные вызовы с ретраями его легко превышают.
@@ -88,7 +88,6 @@
 
 ## Отклонения в коде
 
-- `BalanceSnapshotSchedulerHostedService` вызывает `BalanceRecalculationService` напрямую, без команды и без `TransactionScope`: запись слепка и его аудита не атомарна, а `pg_advisory_xact_lock` вне транзакции не удерживается. Противоречит §4 и §6.
 - Аудит обновления курсов пишется после сохранения курсов вне общей транзакции — следствие §4 для `RefreshExchangeRatesCommand`; принято как известное.
 
 ## Отклонённые варианты

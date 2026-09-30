@@ -102,10 +102,10 @@ frontend/
 
 | Модуль | Задача | Периодичность | Решение |
 |---|---|---|---|
-| `BalanceHistory` | `BalanceSnapshotSchedulerHostedService` — при старте досоздает пропущенные слепки (по одному вызову `BalanceRecalculationService` на кошелек, каскадно закрывает все пропуски разом), затем ежедневно в 12:00 UTC создает/обновляет слепок на сегодня. Обе обязанности — один `BackgroundService`, т.к. обе используют один и тот же `BalanceRecalculationService`. | ежедневно в 12:00 UTC + однократно при старте | раздел 5 требований, ADR-0003 |
+| `BalanceHistory` | `BalanceSnapshotSchedulerHostedService` — при старте досоздает пропущенные слепки (по одной команде `BackfillWalletBalanceSnapshotsCommand` на кошелек — она вызывает `BalanceRecalculationService`, каскадно закрывает все пропуски разом), затем ежедневно в 12:00 UTC создает/обновляет слепок на сегодня. Обе обязанности — один `BackgroundService`, т.к. обе используют один и тот же `BalanceRecalculationService`. | ежедневно в 12:00 UTC + однократно при старте | раздел 5 требований, ADR-0003 |
 | `ExchangeRates` | `ExchangeRateRefreshBackgroundService` — плановое обновление курсов, реакция на смену основного кошелька по сигналу, перезапуск отсчёта после ручного обновления | раз в сутки (+ сброс таймера при ручном обновлении) | ADR-0004 |
 
-`ExchangeRates` вызывает ту же команду `RefreshExchangeRatesCommand`, что и ручное обновление из API. `BalanceHistory` вызывает `BalanceRecalculationService` напрямую, без команды и без `TransactionScope` — известное отклонение от ADR-0001, §4 и §6 (см. там «Отклонения в коде»).
+Обе задачи идут через команды MediatR в собственном DI-scope с актором `System`. `ExchangeRates` вызывает ту же команду `RefreshExchangeRatesCommand`, что и ручное обновление из API (она намеренно не `ICommand`, см. ADR-0004). `BalanceHistory` отправляет `BackfillWalletBalanceSnapshotsCommand` на каждый кошелёк (`ICommand`) в отдельном scope на кошелёк: слепки кошелька, их аудит и advisory lock пересчёта записываются одной транзакцией `TransactionBehavior`.
 
 ## 6. API-хост
 

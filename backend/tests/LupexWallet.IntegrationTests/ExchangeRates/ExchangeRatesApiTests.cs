@@ -52,9 +52,11 @@ public sealed class ExchangeRatesApiTests(ApiTestFixture fixture) : IntegrationT
     {
         _frankfurterHandler.TestOverride = (request, _) =>
         {
-            var symbols = GetQueryParam(request.RequestUri!, "symbols");
-            var json = "{\"amount\":1,\"base\":\"EUR\",\"date\":\"2024-01-01\",\"rates\":{\""
-                + symbols + "\":" + rate.ToString(CultureInfo.InvariantCulture) + "}}";
+            var baseCode = GetQueryParam(request.RequestUri!, "base");
+            var quote = GetQueryParam(request.RequestUri!, "quotes");
+            // Frankfurter API v2: array of {date, base, quote, rate}.
+            var json = "[{\"date\":\"2024-01-01\",\"base\":\"" + baseCode + "\",\"quote\":\"" + quote
+                + "\",\"rate\":" + rate.ToString(CultureInfo.InvariantCulture) + "}]";
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json"),
@@ -72,9 +74,9 @@ public sealed class ExchangeRatesApiTests(ApiTestFixture fixture) : IntegrationT
     {
         _frankfurterHandler.TestOverride = (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         {
-            // Frankfurter отвечает 200, но без запрошенной валюты в "rates" — ровно так себя
-            // ведёт реальный сервис для неподдерживаемого symbols (ADR-0004, "Последствия").
-            Content = new StringContent("""{"amount":1,"base":"EUR","date":"2024-01-01","rates":{}}""", Encoding.UTF8, "application/json"),
+            // Frankfurter API v2 отвечает 200 и пустым массивом — ровно так себя ведёт реальный
+            // сервис для валюты, которой у него нет (ADR-0004, §6).
+            Content = new StringContent("[]", Encoding.UTF8, "application/json"),
         });
     }
 

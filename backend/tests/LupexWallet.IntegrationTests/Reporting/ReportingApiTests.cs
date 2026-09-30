@@ -36,11 +36,12 @@ public sealed class ReportingApiTests(ApiTestFixture fixture) : IntegrationTestB
         _frankfurterHandler.TestOverride = (request, _) =>
         {
             var query = request.RequestUri!.Query.TrimStart('?');
-            var symbols = query.Split('&', StringSplitOptions.RemoveEmptyEntries)
+            string GetParam(string name) => Uri.UnescapeDataString(query.Split('&', StringSplitOptions.RemoveEmptyEntries)
                 .Select(p => p.Split('=', 2))
-                .First(p => Uri.UnescapeDataString(p[0]) == "symbols")[1];
-            var json = "{\"amount\":1,\"base\":\"EUR\",\"date\":\"2024-01-01\",\"rates\":{\""
-                + Uri.UnescapeDataString(symbols) + "\":" + rate.ToString(CultureInfo.InvariantCulture) + "}}";
+                .First(p => Uri.UnescapeDataString(p[0]) == name)[1]);
+            // Frankfurter API v2: array of {date, base, quote, rate}.
+            var json = "[{\"date\":\"2024-01-01\",\"base\":\"" + GetParam("base") + "\",\"quote\":\"" + GetParam("quotes")
+                + "\",\"rate\":" + rate.ToString(CultureInfo.InvariantCulture) + "}]";
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json"),

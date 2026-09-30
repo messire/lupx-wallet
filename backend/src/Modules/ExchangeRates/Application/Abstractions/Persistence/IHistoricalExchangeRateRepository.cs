@@ -15,4 +15,7 @@ public interface IHistoricalExchangeRateRepository
     /// </summary>
     Task<HistoricalExchangeRate?> FindClosestBeforeAsync(
         CurrencyId from, CurrencyId to, DateOnly onOrBefore, CancellationToken cancellationToken);
+
+    /// <summary>Bulk-deletes every rate where the currency is From or To (ADR-0002 §4, currency deletion); bypasses the ChangeTracker.</summary>
+    Task RemoveAllForCurrencyAsync(CurrencyId currencyId, CancellationToken cancellationToken);
 }

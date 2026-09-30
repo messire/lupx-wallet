@@ -24,6 +24,14 @@
     display: flex;
     justify-content: flex-end;
   }
+
+  /* inline-block — text-decoration of `tr.is-deleted` (strike-through) does not propagate
+     into it, so the "Удалён" badge stays legible (the strike-through is not announced
+     by screen readers, the badge is). */
+  app-badge {
+    display: inline-block;
+    margin-left: var(--lw-space-2);
+  }
 }
 
 /* Список действий строки, открываемый по «···» (тот же паттерн, что в Operations,

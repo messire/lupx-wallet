@@ -11,7 +11,8 @@ namespace LupexWallet.IntegrationTests.Operations;
 public sealed record TransferMoneyResponse(string Amount, Guid CurrencyId);
 public sealed record TransferResponse(
     Guid Id, Guid SourceWalletId, Guid TargetWalletId, Guid SourceOperationId, Guid TargetOperationId,
-    TransferMoneyResponse Amount, DateOnly TransferDate, DateTimeOffset CreatedAt);
+    TransferMoneyResponse Amount, DateOnly TransferDate, DateTimeOffset CreatedAt,
+    bool IsDeleted, DateTimeOffset? DeletedAt);
 
 /// <summary>
 /// Transfers API (docs/api/openapi.yaml, тег Transfers) — UC-16: атомарность пары операций,
@@ -187,7 +188,7 @@ public sealed class TransfersApiTests(ApiTestFixture fixture) : IntegrationTestB
     }
 
     [Fact]
-    public async Task DeleteTransfer_ReversesBothDeltasAndRemovesTransfer()
+    public async Task DeleteTransfer_ReversesBothDeltasAndSoftDeletesTransfer()
     {
         await AuthenticateAsync();
         var (source, target) = await CreateWalletPairAsync(sourceBalance: 500m, targetBalance: 100m);
@@ -207,14 +208,15 @@ public sealed class TransfersApiTests(ApiTestFixture fixture) : IntegrationTestB
         (await GetWalletBalanceAsync(target.Id)).Should().Be(100m);
 
         var getSourceOperation = await Client.GetAsync($"/api/v1/operations/{transfer.SourceOperationId}");
-        getSourceOperation.StatusCode.Should().Be(HttpStatusCode.NotFound, "удаление перевода атомарно удаляет обе операции");
+        getSourceOperation.StatusCode.Should().Be(HttpStatusCode.OK, "удаление перевода мягкое — обе операции остаются");
+        var sourceLeg = (await getSourceOperation.Content.ReadFromJsonAsync<OperationResponse>())!;
+        sourceLeg.IsDeleted.Should().BeTrue();
     }
 
     [Fact]
-    public async Task DeleteTransfer_DatedBeforeToday_ReturnsConflict()
+    public async Task DeleteTransfer_DatedBeforeToday_ReturnsNoContentAndMarksDeleted()
     {
-        // Прежнее правило до мягкого удаления (ADR-0002, §3, «Состояние реализации»): та же граница "сегодня",
-        // что и для одиночной операции, но по TransferDate.
+        // ADR-0002, §3: прежнее правило «граница — сегодня» отменено, удаление допустимо с любой датой.
         await AuthenticateAsync();
         var (source, target) = await CreateWalletPairAsync(sourceBalance: 500m, targetBalance: 100m);
         var yesterday = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1);
@@ -229,7 +231,11 @@ public sealed class TransfersApiTests(ApiTestFixture fixture) : IntegrationTestB
 
         var deleteResponse = await Client.DeleteAsync($"/api/v1/transfers/{transfer.Id}");
 
-        deleteResponse.StatusCode.Should().Be(HttpStatusCode.Conflict, "перевод с датой строго раньше сегодня уже считается отраженным в истории баланса");
+        deleteResponse.StatusCode.Should().Be(HttpStatusCode.NoContent, "удаление допустимо с любой датой (ADR-0002, §3)");
+        var getResponse = await Client.GetAsync($"/api/v1/transfers/{transfer.Id}");
+        var deleted = (await getResponse.Content.ReadFromJsonAsync<TransferResponse>())!;
+        deleted.IsDeleted.Should().BeTrue();
+        deleted.DeletedAt.Should().NotBeNull();
     }
 
     [Fact]

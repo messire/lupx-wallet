@@ -3,15 +3,14 @@ using LupexWallet.SharedKernel;
 namespace LupexWallet.Wallets.Application;
 
 /// <summary>
-/// Consumer-owned port (ADR-0001, §2, way d; the history rule itself is ADR-0002, §2): "does this wallet have operations/balance
-/// snapshots" — used by DeleteWalletCommand (Q2) and ChangeWalletCurrencyCommand (Q15) to
-/// compute hasHistory. Port declared here, in the consumer's (Wallets) Application layer;
-/// implementations live in the data-owning modules' Infrastructure: exactly two
-/// registrations are expected — Operations.Infrastructure.OperationsWalletHistorySource
-/// (AddOperationsModule) and BalanceHistory.Infrastructure.BalanceHistoryWalletHistorySource
-/// (AddBalanceHistoryModule). The consumer injects IEnumerable&lt;IWalletHistorySource&gt;
-/// and treats hasHistory as true if any source confirms it; an empty implementation list is
-/// a DI configuration error (fail-fast), not "no history" (ADR-0002).
+/// Consumer-owned port (ADR-0001, §2, way d): "does this wallet have history" — used by
+/// DeleteWalletCommand and ChangeWalletCurrencyCommand. Wallet history is operations only,
+/// including soft-deleted ones and both transfer legs; snapshots and the initial balance are
+/// not history (ADR-0002, §2). Port declared here, in the consumer's (Wallets) Application
+/// layer; exactly one implementation is expected — Operations.Infrastructure.
+/// OperationsWalletHistorySource (AddOperationsModule), the data owner. The consumer injects
+/// IEnumerable&lt;IWalletHistorySource&gt; and treats hasHistory as true if any source confirms it;
+/// an empty implementation list is a DI configuration error (fail-fast), not "no history".
 /// </summary>
 public interface IWalletHistorySource
 {
@@ -32,11 +31,11 @@ public static class WalletHistorySourceExtensions
         if (materializedSources.Count == 0)
         {
             throw new InvalidOperationException(
-                "Не зарегистрировано ни одной реализации IWalletHistorySource — ожидались " +
-                "Operations.Infrastructure.OperationsWalletHistorySource (AddOperationsModule) и " +
-                "BalanceHistory.Infrastructure.BalanceHistoryWalletHistorySource " +
-                "(AddBalanceHistoryModule). Пустой список — ошибка конфигурации DI, не «истории нет» " +
-                "(ADR-0001, «Обязательное условие: пустой список реализаций — ошибка, не «false»»).");
+                "Не зарегистрировано ни одной реализации IWalletHistorySource — ожидалась " +
+                "Operations.Infrastructure.OperationsWalletHistorySource (AddOperationsModule, " +
+                "единственный владелец данных истории, ADR-0002 §2). Пустой список — ошибка " +
+                "конфигурации DI, не «истории нет» (ADR-0001, «Обязательное условие: пустой " +
+                "список реализаций — ошибка, не «false»»).");
         }
 
         // Последовательно, не Task.WhenAll: несколько источников внутри одной ambient-

@@ -11,7 +11,9 @@ public sealed record TransferDto(
     decimal Amount,
     Guid CurrencyId,
     DateOnly TransferDate,
-    DateTimeOffset CreatedAt)
+    DateTimeOffset CreatedAt,
+    bool IsDeleted,
+    DateTimeOffset? DeletedAt)
 {
     public static TransferDto FromDomain(Transfer transfer) => new(
         transfer.Id.Value,
@@ -22,5 +24,7 @@ public sealed record TransferDto(
         transfer.Amount.Amount,
         transfer.CurrencyId.Value,
         transfer.TransferDate,
-        transfer.CreatedAt);
+        transfer.CreatedAt,
+        transfer.IsDeleted,
+        transfer.DeletedAt);
 }

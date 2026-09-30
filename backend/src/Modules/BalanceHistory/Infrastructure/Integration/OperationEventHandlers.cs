@@ -14,9 +14,9 @@ namespace LupexWallet.BalanceHistory.Infrastructure;
 /// Application assembly (Program.cs only scans *.Application assemblies, see the
 /// RegisterServicesFromAssemblies list in ADR-0001), not Infrastructure.
 ///
-/// TransferCreated/TransferDeleted don't need separate subscribers — both "legs" of a
-/// transfer already raise OperationCreated/OperationDeleted (see Operations.Domain.Operation.
-/// CreateForTransfer, Operations.Application.DeleteTransferCommand).
+/// TransferCreated/TransferDeleted/TransferRestored don't need separate subscribers — both
+/// "legs" of a transfer already raise OperationCreated/OperationDeleted/OperationRestored,
+/// so both wallets are recalculated through the leg events (ADR-0002, §3).
 /// </summary>
 public sealed class OperationCreatedHandler(BalanceRecalculationService recalculationService)
     : INotificationHandler<DomainEventNotification<OperationCreated>>
@@ -57,6 +57,15 @@ public sealed class OperationDeletedHandler(BalanceRecalculationService recalcul
     : INotificationHandler<DomainEventNotification<OperationDeleted>>
 {
     public Task Handle(DomainEventNotification<OperationDeleted> notification, CancellationToken cancellationToken) =>
+        recalculationService.RecalculateFromAsync(
+            notification.DomainEvent.WalletId, notification.DomainEvent.OperationDate, cancellationToken);
+}
+
+/// <summary>Restoring a soft-deleted operation brings its effect back (ADR-0002, §3) — same cascade as deletion, from the operation date (ADR-0003, §2).</summary>
+public sealed class OperationRestoredHandler(BalanceRecalculationService recalculationService)
+    : INotificationHandler<DomainEventNotification<OperationRestored>>
+{
+    public Task Handle(DomainEventNotification<OperationRestored> notification, CancellationToken cancellationToken) =>
         recalculationService.RecalculateFromAsync(
             notification.DomainEvent.WalletId, notification.DomainEvent.OperationDate, cancellationToken);
 }

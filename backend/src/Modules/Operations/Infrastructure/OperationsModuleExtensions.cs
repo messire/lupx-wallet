@@ -32,10 +32,12 @@ public static class OperationsModuleExtensions
         services.AddScoped<IOperationsUnitOfWork, OperationsUnitOfWork>();
         services.AddScoped<IWalletOperationsLookup, WalletOperationsLookup>();
 
-        // ADR-0002, §2: одна из двух реализаций Wallets.Application.IWalletHistorySource.
+        // ADR-0002, §2: единственная реализация Wallets.Application.IWalletHistorySource
+        // (удалённые операции считаются историей).
         services.AddScoped<IWalletHistorySource, OperationsWalletHistorySource>();
 
-        // ADR-0002, §4: одна из реализаций ReferenceData.Application.IReferenceItemUsageProbe.
+        // ADR-0002, §4: одна из двух реализаций ReferenceData.Application.IReferenceItemUsageProbe
+        // (удалённые операции считаются использованием).
         services.AddScoped<IReferenceItemUsageProbe, OperationsReferenceItemUsageProbe>();
 
         return services;

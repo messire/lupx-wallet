@@ -70,10 +70,9 @@ public static class OperationsEndpointsExtensions
             {
                 return Results.NotFound();
             }
-            catch (OperationPartOfTransferException ex)
+            catch (OperationsDomainException ex) when (IsLifecycleConflict(ex))
             {
-                // W2.6: унификация с DELETE /operations/{id} — тот же домен-конфликт (операция —
-                // часть перевода) должен давать тот же HTTP-код для обеих операций.
+                // Part of a transfer or soft-deleted (restore first) — same 409 as DELETE/restore.
                 return ConflictProblem(ex);
             }
             catch (OperationsDomainException ex)
@@ -93,11 +92,28 @@ public static class OperationsEndpointsExtensions
             {
                 return Results.NotFound();
             }
-            catch (OperationsDomainException ex) when (ex is OperationPartOfTransferException or OperationDeletionNotAllowedException)
+            catch (OperationsDomainException ex) when (IsLifecycleConflict(ex))
             {
                 return ConflictProblem(ex);
             }
         }).WithName("deleteOperation");
+
+        group.MapPost("/{operationId:guid}/restore", async (Guid operationId, ISender sender, CancellationToken ct) =>
+        {
+            try
+            {
+                var dto = await sender.Send(new RestoreOperationCommand(operationId), ct);
+                return Results.Ok(ToResponse(dto));
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound();
+            }
+            catch (OperationsDomainException ex) when (IsLifecycleConflict(ex))
+            {
+                return ConflictProblem(ex);
+            }
+        }).WithName("restoreOperation");
     }
 
     private static void MapTransfers(IEndpointRouteBuilder app)
@@ -146,12 +162,35 @@ public static class OperationsEndpointsExtensions
             {
                 return Results.NotFound();
             }
-            catch (TransferDeletionNotAllowedException ex)
+            catch (OperationsDomainException ex) when (IsLifecycleConflict(ex))
             {
                 return ConflictProblem(ex);
             }
         }).WithName("deleteTransfer");
+
+        group.MapPost("/{transferId:guid}/restore", async (Guid transferId, ISender sender, CancellationToken ct) =>
+        {
+            try
+            {
+                var dto = await sender.Send(new RestoreTransferCommand(transferId), ct);
+                return Results.Ok(ToResponse(dto));
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound();
+            }
+            catch (OperationsDomainException ex) when (IsLifecycleConflict(ex))
+            {
+                return ConflictProblem(ex);
+            }
+        }).WithName("restoreTransfer");
     }
+
+    /// <summary>Soft-delete lifecycle violations (ADR-0002, §3) — all answered with 409.</summary>
+    private static bool IsLifecycleConflict(OperationsDomainException ex) => ex is
+        OperationPartOfTransferException or OperationAlreadyDeletedException or OperationNotDeletedException
+        or OperationIsDeletedException or TransferAlreadyDeletedException or TransferNotDeletedException
+        or TransferLegMismatchException;
 
     private static AdjustmentMode? ParseAdjustmentMode(string? value) =>
         string.IsNullOrEmpty(value) ? null : Enum.Parse<AdjustmentMode>(value, ignoreCase: true);
@@ -170,14 +209,14 @@ public static class OperationsEndpointsExtensions
 
     private static OperationResponse ToResponse(OperationDto dto) => new(
         dto.Id, dto.WalletId, dto.OperationTypeId, new MoneyResponse(dto.Amount.ToString(CultureInfo.InvariantCulture), dto.CurrencyId),
-        dto.OperationDate, dto.AdjustmentMode, dto.TransferId, dto.CreatedAt, dto.UpdatedAt);
+        dto.OperationDate, dto.AdjustmentMode, dto.TransferId, dto.CreatedAt, dto.UpdatedAt, dto.IsDeleted, dto.DeletedAt);
 
     private static OperationPageResponse ToResponse(OperationPageDto page) => new(
         page.Data.Select(ToResponse).ToList(), new CursorPageMeta(page.NextCursor, page.HasMore));
 
     private static TransferResponse ToResponse(TransferDto dto) => new(
         dto.Id, dto.SourceWalletId, dto.TargetWalletId, dto.SourceOperationId, dto.TargetOperationId,
-        new MoneyResponse(dto.Amount.ToString(CultureInfo.InvariantCulture), dto.CurrencyId), dto.TransferDate, dto.CreatedAt);
+        new MoneyResponse(dto.Amount.ToString(CultureInfo.InvariantCulture), dto.CurrencyId), dto.TransferDate, dto.CreatedAt, dto.IsDeleted, dto.DeletedAt);
 
     private static TransferPageResponse ToResponse(TransferPageDto page) => new(
         page.Data.Select(ToResponse).ToList(), new CursorPageMeta(page.NextCursor, page.HasMore));

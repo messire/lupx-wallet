@@ -35,10 +35,10 @@ public sealed record OperationListFilter(WalletId? WalletId, OperationTypeId? Op
 
 public sealed record OperationPageResult(IReadOnlyList<Operation> Items, bool HasMore);
 
+/// <summary>No physical removal (ADR-0002, §3); GetByIdAsync/ListAsync return soft-deleted rows too.</summary>
 public interface IOperationRepository
 {
     void Add(Operation operation);
-    void Remove(Operation operation);
     Task<Operation?> GetByIdAsync(OperationId id, CancellationToken cancellationToken);
     Task<OperationPageResult> ListAsync(OperationListFilter filter, OperationCursor? afterCursor, int limit, CancellationToken cancellationToken);
 }

@@ -67,16 +67,19 @@ public static class AuditModuleExtensions
         services.AddScoped<INotificationHandler<DomainEventNotification<CurrencyDeactivated>>, CurrencyDeactivatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<CurrencyDeleted>>, CurrencyDeletedAuditHandler>();
 
-        // Operations (OperationCreated/Updated/Deleted, TransferCreated/Deleted).
+        // Operations (OperationCreated/Updated/Deleted/Restored, TransferCreated/Deleted/Restored).
         services.AddScoped<INotificationHandler<DomainEventNotification<OperationCreated>>, OperationCreatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<OperationUpdated>>, OperationUpdatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<OperationDeleted>>, OperationDeletedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<TransferCreated>>, TransferCreatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<TransferDeleted>>, TransferDeletedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<OperationRestored>>, OperationRestoredAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<TransferRestored>>, TransferRestoredAuditHandler>();
 
-        // BalanceHistory (BalanceSnapshotCreated/Updated).
+        // BalanceHistory (BalanceSnapshotCreated/Updated/Deleted).
         services.AddScoped<INotificationHandler<DomainEventNotification<BalanceSnapshotCreated>>, BalanceSnapshotCreatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<BalanceSnapshotUpdated>>, BalanceSnapshotUpdatedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<BalanceSnapshotDeleted>>, BalanceSnapshotDeletedAuditHandler>();
 
         // ExchangeRates (ExchangeRatesUpdated, ExchangeRateUpdateFailed).
         services.AddScoped<INotificationHandler<DomainEventNotification<ExchangeRatesUpdated>>, ExchangeRatesUpdatedAuditHandler>();

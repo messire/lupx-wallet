@@ -11,7 +11,8 @@ namespace LupexWallet.IntegrationTests.Operations;
 public sealed record OperationMoneyResponse(string Amount, Guid CurrencyId);
 public sealed record OperationResponse(
     Guid Id, Guid WalletId, Guid OperationTypeId, OperationMoneyResponse Amount, DateOnly OperationDate,
-    string? AdjustmentMode, Guid? TransferId, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+    string? AdjustmentMode, Guid? TransferId, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt,
+    bool IsDeleted, DateTimeOffset? DeletedAt);
 
 /// <summary>
 /// Operations API (docs/api/openapi.yaml, тег Operations) — UC-11/UC-12/UC-13/UC-14/UC-24.
@@ -213,7 +214,7 @@ public sealed class OperationsApiTests(ApiTestFixture fixture) : IntegrationTest
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
-    // ---- Прежнее правило до мягкого удаления (ADR-0002, §3, «Состояние реализации»): граница "история" — сегодня ----
+    // ---- Мягкое удаление с любой датой (ADR-0002, §3) ----
 
     [Fact]
     public async Task DeleteOperation_DatedToday_ReturnsNoContent()
@@ -229,7 +230,7 @@ public sealed class OperationsApiTests(ApiTestFixture fixture) : IntegrationTest
     }
 
     [Fact]
-    public async Task DeleteOperation_DatedBeforeToday_ReturnsConflict()
+    public async Task DeleteOperation_DatedBeforeToday_ReturnsNoContentAndMarksDeleted()
     {
         await AuthenticateAsync();
         var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 100m);
@@ -239,7 +240,12 @@ public sealed class OperationsApiTests(ApiTestFixture fixture) : IntegrationTest
 
         var response = await Client.DeleteAsync($"/api/v1/operations/{operation.Id}");
 
-        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "операция с датой строго раньше сегодня уже считается отраженной в истории баланса (прежнее правило, ADR-0002, «Состояние реализации»)");
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent, "удаление допустимо с любой датой (ADR-0002, §3)");
+        var getResponse = await Client.GetAsync($"/api/v1/operations/{operation.Id}");
+        getResponse.StatusCode.Should().Be(HttpStatusCode.OK, "мягко удалённая операция остаётся доступной");
+        var deleted = (await getResponse.Content.ReadFromJsonAsync<OperationResponse>())!;
+        deleted.IsDeleted.Should().BeTrue();
+        deleted.DeletedAt.Should().NotBeNull();
     }
 
     [Fact]

@@ -4,7 +4,12 @@ using MediatR;
 
 namespace LupexWallet.Wallets.Application;
 
-/// <summary>UC-06 (docs/api/openapi.yaml: PUT /wallets/{id}/currency) — currency change is allowed only if the wallet has no history (Q15; ADR-0002 §2, same IWalletHistorySource as DeleteWalletCommand).</summary>
+/// <summary>
+/// UC-06 (docs/api/openapi.yaml: PUT /wallets/{id}/currency) — currency change is allowed only if the wallet has no history
+/// (Q15; ADR-0002, §2: operations including soft-deleted ones, same IWalletHistorySource as DeleteWalletCommand).
+/// Snapshots are not history: BalanceHistory rebuilds them in the new currency in response to
+/// WalletCurrencyChanged (WalletCurrencyChangedHandler).
+/// </summary>
 public sealed record ChangeWalletCurrencyCommand(Guid Id, Guid CurrencyId) : IRequest<WalletDto>, ICommand<WalletDto>;
 
 public sealed class ChangeWalletCurrencyCommandHandler(

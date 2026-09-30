@@ -12,7 +12,9 @@ public sealed record OperationDto(
     string? AdjustmentMode,
     Guid? TransferId,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt)
+    DateTimeOffset UpdatedAt,
+    bool IsDeleted,
+    DateTimeOffset? DeletedAt)
 {
     public static OperationDto FromDomain(Operation operation) => new(
         operation.Id.Value,
@@ -24,5 +26,7 @@ public sealed record OperationDto(
         operation.AdjustmentMode?.ToString(),
         operation.TransferId?.Value,
         operation.CreatedAt,
-        operation.UpdatedAt);
+        operation.UpdatedAt,
+        operation.IsDeleted,
+        operation.DeletedAt);
 }

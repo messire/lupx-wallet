@@ -15,7 +15,9 @@ public sealed record OperationResponse(
     string? AdjustmentMode,
     Guid? TransferId,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    bool IsDeleted,
+    DateTimeOffset? DeletedAt);
 
 public sealed record OperationCreateRequest(
     Guid WalletId, Guid OperationTypeId, decimal Amount, DateOnly OperationDate, string? AdjustmentMode);
@@ -33,7 +35,9 @@ public sealed record TransferResponse(
     Guid TargetOperationId,
     MoneyResponse Amount,
     DateOnly TransferDate,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    bool IsDeleted,
+    DateTimeOffset? DeletedAt);
 
 public sealed record TransferCreateRequest(Guid SourceWalletId, Guid TargetWalletId, decimal Amount, DateOnly TransferDate);
 

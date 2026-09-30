@@ -115,6 +115,7 @@ CREATE TABLE operations.transfers (
     amount                numeric     NOT NULL CHECK (amount > 0),
     currency_id           uuid        NOT NULL,  -- reference_data.currencies.id, без FK
     transfer_date          date        NOT NULL,
+    deleted_at             timestamptz,  -- NULL = не удален; мягкое удаление (ADR-0002 §3), совпадает с deleted_at обеих «ног»
     created_at             timestamptz NOT NULL DEFAULT now(),
 
     CONSTRAINT ck_transfers_distinct_wallets CHECK (source_wallet_id <> target_wallet_id)
@@ -130,6 +131,7 @@ CREATE TABLE operations.operations (
     operation_date         date         NOT NULL,
     adjustment_mode        varchar(16)  CHECK (adjustment_mode IN ('Absolute', 'Delta') OR adjustment_mode IS NULL),
     transfer_id            uuid,        -- FK добавлена ниже как DEFERRABLE (взаимная ссылка с transfers)
+    deleted_at             timestamptz, -- NULL = не удалена; мягкое удаление (ADR-0002 §3): строка остается в БД и в списках
     created_at              timestamptz  NOT NULL DEFAULT now(),
     updated_at              timestamptz  NOT NULL DEFAULT now()
 );
@@ -156,7 +158,9 @@ CREATE INDEX ix_operations_operation_type ON operations.operations (operation_ty
 CREATE INDEX ix_operations_transfer ON operations.operations (transfer_id) WHERE transfer_id IS NOT NULL;
 ```
 
-**Про `applied_delta_amount`.** Добавлена при реализации среза Operations (не было в первой версии схемы) — хранит фактически применённую к `wallets.current_balance_amount` знаковую дельту, отдельно от пользовательского ввода (`amount` + `adjustment_mode`). Нужна, чтобы `UpdateOperation`/`DeleteOperation` могли корректно отменить именно тот эффект, который был применён ранее — особенно для `Adjustment`/`Absolute`, где применённая дельта зависела от баланса кошелька в момент применения и невыводима заново из одного `amount`. Подробности — `Operations.Domain.Operation` и `Operations.Application.OperationEffectCalculator`.
+**Про `applied_delta_amount`.** Добавлена при реализации среза Operations (не было в первой версии схемы) — хранит фактически применённую к `wallets.current_balance_amount` знаковую дельту, отдельно от пользовательского ввода (`amount` + `adjustment_mode`). Нужна, чтобы `UpdateOperation`/`DeleteOperation` могли корректно отменить именно тот эффект, который был применён ранее (а `RestoreOperation` — применить его заново) — особенно для `Adjustment`/`Absolute`, где применённая дельта зависела от баланса кошелька в момент применения и невыводима заново из одного `amount`. Подробности — `Operations.Domain.Operation` и `Operations.Application.OperationEffectCalculator`.
+
+**Про `deleted_at`.** Мягкое удаление операций и переводов ([ADR-0002](../architecture/adr/0002-record-lifecycle.md), §3): одна nullable-колонка одновременно служит признаком удаления (`IS NOT NULL`) и моментом удаления; `NULL` — запись не удалена. Физического удаления строк `operations`/`transfers` нет; «ноги» перевода получают то же значение `deleted_at`, что и сам перевод. Удаленные строки остаются видимыми в списках и учитываются при определении истории кошелька и использования элемента справочника, но исключаются из расчета баланса (слепки, баланс на дату, общая сумма) — фильтр `deleted_at IS NULL` применяется явно в запросах расчета, а не глобально. Значение `updated_at` при удалении и восстановлении не меняется. Новых индексов нет: выборки по-прежнему идут по `ix_operations_wallet_date`. Добавление nullable-колонки не затрагивает существующие строки (все — «не удалены»).
 
 **Про `operations.amount` без CHECK на знак.** Сознательно не ограничен на уровне БД (в отличие от `transfers.amount > 0`): направление влияния на баланс (прибавить/вычесть) для Income/Expense/Transfer определяется через `operation_type_id → behavior_kind_id`, лежащий в другой схеме (`reference_data`) — проверка знака требовала бы либо кросс-схемной ссылки (запрещено ADR-0001), либо триггера с кросс-схемным запросом (хрупко). Для `Adjustment` со значением `Delta` сумма может быть отрицательной по смыслу (уменьшение баланса), поэтому единый CHECK на положительность был бы и технически проблематичным, и семантически неверным. Валидация знака/направления суммы выполняется в Domain-слое модуля `Operations` в момент создания/редактирования операции.
 
@@ -220,7 +224,7 @@ CREATE TABLE audit.audit_entries (
     id                    uuid        PRIMARY KEY,
     entity_type           varchar(64) NOT NULL,   -- 'Wallet' | 'Operation' | 'Transfer' | 'BalanceSnapshot' | 'ExchangeRateQuote' | 'WalletType' | 'OperationType' | 'Currency'
     entity_id             uuid        NOT NULL,
-    action                 varchar(32) NOT NULL,   -- 'Created' | 'Updated' | 'Deleted' | 'Archived' | 'Deactivated' | 'SnapshotCreated' | 'SnapshotUpdated' | 'RatesUpdated' | 'RateUpdateFailed' | ...
+    action                 varchar(32) NOT NULL,   -- 'Created' | 'Updated' | 'Deleted' | 'Restored' | 'Archived' | 'Deactivated' | 'SnapshotCreated' | 'SnapshotUpdated' | 'SnapshotDeleted' | 'RatesUpdated' | 'RateUpdateFailed' | ...
     occurred_at             timestamptz NOT NULL DEFAULT now(),
     actor_kind               varchar(16) NOT NULL CHECK (actor_kind IN ('User', 'System')),
     actor_system_process     varchar(128),

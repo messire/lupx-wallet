@@ -7,8 +7,8 @@ using Xunit;
 namespace LupexWallet.UnitTests.Wallets;
 
 /// <summary>
-/// ADR-0001, §2, способ d — агрегация IEnumerable&lt;IWalletHistorySource&gt; на стороне
-/// потребителя (Wallets.Application). Пустой список реализаций — ошибка конфигурации DI,
+/// ADR-0001, §2, способ d, ADR-0002, §2 — агрегация IEnumerable&lt;IWalletHistorySource&gt; на стороне
+/// потребителя (Wallets.Application); единственный владелец данных — Operations. Пустой список реализаций — ошибка конфигурации DI,
 /// не «истории нет» (см. doc-комментарий WalletHistorySourceExtensions).
 /// </summary>
 public sealed class WalletHistorySourceExtensionsTests
@@ -26,27 +26,38 @@ public sealed class WalletHistorySourceExtensionsTests
     }
 
     [Fact]
-    public async Task AnyHasHistoryAsync_AllSourcesReportNoHistory_ReturnsFalse()
+    public async Task AnyHasHistoryAsync_SingleSourceReportsNoHistory_ReturnsFalse()
     {
-        var first = Substitute.For<IWalletHistorySource>();
-        first.HasHistoryAsync(AnyWalletId, Arg.Any<CancellationToken>()).Returns(false);
-        var second = Substitute.For<IWalletHistorySource>();
-        second.HasHistoryAsync(AnyWalletId, Arg.Any<CancellationToken>()).Returns(false);
+        var operations = Substitute.For<IWalletHistorySource>();
+        operations.HasHistoryAsync(AnyWalletId, Arg.Any<CancellationToken>()).Returns(false);
 
-        var result = await new[] { first, second }.AnyHasHistoryAsync(AnyWalletId, CancellationToken.None);
+        var result = await new[] { operations }.AnyHasHistoryAsync(AnyWalletId, CancellationToken.None);
 
         result.Should().BeFalse();
     }
 
     [Fact]
-    public async Task AnyHasHistoryAsync_OneOfSeveralSourcesReportsHistory_ReturnsTrue()
+    public async Task AnyHasHistoryAsync_SingleSourceReportsHistory_ReturnsTrue()
     {
         var operations = Substitute.For<IWalletHistorySource>();
-        operations.HasHistoryAsync(AnyWalletId, Arg.Any<CancellationToken>()).Returns(false);
-        var balanceHistory = Substitute.For<IWalletHistorySource>();
-        balanceHistory.HasHistoryAsync(AnyWalletId, Arg.Any<CancellationToken>()).Returns(true);
+        operations.HasHistoryAsync(AnyWalletId, Arg.Any<CancellationToken>()).Returns(true);
 
-        var result = await new[] { operations, balanceHistory }.AnyHasHistoryAsync(AnyWalletId, CancellationToken.None);
+        var result = await new[] { operations }.AnyHasHistoryAsync(AnyWalletId, CancellationToken.None);
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AnyHasHistoryAsync_OneOfSeveralSourcesReportsHistory_ReturnsTrue()
+    {
+        // Агрегация по-прежнему поддерживает несколько источников (контракт порта), хотя
+        // по ADR-0002 §2 в композиции Host зарегистрирован один.
+        var first = Substitute.For<IWalletHistorySource>();
+        first.HasHistoryAsync(AnyWalletId, Arg.Any<CancellationToken>()).Returns(false);
+        var second = Substitute.For<IWalletHistorySource>();
+        second.HasHistoryAsync(AnyWalletId, Arg.Any<CancellationToken>()).Returns(true);
+
+        var result = await new[] { first, second }.AnyHasHistoryAsync(AnyWalletId, CancellationToken.None);
 
         result.Should().BeTrue();
     }

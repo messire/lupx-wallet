@@ -117,6 +117,8 @@ describe('OperationFormComponent', () => {
       operationDate: '2026-09-01',
       adjustmentMode: null,
       transferId: null,
+      isDeleted: false,
+      deletedAt: null,
       createdAt: '2026-09-01T00:00:00Z',
       updatedAt: '2026-09-01T00:00:00Z',
     };
@@ -150,6 +152,8 @@ describe('OperationFormComponent', () => {
       operationDate: '2026-09-01',
       adjustmentMode: null,
       transferId: null,
+      isDeleted: false,
+      deletedAt: null,
       createdAt: '2026-09-01T00:00:00Z',
       updatedAt: '2026-09-01T00:00:00Z',
     };

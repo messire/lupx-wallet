@@ -70,9 +70,9 @@ public sealed class DeleteCurrencyCommandHandler(
         var currency = await repository.GetByIdAsync(new CurrencyId(request.Id), cancellationToken)
             ?? throw new KeyNotFoundException($"Currency {request.Id} не найдена.");
 
-        // ADR-0002, §4: реальная проверка использования через реализации Wallets/
-        // Operations (и ExchangeRates, если его пробник уже зарегистрирован к моменту
-        // сборки Host — см. W1.1/"Известное упрощение", ExchangeRatesReferenceItemUsageProbe).
+        // ADR-0002 §4: use = wallets (archived included) and operations (soft-deleted included)
+        // via the two port implementations; exchange rates are not usage — the ExchangeRates
+        // CurrencyDeletedHandler removes them in this command's transaction.
         var isUsed = await usageProbes.AnyIsUsedAsync(ReferenceItemKind.Currency, request.Id, cancellationToken);
         currency.EnsureCanBeDeleted(isUsed);
 

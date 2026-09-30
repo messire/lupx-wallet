@@ -29,6 +29,10 @@ import { ToastComponent } from '@shared/ui/toast/toast.component';
  * UC-24 (Absolute/Delta adjustment, Q3). Operations that are part of a transfer
  * (transferId !== null, UC-17) are shown as blocked from direct edit/delete —
  * they are managed from the "Transfers" screen (see features/transfers).
+ *
+ * ADR-0002 §3/§5: deletion is soft and allowed for any date. A deleted operation
+ * stays in the list (row class `is-deleted` + "Удалена" badge), cannot be edited
+ * and can be restored without confirmation (the action is reversible).
  */
 @Component({
   selector: 'app-operations',
@@ -80,7 +84,9 @@ export class OperationsComponent implements OnInit {
   readonly editingOperation = signal<Operation | null>(null);
 
   readonly deleteError = signal<string | null>(null);
-  /** UC-14: deletion is irreversible — require confirmation (mirrors Wallets' archive/delete confirm). */
+  readonly restoreError = signal<string | null>(null);
+  /** UC-14: deletion is soft (the record stays in the list and can be restored), but it still changes
+   *  balances — require confirmation (mirrors Wallets' archive/delete confirm). */
   readonly pendingDeleteOperation = signal<Operation | null>(null);
   /** screen-spec.md "Операции": действия строки находятся под «···». */
   readonly pendingRowActionsOperation = signal<Operation | null>(null);
@@ -230,8 +236,9 @@ export class OperationsComponent implements OnInit {
   }
 
   openEditForm(operation: Operation): void {
-    if (operation.transferId) {
-      // Part of a transfer — editable only via the "Transfers" screen (UC-17).
+    if (operation.transferId || operation.isDeleted) {
+      // Part of a transfer — editable only via the "Transfers" screen (UC-17);
+      // a deleted operation must be restored first (ADR-0002 §3).
       return;
     }
     this.editingOperation.set(operation);
@@ -255,7 +262,7 @@ export class OperationsComponent implements OnInit {
    * decide whether focus lands in the new dialog or gets stolen back to the
    * "···" button by the closing one's focus-restore.
    */
-  private nextRowAction: { type: 'edit' | 'delete'; operation: Operation } | null = null;
+  private nextRowAction: { type: 'edit' | 'delete' | 'restore'; operation: Operation } | null = null;
 
   openRowActions(operation: Operation): void {
     this.pendingRowActionsOperation.set(operation);
@@ -276,6 +283,11 @@ export class OperationsComponent implements OnInit {
     this.pendingRowActionsOperation.set(null);
   }
 
+  restoreFromRowActions(operation: Operation): void {
+    this.nextRowAction = { type: 'restore', operation };
+    this.pendingRowActionsOperation.set(null);
+  }
+
   onRowActionsDialogClosed(): void {
     const next = this.nextRowAction;
     this.nextRowAction = null;
@@ -283,6 +295,8 @@ export class OperationsComponent implements OnInit {
       this.openEditForm(next.operation);
     } else if (next?.type === 'delete') {
       this.requestDeleteConfirm(next.operation);
+    } else if (next?.type === 'restore') {
+      this.restoreOperation(next.operation);
     }
   }
 
@@ -315,10 +329,11 @@ export class OperationsComponent implements OnInit {
   }
 
   requestDeleteConfirm(operation: Operation): void {
-    if (operation.transferId) {
+    if (operation.transferId || operation.isDeleted) {
       return;
     }
     this.deleteError.set(null);
+    this.restoreError.set(null);
     this.pendingDeleteOperation.set(operation);
   }
 
@@ -341,13 +356,34 @@ export class OperationsComponent implements OnInit {
       },
       error: (error: unknown) => {
         this.deleteError.set(
-          extractErrorMessage(
-            error,
-            'Не удалось удалить операцию: возможно, она уже учтена в истории баланса — отредактируйте её вместо удаления.',
-          ),
+          extractErrorMessage(error, 'Не удалось удалить операцию.'),
         );
       },
     });
+  }
+
+  /** ADR-0002 §3: restore is reversible, so it runs without a confirmation dialog. */
+  restoreOperation(operation: Operation): void {
+    if (operation.transferId || !operation.isDeleted) {
+      return;
+    }
+    this.deleteError.set(null);
+    this.restoreError.set(null);
+
+    this.operationsService.restore(operation.id).subscribe({
+      next: () => {
+        this.loadOperations();
+        this.successMessage.set('Операция восстановлена');
+      },
+      error: (error: unknown) => {
+        this.restoreError.set(extractErrorMessage(error, 'Не удалось восстановить операцию.'));
+      },
+    });
+  }
+
+  /** Tooltip for the "Удалена" badge: the deletion date (date part of `deletedAt`). */
+  deletedBadgeTitle(operation: Operation): string {
+    return operation.deletedAt ? `Удалена ${operation.deletedAt.slice(0, 10)}` : 'Удалена';
   }
 
   walletName(walletId: string): string {

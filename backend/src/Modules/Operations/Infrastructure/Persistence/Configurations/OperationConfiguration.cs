@@ -60,6 +60,10 @@ public sealed class OperationConfiguration : IEntityTypeConfiguration<Operation>
         builder.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
 
+        // Soft delete (ADR-0002, §3): NULL = active. No HasQueryFilter — deleted rows stay visible
+        // to lists and to history/usage ports; balance reads exclude them explicitly.
+        builder.Property(x => x.DeletedAt).HasColumnName("deleted_at");
+
         builder.HasIndex(x => new { x.WalletId, x.OperationDate }).HasDatabaseName("ix_operations_wallet_date");
         builder.HasIndex(x => x.OperationTypeId).HasDatabaseName("ix_operations_operation_type");
         builder.HasIndex(x => x.TransferId).HasDatabaseName("ix_operations_transfer").HasFilter("transfer_id IS NOT NULL");

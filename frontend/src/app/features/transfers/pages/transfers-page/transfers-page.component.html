@@ -8,6 +8,10 @@
     <app-toast class="page-toast" [message]="message" tone="success" (dismissed)="successMessage.set(null)" />
   }
 
+  @if (restoreError(); as message) {
+    <app-toast class="page-toast" [message]="message" tone="error" (dismissed)="restoreError.set(null)" />
+  }
+
   <app-card class="filters-card">
     <form class="filters filters--compact" [formGroup]="filterForm" (ngSubmit)="applyFilters()">
       <app-field label="Кошелек" hint="Учитываются переводы, где кошелек — источник или получатель" class="filters__field">
@@ -92,8 +96,13 @@
           </thead>
           <tbody>
             @for (transfer of transfers(); track transfer.id) {
-              <tr>
-                <td>{{ transfer.transferDate }}</td>
+              <tr [class.is-deleted]="transfer.isDeleted">
+                <td>
+                  {{ transfer.transferDate }}
+                  @if (transfer.isDeleted) {
+                    <app-badge tone="neutral">Удалён</app-badge>
+                  }
+                </td>
                 <td class="wallet-col">{{ walletName(transfer.sourceWalletId) }}</td>
                 <td class="wallet-col">{{ walletName(transfer.targetWalletId) }}</td>
                 <td class="amount-col">
@@ -150,7 +159,13 @@
   >
     @if (pendingRowActionsTransfer(); as pending) {
       <div class="row-actions-list">
-        <app-button variant="danger" type="button" [fullWidth]="true" (click)="deleteFromRowActions(pending)">Удалить перевод</app-button>
+        @if (pending.isDeleted) {
+          <app-button variant="secondary" type="button" [fullWidth]="true" (click)="restoreFromRowActions(pending)">
+            Восстановить перевод
+          </app-button>
+        } @else {
+          <app-button variant="danger" type="button" [fullWidth]="true" (click)="deleteFromRowActions(pending)">Удалить перевод</app-button>
+        }
         <a
           class="row-actions-list__link"
           [routerLink]="['/audit']"
@@ -159,10 +174,10 @@
         >
           История изменений
         </a>
-        @if (isPastDated(pending)) {
-          <p class="metadata">Перевод прошедшей датой удалить нельзя — отредактируйте связанные операции.</p>
+        @if (pending.isDeleted) {
+          <p class="metadata">Восстановление вернёт перевод и обе связанные операции в расчёты балансов.</p>
         } @else {
-          <p class="metadata">Удаление пересчитает балансы обоих кошельков.</p>
+          <p class="metadata">Удаление исключит перевод из расчётов балансов обоих кошельков; его можно будет восстановить.</p>
         }
       </div>
     }
@@ -178,9 +193,11 @@
     @if (pendingDeleteTransfer(); as pending) {
       <p>
         Перевод от {{ pending.transferDate }} из «{{ walletName(pending.sourceWalletId) }}» в «{{ walletName(pending.targetWalletId) }}»
-        на сумму {{ formatMoney(pending.amount, walletCurrencyCode(pending.sourceWalletId)) }} будет удалён без возможности восстановления.
+        на сумму {{ formatMoney(pending.amount, walletCurrencyCode(pending.sourceWalletId)) }} будет удалён.
       </p>
-      <p class="metadata">Обе связанные операции будут удалены, балансы двух кошельков пересчитаны. Отменить нельзя.</p>
+      <p class="metadata">
+        Запись останется в списке, исключится из расчётов балансов обоих кошельков, её можно восстановить.
+      </p>
     }
     @if (deleteError()) {
       <p class="form-error" role="alert">{{ deleteError() }}</p>

@@ -69,6 +69,12 @@ public sealed class BalanceSnapshot : IHasDomainEvents
         Raise(new BalanceSnapshotUpdated(WalletId, SnapshotDate, oldBalance, newBalance));
     }
 
+    /// <summary>
+    /// Raises <see cref="BalanceSnapshotDeleted"/> with the balance before removal (ADR-0002, §2).
+    /// The caller removes the snapshot from the repository (wallet deletion, currency change).
+    /// </summary>
+    public void MarkAsDeleted() => Raise(new BalanceSnapshotDeleted(WalletId, SnapshotDate, Balance));
+
     private void Raise(IDomainEvent domainEvent) => _domainEvents.Add(domainEvent);
 
     public void ClearDomainEvents() => _domainEvents.Clear();

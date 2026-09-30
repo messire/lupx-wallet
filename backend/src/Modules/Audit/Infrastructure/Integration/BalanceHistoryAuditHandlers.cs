@@ -53,3 +53,23 @@ public sealed class BalanceSnapshotUpdatedAuditHandler(AuditRecorder recorder)
         return recorder.RecordAsync("BalanceSnapshot", domainEvent.WalletId.Value, "SnapshotUpdated", changes, cancellationToken);
     }
 }
+
+/// <summary>
+/// One record per deleted snapshot (ADR-0002 §2, R13): raised when a wallet is deleted or its
+/// currency changes and the history is rebuilt.
+/// </summary>
+public sealed class BalanceSnapshotDeletedAuditHandler(AuditRecorder recorder)
+    : INotificationHandler<DomainEventNotification<BalanceSnapshotDeleted>>
+{
+    public Task Handle(DomainEventNotification<BalanceSnapshotDeleted> notification, CancellationToken cancellationToken)
+    {
+        var domainEvent = notification.DomainEvent;
+        IReadOnlyList<AuditFieldChange> changes =
+        [
+            new AuditFieldChange("SnapshotDate", domainEvent.SnapshotDate.ToString("O", CultureInfo.InvariantCulture), null),
+            new AuditFieldChange("Balance", domainEvent.Balance.Amount.ToString(CultureInfo.InvariantCulture), null),
+        ];
+
+        return recorder.RecordAsync("BalanceSnapshot", domainEvent.WalletId.Value, "SnapshotDeleted", changes, cancellationToken);
+    }
+}

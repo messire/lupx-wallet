@@ -47,6 +47,8 @@ const transfer1: Transfer = {
   amount: { amount: '100.00', currencyId: 'c-usd' },
   transferDate: '2026-09-10',
   createdAt: '2026-09-10T00:00:00Z',
+  isDeleted: false,
+  deletedAt: null,
 };
 
 /**
@@ -305,9 +307,9 @@ describe('TransfersComponent', () => {
     expect(text).toContain('2026-09-10');
   });
 
-  // ---- A14: delete failure (409, past-dated transfer) shown inside the delete dialog, not lost ----
+  // ---- A14: delete failure (409, already deleted) shown inside the delete dialog, not lost ----
 
-  it('shows the delete error inside the delete dialog and keeps it open on a 409 (past-dated transfer)', () => {
+  it('shows the delete error inside the delete dialog and keeps it open on a 409 (already deleted)', () => {
     const fixture = createComponent();
     const component = fixture.componentInstance;
 
@@ -317,16 +319,16 @@ describe('TransfersComponent', () => {
     const req = httpMock.expectOne(`${environment.apiBaseUrl}/transfers/${transfer1.id}`);
     expect(req.request.method).toBe('DELETE');
     req.flush(
-      { title: 'Conflict', status: 409, detail: 'Дата перевода уже в прошлом — отредактируйте связанные операции.' },
+      { title: 'Conflict', status: 409, detail: 'Перевод уже удалён.' },
       { status: 409, statusText: 'Conflict' },
     );
     fixture.detectChanges();
 
     expect(component.pendingDeleteTransfer()).toEqual(transfer1);
-    expect(component.deleteError()).toBe('Дата перевода уже в прошлом — отредактируйте связанные операции.');
+    expect(component.deleteError()).toBe('Перевод уже удалён.');
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.textContent).toContain('Дата перевода уже в прошлом');
+    expect(compiled.textContent).toContain('Перевод уже удалён');
   });
 
   // ---- MAJOR-2: Escape/dismiss on the delete-confirm dialog while a DELETE is in flight ----
@@ -351,16 +353,16 @@ describe('TransfersComponent', () => {
 
     const req = httpMock.expectOne(`${environment.apiBaseUrl}/transfers/${transfer1.id}`);
     req.flush(
-      { title: 'Conflict', status: 409, detail: 'Дата перевода уже в прошлом.' },
+      { title: 'Conflict', status: 409, detail: 'Перевод уже удалён.' },
       { status: 409, statusText: 'Conflict' },
     );
     fixture.detectChanges();
 
     // The request's outcome (the 409) is still visible — nothing was silently closed.
     expect(component.pendingDeleteTransfer()).toEqual(transfer1);
-    expect(component.deleteError()).toBe('Дата перевода уже в прошлом.');
+    expect(component.deleteError()).toBe('Перевод уже удалён.');
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.textContent).toContain('Дата перевода уже в прошлом.');
+    expect(compiled.textContent).toContain('Перевод уже удалён.');
   });
 
   it('does not prevent the close, and clears the pending transfer, when dismissRequested fires while not deleting', () => {
@@ -392,25 +394,55 @@ describe('TransfersComponent', () => {
     expect(label).not.toBe('Действия с переводом');
   });
 
-  // ---- UX minor: the "cannot delete" warning only applies to a past-dated transfer ----
+  // ---- ADR-0002: any transfer can be deleted (no past-date rule); a deleted one can be restored ----
 
-  it('shows the "cannot delete" warning for a past-dated transfer, and a neutral message for a same-day one', () => {
-    const todayIso = new Date().toISOString().slice(0, 10);
-    const todayTransfer: Transfer = { ...transfer1, id: 't-today', transferDate: todayIso };
-    const fixture = createComponent([transfer1, todayTransfer]);
+  it('offers deletion (with no past-date warning) for an active transfer and restore for a deleted one', () => {
+    const deletedTransfer: Transfer = { ...transfer1, id: 't-deleted', isDeleted: true, deletedAt: '2026-09-11T00:00:00Z' };
+    const fixture = createComponent([transfer1, deletedTransfer]);
     const component = fixture.componentInstance;
 
-    component.openRowActions(transfer1); // 2026-09-10 — in the past
+    component.openRowActions(transfer1); // 2026-09-10 — in the past, still deletable
     fixture.detectChanges();
-    let compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.textContent).toContain('Перевод прошедшей датой удалить нельзя');
+    const actionsText = () => (fixture.nativeElement as HTMLElement).querySelector('.row-actions-list')?.textContent ?? '';
+    let text = actionsText();
+    expect(text).toContain('Удалить перевод');
+    expect(text).not.toContain('удалить нельзя');
+    expect(text).not.toContain('Восстановить перевод');
 
     component.closeRowActions();
-    component.openRowActions(todayTransfer);
+    component.openRowActions(deletedTransfer);
     fixture.detectChanges();
-    compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.textContent).not.toContain('Перевод прошедшей датой удалить нельзя');
-    expect(compiled.textContent).toContain('Удаление пересчитает балансы');
+    text = actionsText();
+    expect(text).toContain('Восстановить перевод');
+    expect(text).not.toContain('Удалить перевод');
+  });
+
+  it('marks a deleted transfer row with is-deleted and the "Удалён" badge', () => {
+    const deletedTransfer: Transfer = { ...transfer1, id: 't-deleted', isDeleted: true, deletedAt: '2026-09-11T00:00:00Z' };
+    const fixture = createComponent([transfer1, deletedTransfer]);
+    const rows = (fixture.nativeElement as HTMLElement).querySelectorAll('tbody tr');
+
+    expect(rows[0].classList.contains('is-deleted')).toBe(false);
+    expect(rows[1].classList.contains('is-deleted')).toBe(true);
+    expect(rows[1].textContent).toContain('Удалён');
+  });
+
+  it('restores a deleted transfer without confirmation, reloads the list and shows a toast', () => {
+    const deletedTransfer: Transfer = { ...transfer1, isDeleted: true, deletedAt: '2026-09-11T00:00:00Z' };
+    const fixture = createComponent([deletedTransfer]);
+    const component = fixture.componentInstance;
+
+    component.restoreFromRowActions(deletedTransfer);
+
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/transfers/${transfer1.id}/restore`);
+    expect(req.request.method).toBe('POST');
+    req.flush(transfer1);
+
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/transfers`).flush({
+      data: [transfer1],
+      pagination: { nextCursor: null, hasMore: false },
+    });
+    expect(component.successMessage()).toBe('Перевод восстановлен');
   });
 
   // ---- A2: the wallet filter sends exactly one walletId parameter ----

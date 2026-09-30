@@ -17,6 +17,11 @@ export interface Operation {
   /** Non-null means the operation is part of a transfer (see UC-17): it cannot be
    *  edited/deleted directly via /operations, only via /transfers/{transferId}. */
   transferId: string | null;
+  /** ADR-0002 §3: a soft-deleted operation stays in the list (excluded from balance
+   *  calculations), cannot be edited (409) and can be restored. */
+  isDeleted: boolean;
+  /** Moment of soft deletion (ISO date-time); null while the operation is active. */
+  deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

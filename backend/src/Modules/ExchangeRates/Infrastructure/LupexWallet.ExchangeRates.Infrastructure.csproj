@@ -6,6 +6,7 @@
     <ProjectReference Include="..\..\Wallets\Application\LupexWallet.Wallets.Application.csproj" />
     <ProjectReference Include="..\..\Wallets\Domain\LupexWallet.Wallets.Domain.csproj" />
     <ProjectReference Include="..\..\ReferenceData\Application\LupexWallet.ReferenceData.Application.csproj" />
+    <ProjectReference Include="..\..\ReferenceData\Domain\LupexWallet.ReferenceData.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -54,10 +54,9 @@ public sealed class DeleteOperationCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_OperationDatedBeforeToday_ThrowsOperationDeletionNotAllowedExceptionAndDoesNotTouchBalance()
+    public async Task Handle_OperationDatedBeforeToday_SoftDeletesAndReversesDelta()
     {
-        // Прежнее правило до мягкого удаления (ADR-0002, §3, «Состояние реализации»): дата строго раньше сегодня
-        // уже считается отраженной в истории баланса и не подлежит удалению.
+        // ADR-0002, §3: прежнее правило «граница — сегодня» отменено, удаление допустимо с любой датой.
         var yesterday = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1);
         var operation = Operation.Create(
             OperationId.New(), WalletId.New(), OperationTypeId.New(), OperationEffectKind.Income,
@@ -65,14 +64,15 @@ public sealed class DeleteOperationCommandHandlerTests
         _operationRepository.GetByIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(operation);
         var command = new DeleteOperationCommand(operation.Id.Value);
 
-        var act = () => CreateHandler().Handle(command, CancellationToken.None);
+        await CreateHandler().Handle(command, CancellationToken.None);
 
-        await act.Should().ThrowAsync<OperationDeletionNotAllowedException>();
-        await _walletBalanceGateway.DidNotReceive().ApplyDeltaAsync(Arg.Any<WalletId>(), Arg.Any<Money>(), Arg.Any<CancellationToken>());
+        operation.IsDeleted.Should().BeTrue();
+        await _walletBalanceGateway.Received(1).ApplyDeltaAsync(
+            operation.WalletId, Arg.Is<Money>(m => m.Amount == -70m), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Handle_StandaloneOperation_ReversesAppliedDeltaAndRemovesOperation()
+    public async Task Handle_StandaloneOperation_ReversesAppliedDeltaAndSoftDeletesOperation()
     {
         var operation = Income(70m);
         _operationRepository.GetByIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(operation);
@@ -82,7 +82,7 @@ public sealed class DeleteOperationCommandHandlerTests
 
         await _walletBalanceGateway.Received(1).ApplyDeltaAsync(
             operation.WalletId, Arg.Is<Money>(m => m.Amount == -70m), Arg.Any<CancellationToken>());
-        _operationRepository.Received(1).Remove(operation);
+        operation.IsDeleted.Should().BeTrue();
         await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
     }
 }

@@ -41,11 +41,9 @@ public sealed class BalanceRecalculationService(
         var wallet = await walletGateway.GetAsync(walletId, cancellationToken);
         if (wallet is null)
         {
-            // Кошелек не может быть физически удален, если у него есть операции/слепки
-            // (ddd-model.md §5), поэтому это не должно происходить в норме — защитная
-            // проверка на случай гонки с другим процессом, не бросаем исключение, т.к.
-            // вызывающий код (обработчик события/фоновая задача) не должен падать из-за
-            // не относящейся к нему проблемы.
+            // The wallet is already gone (deleted in the same command or by a concurrent one;
+            // its snapshots are removed by WalletDeletedHandler, ADR-0002, §2) — nothing to
+            // recalculate. Not an error: the caller (event handler/background job) must not fail.
             return;
         }
 

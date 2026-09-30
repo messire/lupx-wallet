@@ -42,6 +42,10 @@ namespace LupexWallet.Operations.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("currency_id");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
                     b.Property<DateOnly>("OperationDate")
                         .HasColumnType("date")
                         .HasColumnName("operation_date");
@@ -102,6 +106,10 @@ namespace LupexWallet.Operations.Infrastructure.Migrations
                     b.Property<Guid>("CurrencyId")
                         .HasColumnType("uuid")
                         .HasColumnName("currency_id");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
 
                     b.Property<Guid>("SourceOperationId")
                         .HasColumnType("uuid")

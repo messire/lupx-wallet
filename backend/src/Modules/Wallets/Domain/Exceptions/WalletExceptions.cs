@@ -17,7 +17,7 @@ public sealed class CannotDeletePrimaryWalletException(Guid walletId)
     : WalletDomainException($"Нельзя удалить основной кошелек ({walletId}) — сначала назначьте другой основным.");
 
 public sealed class WalletCurrencyChangeNotAllowedException(Guid walletId)
-    : WalletDomainException($"Нельзя изменить валюту кошелька ({walletId}) — по нему уже есть история (операции/слепки).");
+    : WalletDomainException($"Нельзя изменить валюту кошелька ({walletId}) — по нему уже есть история (операции, включая удалённые).");
 
 public sealed class WalletDeletionNotAllowedException(Guid walletId)
     : WalletDomainException($"Нельзя удалить кошелек ({walletId}) — по нему уже есть история. Используйте архивирование.");

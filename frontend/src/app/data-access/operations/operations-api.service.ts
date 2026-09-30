@@ -43,7 +43,13 @@ export class OperationsApiService {
     return this.http.patch<Operation>(`${environment.apiBaseUrl}/operations/${operationId}`, request);
   }
 
+  /** Soft delete (ADR-0002 §3): any date; the record stays in the list as `isDeleted`. */
   delete(operationId: string): Observable<void> {
     return this.http.delete<void>(`${environment.apiBaseUrl}/operations/${operationId}`);
+  }
+
+  /** Restores a soft-deleted operation (409 if it is not deleted or is part of a transfer). */
+  restore(operationId: string): Observable<Operation> {
+    return this.http.post<Operation>(`${environment.apiBaseUrl}/operations/${operationId}/restore`, {});
   }
 }

@@ -1,6 +1,6 @@
 using LupexWallet.BuildingBlocks.Infrastructure;
 using LupexWallet.ExchangeRates.Application;
-using LupexWallet.ReferenceData.Application;
+using LupexWallet.ReferenceData.Domain;
 using LupexWallet.Wallets.Domain;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -60,11 +60,10 @@ public static class ExchangeRatesModuleExtensions
         // *.Application-сборок в Program.cs) — регистрируется вручную, как и подписчик ниже.
         services.AddScoped<IRequestHandler<RefreshExchangeRatesCommand, RefreshExchangeRatesResult>, RefreshExchangeRatesCommandHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<PrimaryWalletChanged>>, PrimaryWalletChangedHandler>();
+        // ADR-0002 §4: rates are not "usage" of a currency — they are deleted together with it.
+        services.AddScoped<INotificationHandler<DomainEventNotification<CurrencyDeleted>>, CurrencyDeletedHandler>();
 
         services.AddHostedService<ExchangeRateRefreshBackgroundService>();
-
-        // ADR-0002, §4: одна из реализаций ReferenceData.Application.IReferenceItemUsageProbe.
-        services.AddScoped<IReferenceItemUsageProbe, ExchangeRatesReferenceItemUsageProbe>();
 
         return services;
     }

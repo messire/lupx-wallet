@@ -19,4 +19,9 @@ public sealed class HistoricalExchangeRateRepository(ExchangeRatesDbContext dbCo
             .Where(r => r.FromCurrencyId == from && r.ToCurrencyId == to && r.RateDate <= onOrBefore)
             .OrderByDescending(r => r.RateDate)
             .FirstOrDefaultAsync(cancellationToken);
+
+    public Task RemoveAllForCurrencyAsync(CurrencyId currencyId, CancellationToken cancellationToken) =>
+        dbContext.HistoricalExchangeRates
+            .Where(r => r.FromCurrencyId == currencyId || r.ToCurrencyId == currencyId)
+            .ExecuteDeleteAsync(cancellationToken);
 }

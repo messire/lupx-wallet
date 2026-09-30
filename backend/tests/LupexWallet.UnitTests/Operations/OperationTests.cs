@@ -134,34 +134,37 @@ public sealed class OperationTests
     }
 
     [Fact]
-    public void EnsureCanBeDeleted_OperationPartOfTransfer_ThrowsOperationPartOfTransferException()
+    public void SoftDelete_OperationPartOfTransfer_ThrowsOperationPartOfTransferException()
     {
         var (_, sourceOperation, _) = Transfer.Create(
             TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(10m), DateOnly.FromDateTime(DateTime.UtcNow));
 
-        var act = () => sourceOperation.EnsureCanBeDeleted(hasHistory: false);
+        var act = () => sourceOperation.SoftDelete();
 
         act.Should().Throw<OperationPartOfTransferException>();
     }
 
     [Fact]
-    public void EnsureCanBeDeleted_StandaloneOperationWithoutHistory_DoesNotThrow()
+    public void SoftDelete_StandaloneOperation_SetsDeletedAtWithoutTouchingUpdatedAt()
     {
         var operation = CreateIncome();
+        var updatedAt = operation.UpdatedAt;
 
-        var act = () => operation.EnsureCanBeDeleted(hasHistory: false);
+        operation.SoftDelete();
 
-        act.Should().NotThrow();
+        operation.IsDeleted.Should().BeTrue();
+        operation.UpdatedAt.Should().Be(updatedAt);
     }
 
     [Fact]
-    public void EnsureCanBeDeleted_StandaloneOperationWithHistory_ThrowsOperationDeletionNotAllowedException()
+    public void SoftDelete_AlreadyDeleted_ThrowsOperationAlreadyDeletedException()
     {
         var operation = CreateIncome();
+        operation.SoftDelete();
 
-        var act = () => operation.EnsureCanBeDeleted(hasHistory: true);
+        var act = () => operation.SoftDelete();
 
-        act.Should().Throw<OperationDeletionNotAllowedException>();
+        act.Should().Throw<OperationAlreadyDeletedException>();
     }
 
     // ---- MoveToWallet (UC-13, решение пользователя от 2026-09-11: перенос операции на другой кошелек) ----
@@ -238,11 +241,11 @@ public sealed class OperationTests
     }
 
     [Fact]
-    public void MarkAsDeleted_RaisesOperationDeletedEvent()
+    public void SoftDelete_RaisesOperationDeletedEvent()
     {
         var operation = CreateIncome(100m, new DateOnly(2026, 3, 1));
 
-        operation.MarkAsDeleted();
+        operation.SoftDelete();
 
         var deletedEvent = operation.DomainEvents.OfType<OperationDeleted>().Single();
         deletedEvent.WalletId.Should().Be(operation.WalletId);

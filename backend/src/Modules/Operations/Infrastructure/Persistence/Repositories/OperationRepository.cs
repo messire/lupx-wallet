@@ -9,8 +9,6 @@ public sealed class OperationRepository(OperationsDbContext dbContext) : IOperat
 {
     public void Add(Operation operation) => dbContext.Operations.Add(operation);
 
-    public void Remove(Operation operation) => dbContext.Operations.Remove(operation);
-
     public Task<Operation?> GetByIdAsync(OperationId id, CancellationToken cancellationToken) =>
         dbContext.Operations.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 

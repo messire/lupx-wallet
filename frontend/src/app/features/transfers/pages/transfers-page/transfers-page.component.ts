@@ -11,6 +11,7 @@ import { WalletsApiService } from '../../../../data-access/wallets/wallets-api.s
 import { CreateTransferRequest, Transfer } from '../../../../data-access/transfers/transfers-api.models';
 import { TransfersApiService } from '../../../../data-access/transfers/transfers-api.service';
 import { TransferFormComponent, TransferWalletOption } from '../../components/transfer-form/transfer-form.component';
+import { BadgeComponent } from '@shared/ui/badge/badge.component';
 import { ButtonComponent } from '@shared/ui/button/button.component';
 import { CardComponent } from '@shared/ui/card/card.component';
 import { DialogComponent } from '@shared/ui/dialog/dialog.component';
@@ -26,7 +27,8 @@ import { ToastComponent } from '@shared/ui/toast/toast.component';
  * UC-16 (transfer between wallets of the same currency), UC-17 (transfers
  * between different currencies are forbidden — enforced by the form's filter
  * and the server's validation). Editing a transfer is not part of the contract —
- * only create and delete (both operation halves are deleted atomically).
+ * only create, soft delete and restore (ADR-0002: both operation halves are marked
+ * deleted/restored atomically, any transfer date; deleted transfers stay in the list).
  */
 @Component({
   selector: 'app-transfers',
@@ -35,6 +37,7 @@ import { ToastComponent } from '@shared/ui/toast/toast.component';
     ReactiveFormsModule,
     RouterLink,
     TransferFormComponent,
+    BadgeComponent,
     ButtonComponent,
     CardComponent,
     DialogComponent,
@@ -83,6 +86,9 @@ export class TransfersComponent implements OnInit {
   /** screen-spec.md "Переводы": действия строки находятся под «···» (тот же паттерн, что в Operations). */
   readonly pendingRowActionsTransfer = signal<Transfer | null>(null);
   private nextRowAction: { type: 'delete'; transfer: Transfer } | null = null;
+  /** Error of the last restore attempt (shown above the list; restore has no confirm dialog). */
+  readonly restoreError = signal<string | null>(null);
+  readonly isRestoring = signal(false);
 
   readonly filterForm = this.formBuilder.nonNullable.group({
     walletId: [''],
@@ -251,6 +257,29 @@ export class TransfersComponent implements OnInit {
     this.pendingRowActionsTransfer.set(null);
   }
 
+  /** ADR-0002 §3: restoring is reversible, so it runs immediately — no confirmation. */
+  restoreFromRowActions(transfer: Transfer): void {
+    this.closeRowActions();
+    if (this.isRestoring()) {
+      return;
+    }
+    this.isRestoring.set(true);
+    this.restoreError.set(null);
+
+    this.transfersService.restore(transfer.id).subscribe({
+      next: () => {
+        this.isRestoring.set(false);
+        this.loadTransfers();
+        this.successMessage.set('Перевод восстановлен');
+      },
+      error: (error: unknown) => {
+        this.isRestoring.set(false);
+        // 404 (not found) / 409 (the transfer is not deleted) — contract openapi.yaml.
+        this.restoreError.set(extractErrorMessage(error, 'Не удалось восстановить перевод.'));
+      },
+    });
+  }
+
   /**
    * Wired to the row-actions dialog's `(closed)` — opens the delete-confirm dialog
    * only after the row-actions dialog has actually finished closing (mirrors
@@ -311,10 +340,8 @@ export class TransfersComponent implements OnInit {
       },
       error: (error: unknown) => {
         this.isDeleting.set(false);
-        // 409 (ADR-0002, "Состояние реализации" — today-boundary rule still in the backend): a past-dated transfer is already reflected in balance history.
-        this.deleteError.set(
-          extractErrorMessage(error, 'Не удалось удалить перевод: дата перевода уже в прошлом — отредактируйте связанные операции вместо удаления.'),
-        );
+        // 404 / 409 (the transfer is already deleted) — contract openapi.yaml; the date does not matter (ADR-0002 §2).
+        this.deleteError.set(extractErrorMessage(error, 'Не удалось удалить перевод.'));
       },
     });
   }
@@ -327,19 +354,5 @@ export class TransfersComponent implements OnInit {
   walletCurrencyCode(walletId: string): string | undefined {
     const currencyId = this.wallets().find((wallet) => wallet.id === walletId)?.currencyId;
     return this.currencies().find((currency) => currency.id === currencyId)?.code;
-  }
-
-  /**
-   * UX minor: the "прошедшей датой удалить нельзя" warning in the row-actions
-   * dialog only applies to a transfer dated strictly before today (ADR-0002, current backend rule) — a
-   * same-day transfer can still be deleted and should not show a misleading
-   * "cannot delete" message.
-   */
-  isPastDated(transfer: Transfer): boolean {
-    return transfer.transferDate < this.today();
-  }
-
-  private today(): string {
-    return new Date().toISOString().slice(0, 10);
   }
 }

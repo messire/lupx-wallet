@@ -29,10 +29,10 @@ public sealed record TransferCursor(DateOnly TransferDate, DateTimeOffset Create
 
 public sealed record TransferPageResult(IReadOnlyList<Transfer> Items, bool HasMore);
 
+/// <summary>No physical removal (ADR-0002, §3); GetByIdAsync/ListAsync return soft-deleted rows too.</summary>
 public interface ITransferRepository
 {
     void Add(Transfer transfer);
-    void Remove(Transfer transfer);
     Task<Transfer?> GetByIdAsync(TransferId id, CancellationToken cancellationToken);
 
     Task<TransferPageResult> ListAsync(

@@ -17,4 +17,9 @@ public sealed class LatestExchangeRateRepository(ExchangeRatesDbContext dbContex
 
     public async Task<IReadOnlyList<ExchangeRateQuote>> GetAllAsync(CancellationToken cancellationToken) =>
         await dbContext.LatestExchangeRates.AsNoTracking().ToListAsync(cancellationToken);
+
+    public Task RemoveAllForCurrencyAsync(CurrencyId currencyId, CancellationToken cancellationToken) =>
+        dbContext.LatestExchangeRates
+            .Where(q => q.FromCurrencyId == currencyId || q.ToCurrencyId == currencyId)
+            .ExecuteDeleteAsync(cancellationToken);
 }

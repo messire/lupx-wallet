@@ -29,6 +29,10 @@ public sealed class UpdateOperationCommandHandler(
         var operation = await repository.GetByIdAsync(new OperationId(request.Id), cancellationToken)
             ?? throw new KeyNotFoundException($"Operation {request.Id} не найдена.");
 
+        // ADR-0002, §3: a soft-deleted operation is not editable (incl. moving to another wallet);
+        // fail before any IWalletBalanceGateway call so no balance is touched.
+        operation.EnsureNotDeleted();
+
         var operationTypeId = new OperationTypeId(request.OperationTypeId);
         var operationType = await operationTypeLookup.GetAsync(operationTypeId, cancellationToken)
             ?? throw new OperationTypeReferenceNotFoundException(request.OperationTypeId);

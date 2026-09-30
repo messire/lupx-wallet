@@ -26,17 +26,27 @@ public sealed class TransferSameWalletException()
 public sealed class TransferCurrencyMismatchException()
     : OperationsDomainException("Перевод разрешен только между кошельками одной валюты (раздел 4 требований).");
 
-public sealed class TransferDeletionNotAllowedException(Guid transferId)
-    : OperationsDomainException($"Перевод ({transferId}) уже учтен в истории баланса и не может быть удален.");
+// Soft-delete lifecycle conflicts (ADR-0002, §3) — all map to HTTP 409.
 
-/// <summary>
-/// UC-14 — the pre-soft-delete rule still in code (ADR-0002, §3 and "Состояние реализации"): an operation can only be deleted if its date is today; an
-/// operation dated strictly before today is considered already reflected in the balance
-/// history (after the 12:00 UTC scheduled recalculation) and cannot be deleted — only edited
-/// (UC-13).
-/// </summary>
-public sealed class OperationDeletionNotAllowedException(Guid operationId)
-    : OperationsDomainException($"Операция ({operationId}) уже учтена в истории баланса (дата раньше сегодняшней) и не может быть удалена.");
+public sealed class OperationAlreadyDeletedException(Guid operationId)
+    : OperationsDomainException($"Операция ({operationId}) уже удалена.");
+
+public sealed class OperationNotDeletedException(Guid operationId)
+    : OperationsDomainException($"Операция ({operationId}) не удалена — восстанавливать нечего.");
+
+/// <summary>A soft-deleted operation cannot be edited or moved until restored.</summary>
+public sealed class OperationIsDeletedException(Guid operationId)
+    : OperationsDomainException($"Операция ({operationId}) удалена — сначала восстановите её.");
+
+public sealed class TransferAlreadyDeletedException(Guid transferId)
+    : OperationsDomainException($"Перевод ({transferId}) уже удалён.");
+
+public sealed class TransferNotDeletedException(Guid transferId)
+    : OperationsDomainException($"Перевод ({transferId}) не удалён — восстанавливать нечего.");
+
+/// <summary>Defensive: the operations passed to Transfer.SoftDelete/Restore are not this transfer's legs.</summary>
+public sealed class TransferLegMismatchException(Guid transferId)
+    : OperationsDomainException($"Переданные операции не являются «ногами» перевода ({transferId}).");
 
 public sealed class NoActiveOperationTypeForTransferException()
     : OperationsDomainException("Нет ни одного активного типа операции с поведением Transfer — создайте его в справочнике типов операций перед переводом.");

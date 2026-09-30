@@ -9,8 +9,6 @@ public sealed class TransferRepository(OperationsDbContext dbContext) : ITransfe
 {
     public void Add(Transfer transfer) => dbContext.Transfers.Add(transfer);
 
-    public void Remove(Transfer transfer) => dbContext.Transfers.Remove(transfer);
-
     public Task<Transfer?> GetByIdAsync(TransferId id, CancellationToken cancellationToken) =>
         dbContext.Transfers.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 

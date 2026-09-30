@@ -8,7 +8,7 @@ namespace LupexWallet.Operations.Domain;
 /// applied to the wallet balance. Keeping them separate lets Update/Delete correctly "undo"
 /// exactly the effect previously applied (especially important for Adjustment/Absolute,
 /// where the applied delta depended on the wallet balance at creation time and cannot be
-/// re-derived from Amount alone).
+/// re-derived from Amount alone). Deletion is soft only and reversible (ADR-0002, §3).
 /// </summary>
 public sealed class Operation : AggregateRoot<OperationId>
 {
@@ -23,6 +23,11 @@ public sealed class Operation : AggregateRoot<OperationId>
     public TransferId? TransferId { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
+
+    /// <summary>Soft-deletion moment (ADR-0002, §3); null while the operation is active.</summary>
+    public DateTimeOffset? DeletedAt { get; private set; }
+
+    public bool IsDeleted => DeletedAt is not null;
 
     public Money Amount => new(_amount, CurrencyId);
 
@@ -106,6 +111,7 @@ public sealed class Operation : AggregateRoot<OperationId>
         Money appliedDelta)
     {
         EnsureNotPartOfTransfer();
+        EnsureNotDeleted();
         ValidateForStandaloneCreation(effectKind, TransferId);
         ValidateAmountAndMode(effectKind, amount, adjustmentMode);
 
@@ -136,6 +142,7 @@ public sealed class Operation : AggregateRoot<OperationId>
         Money appliedDelta)
     {
         EnsureNotPartOfTransfer();
+        EnsureNotDeleted();
         ValidateForStandaloneCreation(effectKind, TransferId);
         ValidateAmountAndMode(effectKind, amount, adjustmentMode);
 
@@ -165,18 +172,59 @@ public sealed class Operation : AggregateRoot<OperationId>
         Raise(new OperationUpdated(Id, WalletId, OperationDate, previousOperationDate, previousWalletId));
     }
 
-    /// <summary>UC-14 — hasHistory is computed by the caller (Application); see DeleteOperationCommand and ADR-0002, §3 ("Состояние реализации": today-boundary rule still in code).</summary>
-    public void EnsureCanBeDeleted(bool hasHistory)
+    /// <summary>
+    /// UC-14, ADR-0002 §3 — soft delete, any date. The row stays; the caller reverses
+    /// AppliedDelta on the wallet. UpdatedAt is left untouched (DeletedAt carries the moment).
+    /// </summary>
+    public void SoftDelete()
     {
         EnsureNotPartOfTransfer();
+        MarkDeleted(DateTimeOffset.UtcNow);
+    }
 
-        if (hasHistory)
+    /// <summary>Revokes soft deletion; the caller re-applies AppliedDelta on the wallet.</summary>
+    public void Restore()
+    {
+        EnsureNotPartOfTransfer();
+        RevokeDeletion();
+    }
+
+    /// <summary>Transfer-only entry point (leg deleted together with its transfer, one shared DeletedAt).</summary>
+    internal void SoftDeleteAsTransferLeg(DateTimeOffset deletedAt) => MarkDeleted(deletedAt);
+
+    /// <summary>Transfer-only entry point (leg restored together with its transfer).</summary>
+    internal void RestoreAsTransferLeg() => RevokeDeletion();
+
+    /// <summary>Throws if the operation is soft-deleted; lets callers fail before touching other modules.</summary>
+    public void EnsureNotDeleted()
+    {
+        if (IsDeleted)
         {
-            throw new OperationDeletionNotAllowedException(Id.Value);
+            throw new OperationIsDeletedException(Id.Value);
         }
     }
 
-    public void MarkAsDeleted() => Raise(new OperationDeleted(Id, WalletId, OperationDate));
+    private void MarkDeleted(DateTimeOffset deletedAt)
+    {
+        if (IsDeleted)
+        {
+            throw new OperationAlreadyDeletedException(Id.Value);
+        }
+
+        DeletedAt = deletedAt;
+        Raise(new OperationDeleted(Id, WalletId, OperationDate));
+    }
+
+    private void RevokeDeletion()
+    {
+        if (!IsDeleted)
+        {
+            throw new OperationNotDeletedException(Id.Value);
+        }
+
+        DeletedAt = null;
+        Raise(new OperationRestored(Id, WalletId, OperationDate));
+    }
 
     private void EnsureNotPartOfTransfer()
     {

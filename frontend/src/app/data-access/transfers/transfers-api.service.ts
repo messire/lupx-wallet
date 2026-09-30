@@ -28,7 +28,13 @@ export class TransfersApiService {
     return this.http.post<Transfer>(`${environment.apiBaseUrl}/transfers`, request);
   }
 
+  /** Soft delete (ADR-0002): both operation halves are marked deleted, any transfer date. */
   delete(transferId: string): Observable<void> {
     return this.http.delete<void>(`${environment.apiBaseUrl}/transfers/${transferId}`);
+  }
+
+  /** Restores a soft-deleted transfer together with both operation halves (200 Transfer). */
+  restore(transferId: string): Observable<Transfer> {
+    return this.http.post<Transfer>(`${environment.apiBaseUrl}/transfers/${transferId}/restore`, {});
   }
 }

@@ -19,6 +19,13 @@ public sealed class BalanceSnapshotRepository(BalanceHistoryDbContext dbContext)
             .Where(x => x.WalletId == walletId && x.SnapshotDate >= from && x.SnapshotDate <= to)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<BalanceSnapshot>> GetAllForWalletAsync(WalletId walletId, CancellationToken cancellationToken) =>
+        await dbContext.BalanceSnapshots
+            .Where(x => x.WalletId == walletId)
+            .ToListAsync(cancellationToken);
+
+    public void Remove(BalanceSnapshot snapshot) => dbContext.BalanceSnapshots.Remove(snapshot);
+
     public async Task<DateOnly?> GetLatestSnapshotDateAsync(WalletId walletId, CancellationToken cancellationToken)
     {
         var latest = await dbContext.BalanceSnapshots

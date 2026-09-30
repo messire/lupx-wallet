@@ -10,7 +10,7 @@ namespace LupexWallet.Operations.Application;
 /// </summary>
 public interface IWalletOperationsLookup
 {
-    /// <summary>Deltas grouped by OperationDate, ascending, for all operations up to and including <paramref name="throughDate"/>.</summary>
+    /// <summary>Deltas grouped by OperationDate, ascending, for all non-deleted operations (soft-deleted ones are excluded, ADR-0002 §3) up to and including <paramref name="throughDate"/>.</summary>
     Task<IReadOnlyList<DailyOperationsDelta>> GetDailyDeltasUpToAsync(
         WalletId walletId, DateOnly throughDate, CancellationToken cancellationToken);
 }

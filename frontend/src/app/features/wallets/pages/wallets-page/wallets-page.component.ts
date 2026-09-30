@@ -490,7 +490,7 @@ export class WalletsComponent implements OnInit {
         this.isCurrencySubmitting.set(false);
         this.currencyForm.enable({ emitEvent: false });
         this.currencyError.set(
-          extractErrorMessage(error, 'Не удалось сменить валюту: у кошелька уже есть операции или слепки баланса.'),
+          extractErrorMessage(error, 'Не удалось сменить валюту: у кошелька есть операции, включая удалённые.'),
         );
       },
     });
@@ -557,7 +557,7 @@ export class WalletsComponent implements OnInit {
           this.actionError.set(
             extractErrorMessage(
               error,
-              'Не удалось удалить кошелек: возможно, он основной или уже имеет историю операций — используйте архивирование.',
+              'Не удалось удалить кошелек: возможно, он основной или у него есть операции, включая удалённые, — используйте архивирование.',
             ),
           );
         },

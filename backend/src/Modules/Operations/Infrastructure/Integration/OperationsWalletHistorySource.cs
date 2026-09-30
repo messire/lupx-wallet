@@ -5,10 +5,10 @@ using Microsoft.EntityFrameworkCore;
 namespace LupexWallet.Operations.Infrastructure;
 
 /// <summary>
-/// ADR-0002, §2 — one of the two implementations of
-/// Wallets.Application.IWalletHistorySource: data owner is Operations. True if the wallet has
-/// at least one Operation (including both transfer legs, stored as plain Operation rows, see
-/// Transfer.Create). Registered in AddOperationsModule.
+/// ADR-0002, §2 — the only implementation of Wallets.Application.IWalletHistorySource: data
+/// owner is Operations. True if the wallet has at least one Operation row — soft-deleted ones
+/// count (restoration must stay possible), as do both transfer legs (plain Operation rows, see
+/// Transfer.Create). Deliberately no deleted_at filter. Registered in AddOperationsModule.
 /// </summary>
 public sealed class OperationsWalletHistorySource(OperationsDbContext dbContext) : IWalletHistorySource
 {

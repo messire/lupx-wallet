@@ -21,6 +21,11 @@ public sealed class Transfer : AggregateRoot<TransferId>
     public DateOnly TransferDate { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
 
+    /// <summary>Soft-deletion moment (ADR-0002, §3), shared with both legs; null while active.</summary>
+    public DateTimeOffset? DeletedAt { get; private set; }
+
+    public bool IsDeleted => DeletedAt is not null;
+
     public Money Amount => new(_amount, CurrencyId);
 
     private Transfer()
@@ -79,14 +84,49 @@ public sealed class Transfer : AggregateRoot<TransferId>
         return (transfer, sourceOperation, targetOperation);
     }
 
-    /// <summary>Check before physical deletion — the actual decision is made by the Application layer.</summary>
-    public void EnsureCanBeDeleted(bool hasHistory)
+    /// <summary>
+    /// UC-16, ADR-0002 §3 — soft-deletes the transfer and both legs as a whole, any date. All
+    /// three rows get the same DeletedAt. The caller reverses each leg's AppliedDelta on its wallet.
+    /// </summary>
+    public void SoftDelete(Operation sourceOperation, Operation targetOperation)
     {
-        if (hasHistory)
+        EnsureLegs(sourceOperation, targetOperation);
+
+        if (IsDeleted)
         {
-            throw new TransferDeletionNotAllowedException(Id.Value);
+            throw new TransferAlreadyDeletedException(Id.Value);
         }
+
+        var deletedAt = DateTimeOffset.UtcNow;
+        sourceOperation.SoftDeleteAsTransferLeg(deletedAt);
+        targetOperation.SoftDeleteAsTransferLeg(deletedAt);
+
+        DeletedAt = deletedAt;
+        Raise(new TransferDeleted(Id));
     }
 
-    public void MarkAsDeleted() => Raise(new TransferDeleted(Id));
+    /// <summary>Revokes soft deletion of the transfer and both legs; the caller re-applies each leg's AppliedDelta.</summary>
+    public void Restore(Operation sourceOperation, Operation targetOperation)
+    {
+        EnsureLegs(sourceOperation, targetOperation);
+
+        if (!IsDeleted)
+        {
+            throw new TransferNotDeletedException(Id.Value);
+        }
+
+        sourceOperation.RestoreAsTransferLeg();
+        targetOperation.RestoreAsTransferLeg();
+
+        DeletedAt = null;
+        Raise(new TransferRestored(Id));
+    }
+
+    private void EnsureLegs(Operation sourceOperation, Operation targetOperation)
+    {
+        if (sourceOperation.Id != SourceOperationId || targetOperation.Id != TargetOperationId)
+        {
+            throw new TransferLegMismatchException(Id.Value);
+        }
+    }
 }

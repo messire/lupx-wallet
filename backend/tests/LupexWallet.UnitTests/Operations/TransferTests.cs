@@ -73,24 +73,31 @@ public sealed class TransferTests
     }
 
     [Fact]
-    public void EnsureCanBeDeleted_WithHistory_ThrowsTransferDeletionNotAllowedException()
+    public void SoftDelete_MarksTransferAndBothLegsWithSameDeletedAt()
     {
-        var (transfer, _, _) = Transfer.Create(
+        var (transfer, source, target) = Transfer.Create(
             TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(10m), DateOnly.FromDateTime(DateTime.UtcNow));
 
-        var act = () => transfer.EnsureCanBeDeleted(hasHistory: true);
+        transfer.SoftDelete(source, target);
 
-        act.Should().Throw<TransferDeletionNotAllowedException>();
+        transfer.IsDeleted.Should().BeTrue();
+        source.DeletedAt.Should().Be(transfer.DeletedAt);
+        target.DeletedAt.Should().Be(transfer.DeletedAt);
+        transfer.DomainEvents.OfType<TransferDeleted>().Should().ContainSingle();
     }
 
     [Fact]
-    public void EnsureCanBeDeleted_WithoutHistory_DoesNotThrow()
+    public void Restore_AfterSoftDelete_ClearsDeletedAtOnAllThree()
     {
-        var (transfer, _, _) = Transfer.Create(
+        var (transfer, source, target) = Transfer.Create(
             TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(10m), DateOnly.FromDateTime(DateTime.UtcNow));
+        transfer.SoftDelete(source, target);
 
-        var act = () => transfer.EnsureCanBeDeleted(hasHistory: false);
+        transfer.Restore(source, target);
 
-        act.Should().NotThrow();
+        transfer.IsDeleted.Should().BeFalse();
+        source.IsDeleted.Should().BeFalse();
+        target.IsDeleted.Should().BeFalse();
+        transfer.DomainEvents.OfType<TransferRestored>().Should().ContainSingle();
     }
 }

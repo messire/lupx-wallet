@@ -135,13 +135,16 @@ paths:
       tags: [Wallets]
       summary: Удалить кошелек без истории (UC-04)
       operationId: deleteWallet
+      description: >
+        История кошелька — только операции, включая мягко удаленные (ADR-0002, §2);
+        слепки баланса историей не считаются.
       responses:
-        "204": { description: Удален }
+        "204": { description: Удален; слепки баланса удаляются вместе с кошельком }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: >
-            Кошелек имеет историю операций/слепков (используйте /archive)
-            или является основным.
+            У кошелька есть операции (включая удаленные) — используйте /archive —
+            или он основной.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -193,6 +196,10 @@ paths:
       tags: [Wallets]
       summary: Сменить валюту кошелька — только если нет истории (решено, Q15)
       operationId: changeWalletCurrency
+      description: >
+        История кошелька — только операции, включая мягко удаленные (ADR-0002, §2).
+        Слепки баланса историей не считаются: при смене валюты они перестраиваются
+        в новой валюте (старые удаляются, новые создаются от даты начала учета).
       requestBody:
         required: true
         content:
@@ -206,7 +213,7 @@ paths:
               schema: { $ref: "#/components/schemas/Wallet" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: У кошелька уже есть операции или слепки баланса.
+          description: У кошелька уже есть операции (включая удаленные).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -220,7 +227,8 @@ paths:
       operationId: getWalletBalance
       description: >
         Без параметра date возвращает текущий баланс. Для даты раньше
-        accounting_start_date возвращает сумму 0 (решено, Q13).
+        accounting_start_date возвращает сумму 0 (решено, Q13). Мягко удаленные
+        операции в расчете не учитываются (ADR-0002, §3).
       parameters:
         - name: date
           in: query
@@ -240,6 +248,7 @@ paths:
       tags: [BalanceHistory]
       summary: История слепков баланса кошелька за период
       operationId: listWalletBalanceHistory
+      description: Мягко удаленные операции в слепках не учитываются (ADR-0002, §3).
       parameters:
         - name: from
           in: query
@@ -319,7 +328,9 @@ paths:
         "204": { description: Удален }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: Тип уже используется хотя бы одним кошельком — используйте деактивацию.
+          description: >
+            Тип используется кошельком или операцией (включая удаленные) —
+            используйте деактивацию.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -386,7 +397,9 @@ paths:
         "204": { description: Удален }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: Тип уже используется хотя бы одной операцией — используйте деактивацию.
+          description: >
+            Тип используется кошельком или операцией (включая удаленные) —
+            используйте деактивацию.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -469,11 +482,17 @@ paths:
       tags: [Currencies]
       summary: Удалить неиспользуемую валюту
       operationId: deleteCurrency
+      description: >
+        Использование — ссылки от кошельков (включая архивные) и операций (включая мягко
+        удаленные). Курсы использованием не считаются и удаляются вместе с валютой
+        (ADR-0002, §4).
       responses:
-        "204": { description: Удалена }
+        "204": { description: Удалена вместе с ее курсами }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: Валюта уже используется — используйте деактивацию.
+          description: >
+            Валюта используется кошельком или операцией (включая удаленные) —
+            используйте деактивацию.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -484,6 +503,9 @@ paths:
       tags: [Operations]
       summary: Список операций (UC-11, UC-12)
       operationId: listOperations
+      description: >
+        Мягко удаленные операции включаются всегда (ADR-0002, §3, §5); признак —
+        isDeleted = true. Параметра скрытия удаленных нет.
       parameters:
         - name: walletId
           in: query
@@ -559,22 +581,52 @@ paths:
         "409":
           description: >
             Операция — часть перевода; редактируется/удаляется только через перевод
-            целиком (раздел 4 требований).
+            целиком (раздел 4 требований), либо операция удалена — сначала восстановите
+            (POST /operations/{operationId}/restore).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
     delete:
       tags: [Operations]
-      summary: Удалить операцию (UC-14)
+      summary: Удалить операцию (мягко, UC-14)
       operationId: deleteOperation
+      description: >
+        Мягкое удаление (ADR-0002, §3) с любой датой, включая сегодняшнюю: запись остается
+        в БД и в списках с isDeleted = true, исключается из расчетов (баланс кошелька,
+        слепки, общая сумма), запускается каскадный пересчет истории от даты операции.
+        Восстановление — POST /operations/{operationId}/restore.
       responses:
         "204": { description: Удалена }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: >
             Операция — часть перевода (удалите через DELETE /transfers/{id}) либо
-            её дата строго раньше сегодняшнего дня — уже отражена в истории баланса,
-            отредактируйте вместо удаления (прежнее правило, ADR-0002, «Состояние реализации»).
+            уже удалена.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /operations/{operationId}/restore:
+    parameters:
+      - $ref: "#/components/parameters/OperationIdParam"
+    post:
+      tags: [Operations]
+      summary: Восстановить удаленную операцию (ADR-0002, §3)
+      operationId: restoreOperation
+      description: >
+        Снимает мягкое удаление: операция снова участвует в расчетах, история баланса
+        пересчитывается от даты операции.
+      responses:
+        "200":
+          description: Восстановлена
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operation" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: >
+            Операция — часть перевода (восстановите через POST /transfers/{id}/restore)
+            либо не удалена.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -585,6 +637,9 @@ paths:
       tags: [Transfers]
       summary: Список переводов
       operationId: listTransfers
+      description: >
+        Мягко удаленные переводы включаются всегда (ADR-0002, §3, §5); признак —
+        isDeleted = true. Параметра скрытия удаленных нет.
       parameters:
         - name: walletId
           in: query
@@ -640,13 +695,44 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
     delete:
       tags: [Transfers]
-      summary: Удалить перевод (обе операции атомарно, UC-16)
+      summary: Удалить перевод (мягко, обе операции атомарно, UC-16)
       operationId: deleteTransfer
+      description: >
+        Мягкое удаление (ADR-0002, §3) перевода и обеих его операций с любой датой:
+        запись остается в БД и в списках с isDeleted = true, исключается из расчетов
+        (баланс кошельков, слепки, общая сумма), запускается каскадный пересчет истории
+        обоих кошельков. Восстановление — POST /transfers/{transferId}/restore.
       responses:
         "204": { description: Удален }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: Дата перевода строго раньше сегодняшнего дня (прежнее правило, ADR-0002, «Состояние реализации»).
+          description: Перевод уже удален.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /transfers/{transferId}/restore:
+    parameters:
+      - name: transferId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Transfers]
+      summary: Восстановить удаленный перевод (обе операции атомарно, ADR-0002, §3)
+      operationId: restoreTransfer
+      description: >
+        Снимает мягкое удаление с перевода и обеих его операций; они снова участвуют в
+        расчетах, история обоих кошельков пересчитывается от даты перевода.
+      responses:
+        "200":
+          description: Восстановлен
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Transfer" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Перевод не удален.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -952,7 +1038,7 @@ components:
     # ---- Operations ----
     Operation:
       type: object
-      required: [id, walletId, operationTypeId, amount, operationDate, createdAt, updatedAt]
+      required: [id, walletId, operationTypeId, amount, operationDate, isDeleted, deletedAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid, readOnly: true }
         walletId: { type: string, format: uuid }
@@ -964,6 +1050,15 @@ components:
           enum: [Absolute, Delta, null]
           description: Заполнено только когда operationType ссылается на behaviorKind = Adjustment (Q3).
         transferId: { type: [string, "null"], format: uuid, readOnly: true }
+        isDeleted:
+          type: boolean
+          readOnly: true
+          description: Мягко удалена (ADR-0002, §3). Удаленная операция остается в списках, не участвует в расчетах, не редактируется до восстановления.
+        deletedAt:
+          type: [string, "null"]
+          format: date-time
+          readOnly: true
+          description: Момент мягкого удаления; null, если операция не удалена. Для ног перевода совпадает с deletedAt перевода.
         createdAt: { type: string, format: date-time, readOnly: true }
         updatedAt: { type: string, format: date-time, readOnly: true }
     OperationCreateRequest:
@@ -1000,7 +1095,7 @@ components:
     # ---- Transfers ----
     Transfer:
       type: object
-      required: [id, sourceWalletId, targetWalletId, sourceOperationId, targetOperationId, amount, transferDate, createdAt]
+      required: [id, sourceWalletId, targetWalletId, sourceOperationId, targetOperationId, amount, transferDate, isDeleted, deletedAt, createdAt]
       properties:
         id: { type: string, format: uuid, readOnly: true }
         sourceWalletId: { type: string, format: uuid }
@@ -1009,6 +1104,15 @@ components:
         targetOperationId: { type: string, format: uuid, readOnly: true }
         amount: { $ref: "#/components/schemas/Money" }
         transferDate: { type: string, format: date }
+        isDeleted:
+          type: boolean
+          readOnly: true
+          description: Мягко удален вместе с обеими ногами (ADR-0002, §3).
+        deletedAt:
+          type: [string, "null"]
+          format: date-time
+          readOnly: true
+          description: Момент мягкого удаления; null, если перевод не удален.
         createdAt: { type: string, format: date-time, readOnly: true }
     TransferCreateRequest:
       type: object

@@ -100,4 +100,135 @@ public sealed class TransferTests
         target.IsDeleted.Should().BeFalse();
         transfer.DomainEvents.OfType<TransferRestored>().Should().ContainSingle();
     }
+
+    private static (Transfer Transfer, Operation Source, Operation Target) CreateTransfer(DateOnly? date = null) =>
+        Transfer.Create(
+            TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(10m),
+            date ?? DateOnly.FromDateTime(DateTime.UtcNow));
+
+    [Fact]
+    public void SoftDelete_RaisesTransferDeletedAndOperationDeletedForEachLegWithItsWalletAndDate()
+    {
+        var date = new DateOnly(2026, 4, 2);
+        var (transfer, source, target) = CreateTransfer(date);
+
+        transfer.SoftDelete(source, target);
+
+        transfer.DomainEvents.OfType<TransferDeleted>().Single().TransferId.Should().Be(transfer.Id);
+        var legEvents = source.DomainEvents.OfType<OperationDeleted>().Concat(target.DomainEvents.OfType<OperationDeleted>()).ToList();
+        legEvents.Should().HaveCount(2, "BalanceHistory recalculates both wallets through the leg events");
+        legEvents.Select(e => e.WalletId).Should().BeEquivalentTo([transfer.SourceWalletId, transfer.TargetWalletId]);
+        legEvents.Should().OnlyContain(e => e.OperationDate == date);
+    }
+
+    [Fact]
+    public void SoftDelete_DoesNotChangeLegAppliedDeltas()
+    {
+        var (transfer, source, target) = CreateTransfer();
+
+        transfer.SoftDelete(source, target);
+
+        source.AppliedDelta.Amount.Should().Be(-10m);
+        target.AppliedDelta.Amount.Should().Be(10m);
+    }
+
+    [Fact]
+    public void SoftDelete_AlreadyDeleted_ThrowsTransferAlreadyDeletedExceptionAndKeepsDeletedAt()
+    {
+        var (transfer, source, target) = CreateTransfer();
+        transfer.SoftDelete(source, target);
+        var deletedAt = transfer.DeletedAt;
+
+        var act = () => transfer.SoftDelete(source, target);
+
+        act.Should().Throw<TransferAlreadyDeletedException>();
+        transfer.DeletedAt.Should().Be(deletedAt);
+        source.DeletedAt.Should().Be(deletedAt);
+        transfer.DomainEvents.OfType<TransferDeleted>().Should().ContainSingle();
+    }
+
+    [Fact]
+    public void SoftDelete_ForeignLegs_ThrowsTransferLegMismatchExceptionAndChangesNothing()
+    {
+        var (transfer, source, target) = CreateTransfer();
+        var (_, foreignSource, foreignTarget) = CreateTransfer();
+
+        var act = () => transfer.SoftDelete(foreignSource, foreignTarget);
+
+        act.Should().Throw<TransferLegMismatchException>();
+        transfer.IsDeleted.Should().BeFalse();
+        foreignSource.IsDeleted.Should().BeFalse();
+        foreignTarget.IsDeleted.Should().BeFalse();
+        source.IsDeleted.Should().BeFalse();
+        target.IsDeleted.Should().BeFalse();
+    }
+
+    [Fact]
+    public void SoftDelete_LegsPassedInSwappedOrder_ThrowsTransferLegMismatchException()
+    {
+        var (transfer, source, target) = CreateTransfer();
+
+        var act = () => transfer.SoftDelete(target, source);
+
+        act.Should().Throw<TransferLegMismatchException>();
+        transfer.IsDeleted.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Restore_RaisesTransferRestoredAndOperationRestoredForEachLeg()
+    {
+        var date = new DateOnly(2026, 4, 2);
+        var (transfer, source, target) = CreateTransfer(date);
+        transfer.SoftDelete(source, target);
+
+        transfer.Restore(source, target);
+
+        transfer.DomainEvents.OfType<TransferRestored>().Single().TransferId.Should().Be(transfer.Id);
+        var legEvents = source.DomainEvents.OfType<OperationRestored>().Concat(target.DomainEvents.OfType<OperationRestored>()).ToList();
+        legEvents.Should().HaveCount(2);
+        legEvents.Select(e => e.WalletId).Should().BeEquivalentTo([transfer.SourceWalletId, transfer.TargetWalletId]);
+        legEvents.Should().OnlyContain(e => e.OperationDate == date);
+        transfer.DeletedAt.Should().BeNull();
+    }
+
+    [Fact]
+    public void Restore_NotDeleted_ThrowsTransferNotDeletedException()
+    {
+        var (transfer, source, target) = CreateTransfer();
+
+        var act = () => transfer.Restore(source, target);
+
+        act.Should().Throw<TransferNotDeletedException>();
+        transfer.DomainEvents.OfType<TransferRestored>().Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Restore_ForeignLegs_ThrowsTransferLegMismatchExceptionAndKeepsDeletion()
+    {
+        var (transfer, source, target) = CreateTransfer();
+        transfer.SoftDelete(source, target);
+        var (_, foreignSource, foreignTarget) = CreateTransfer();
+
+        var act = () => transfer.Restore(foreignSource, foreignTarget);
+
+        act.Should().Throw<TransferLegMismatchException>();
+        transfer.IsDeleted.Should().BeTrue();
+        source.IsDeleted.Should().BeTrue();
+        target.IsDeleted.Should().BeTrue();
+    }
+
+    [Fact]
+    public void SoftDeleteThenRestoreThenSoftDelete_IsAllowedAndUsesFreshDeletedAt()
+    {
+        var (transfer, source, target) = CreateTransfer();
+
+        transfer.SoftDelete(source, target);
+        transfer.Restore(source, target);
+        var act = () => transfer.SoftDelete(source, target);
+
+        act.Should().NotThrow();
+        transfer.IsDeleted.Should().BeTrue();
+        source.DeletedAt.Should().Be(transfer.DeletedAt);
+        target.DeletedAt.Should().Be(transfer.DeletedAt);
+    }
 }

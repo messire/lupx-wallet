@@ -248,6 +248,300 @@ public sealed class OperationsApiTests(ApiTestFixture fixture) : IntegrationTest
         deleted.DeletedAt.Should().NotBeNull();
     }
 
+    // ---- Soft delete / restore (ADR-0002, §3; D3.1–D3.9) ----
+
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
+
+    private async Task<OperationResponse> GetOperationAsync(Guid id)
+    {
+        var response = await Client.GetAsync($"/api/v1/operations/{id}");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsync<OperationResponse>())!;
+    }
+
+    private async Task<HttpResponseMessage> PatchAmountAsync(Guid operationId, Guid walletId, Guid operationTypeId, decimal amount, DateOnly date) =>
+        await Client.PatchAsJsonAsync($"/api/v1/operations/{operationId}", new
+        {
+            WalletId = walletId,
+            OperationTypeId = operationTypeId,
+            Amount = amount,
+            OperationDate = date,
+            AdjustmentMode = (string?)null,
+        });
+
+    [Fact]
+    public async Task DeleteOperation_PastDate_ReturnsNoContentMarksDeletedAndRemovesItsEffectFromBalance()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m);
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var operation = await CreateOperationAsync(wallet.Id, incomeTypeId, 300m, Today.AddDays(-3));
+        (await GetWalletBalanceAsync(wallet.Id)).Should().Be(1300m);
+        var updatedAtBefore = (await GetOperationAsync(operation.Id)).UpdatedAt; // as persisted (timestamptz keeps microseconds)
+
+        var response = await Client.DeleteAsync($"/api/v1/operations/{operation.Id}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        var deleted = await GetOperationAsync(operation.Id);
+        deleted.IsDeleted.Should().BeTrue();
+        deleted.DeletedAt.Should().NotBeNull();
+        deleted.UpdatedAt.Should().Be(updatedAtBefore, "UpdatedAt is the moment of a content edit, not of deletion");
+        deleted.Amount.Amount.Should().Be("300", "a soft-deleted row keeps its data");
+        (await GetWalletBalanceAsync(wallet.Id)).Should().Be(1000m);
+    }
+
+    [Fact]
+    public async Task DeleteOperation_Expense_ReturnsItsAmountToWalletBalance()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m);
+        var expenseTypeId = await Client.CreateOperationTypeIdAsync("Expense");
+        var expense = await CreateOperationAsync(wallet.Id, expenseTypeId, 250m, Today.AddDays(-2));
+        (await GetWalletBalanceAsync(wallet.Id)).Should().Be(750m);
+
+        (await Client.DeleteAsync($"/api/v1/operations/{expense.Id}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await GetWalletBalanceAsync(wallet.Id)).Should().Be(1000m);
+
+        (await Client.PostAsync($"/api/v1/operations/{expense.Id}/restore", null)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await GetWalletBalanceAsync(wallet.Id)).Should().Be(750m);
+    }
+
+    [Fact]
+    public async Task DeleteAndRestoreAbsoluteAdjustment_UseTheStoredAppliedDeltaNotTheCurrentBalance()
+    {
+        // The applied delta of an Absolute adjustment depends on the balance at creation time (1000 -> 500 = -500),
+        // so delete/restore must reverse/re-apply exactly that stored delta.
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m);
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var adjustmentTypeId = await Client.CreateOperationTypeIdAsync("Adjustment");
+        var adjustment = await CreateOperationAsync(wallet.Id, adjustmentTypeId, 500m, Today.AddDays(-2), "Absolute");
+        (await GetWalletBalanceAsync(wallet.Id)).Should().Be(500m);
+        await CreateOperationAsync(wallet.Id, incomeTypeId, 100m, Today.AddDays(-1));
+        (await GetWalletBalanceAsync(wallet.Id)).Should().Be(600m);
+
+        (await Client.DeleteAsync($"/api/v1/operations/{adjustment.Id}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await GetWalletBalanceAsync(wallet.Id)).Should().Be(1100m, "the -500 delta is reversed, the later income stays");
+
+        (await Client.PostAsync($"/api/v1/operations/{adjustment.Id}/restore", null)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await GetWalletBalanceAsync(wallet.Id)).Should().Be(600m);
+    }
+
+    [Fact]
+    public async Task RestoreOperation_Deleted_ReturnsOkWithActiveOperationAndReturnsItsEffect()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m);
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var operation = await CreateOperationAsync(wallet.Id, incomeTypeId, 300m, Today.AddDays(-3));
+        var updatedAtBefore = (await GetOperationAsync(operation.Id)).UpdatedAt;
+        await Client.DeleteAsync($"/api/v1/operations/{operation.Id}");
+
+        var response = await Client.PostAsync($"/api/v1/operations/{operation.Id}/restore", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var restored = (await response.Content.ReadFromJsonAsync<OperationResponse>())!;
+        restored.Id.Should().Be(operation.Id);
+        restored.IsDeleted.Should().BeFalse();
+        restored.DeletedAt.Should().BeNull();
+        restored.UpdatedAt.Should().Be(updatedAtBefore);
+        (await GetOperationAsync(operation.Id)).IsDeleted.Should().BeFalse();
+        (await GetWalletBalanceAsync(wallet.Id)).Should().Be(1300m);
+    }
+
+    [Fact]
+    public async Task DeleteOperation_AlreadyDeleted_ReturnsConflictAndDoesNotChangeBalance()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m);
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var operation = await CreateOperationAsync(wallet.Id, incomeTypeId, 300m, Today.AddDays(-1));
+        await Client.DeleteAsync($"/api/v1/operations/{operation.Id}");
+        var deletedAt = (await GetOperationAsync(operation.Id)).DeletedAt;
+
+        var response = await Client.DeleteAsync($"/api/v1/operations/{operation.Id}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await GetWalletBalanceAsync(wallet.Id)).Should().Be(1000m, "the delta must not be reversed twice");
+        (await GetOperationAsync(operation.Id)).DeletedAt.Should().Be(deletedAt);
+    }
+
+    [Fact]
+    public async Task RestoreOperation_NotDeleted_ReturnsConflictAndDoesNotChangeBalance()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m);
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var operation = await CreateOperationAsync(wallet.Id, incomeTypeId, 300m, Today);
+
+        var response = await Client.PostAsync($"/api/v1/operations/{operation.Id}/restore", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await GetWalletBalanceAsync(wallet.Id)).Should().Be(1300m, "the delta must not be applied twice");
+    }
+
+    [Fact]
+    public async Task RestoreOperation_AfterRestore_SecondRestoreReturnsConflict()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m);
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var operation = await CreateOperationAsync(wallet.Id, incomeTypeId, 300m, Today);
+        await Client.DeleteAsync($"/api/v1/operations/{operation.Id}");
+        await Client.PostAsync($"/api/v1/operations/{operation.Id}/restore", null);
+
+        var response = await Client.PostAsync($"/api/v1/operations/{operation.Id}/restore", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await GetWalletBalanceAsync(wallet.Id)).Should().Be(1300m);
+    }
+
+    [Fact]
+    public async Task RestoreOperation_UnknownId_ReturnsNotFound()
+    {
+        await AuthenticateAsync();
+
+        var response = await Client.PostAsync($"/api/v1/operations/{Guid.NewGuid()}/restore", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task UpdateOperation_Deleted_ReturnsConflictAndDoesNotChangeBalanceOrOperation()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m);
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var operation = await CreateOperationAsync(wallet.Id, incomeTypeId, 300m, Today.AddDays(-1));
+        await Client.DeleteAsync($"/api/v1/operations/{operation.Id}");
+
+        var response = await PatchAmountAsync(operation.Id, wallet.Id, incomeTypeId, 999m, Today.AddDays(-1));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await GetWalletBalanceAsync(wallet.Id)).Should().Be(1000m);
+        var unchanged = await GetOperationAsync(operation.Id);
+        unchanged.Amount.Amount.Should().Be("300");
+        unchanged.IsDeleted.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task UpdateOperation_DeletedAndMovedToAnotherWallet_ReturnsConflictAndDoesNotChangeEitherBalance()
+    {
+        await AuthenticateAsync();
+        var currency = await Client.CreateCurrencyAsync("MV" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant(), "Тестовая валюта");
+        var walletA = await Client.CreateWalletAsync(initialBalanceAmount: 1000m, name: "A", currencyId: currency.Id);
+        var walletB = await Client.CreateWalletAsync(initialBalanceAmount: 300m, name: "B", currencyId: currency.Id);
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var operation = await CreateOperationAsync(walletA.Id, incomeTypeId, 200m, Today.AddDays(-1));
+        await Client.DeleteAsync($"/api/v1/operations/{operation.Id}");
+
+        var response = await PatchAmountAsync(operation.Id, walletB.Id, incomeTypeId, 200m, Today.AddDays(-1));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await GetWalletBalanceAsync(walletA.Id)).Should().Be(1000m);
+        (await GetWalletBalanceAsync(walletB.Id)).Should().Be(300m);
+        (await GetOperationAsync(operation.Id)).WalletId.Should().Be(walletA.Id);
+    }
+
+    [Fact]
+    public async Task UpdateOperation_AfterRestore_IsAllowedAgain()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m);
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var operation = await CreateOperationAsync(wallet.Id, incomeTypeId, 300m, Today.AddDays(-1));
+        await Client.DeleteAsync($"/api/v1/operations/{operation.Id}");
+        await Client.PostAsync($"/api/v1/operations/{operation.Id}/restore", null);
+
+        var response = await PatchAmountAsync(operation.Id, wallet.Id, incomeTypeId, 400m, Today.AddDays(-1));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await GetWalletBalanceAsync(wallet.Id)).Should().Be(1400m);
+    }
+
+    [Fact]
+    public async Task RestoreOperation_OperationTypeDeactivatedAndWalletArchivedMeanwhile_StillReturnsOk()
+    {
+        // ADR-0002, §3 / R6: restoration is always possible — type activity and wallet archival are not re-checked.
+        await AuthenticateAsync();
+        await Client.CreateWalletAsync(name: "Основной"); // first wallet is primary; the archived one below must not be
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m, name: "Будет в архиве");
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var operation = await CreateOperationAsync(wallet.Id, incomeTypeId, 300m, Today.AddDays(-1));
+        await Client.DeleteAsync($"/api/v1/operations/{operation.Id}");
+        (await Client.PostAsync($"/api/v1/operation-types/{incomeTypeId}/deactivate", null)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await Client.PostAsync($"/api/v1/wallets/{wallet.Id}/archive", null)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var response = await Client.PostAsync($"/api/v1/operations/{operation.Id}/restore", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await GetWalletBalanceAsync(wallet.Id)).Should().Be(1300m);
+    }
+
+    [Fact]
+    public async Task ListOperations_IncludesDeletedOnesInTheSamePositionWithIsDeletedFlag()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m);
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var first = await CreateOperationAsync(wallet.Id, incomeTypeId, 10m, Today.AddDays(-3));
+        var second = await CreateOperationAsync(wallet.Id, incomeTypeId, 20m, Today.AddDays(-2));
+        var third = await CreateOperationAsync(wallet.Id, incomeTypeId, 30m, Today.AddDays(-1));
+        var idsBefore = (await ListOperationsAsync(wallet.Id)).Select(o => o.Id).ToList();
+
+        await Client.DeleteAsync($"/api/v1/operations/{second.Id}");
+
+        var after = await ListOperationsAsync(wallet.Id);
+        after.Select(o => o.Id).Should().Equal(idsBefore, "the order is unchanged and deleted rows are not hidden");
+        after.Should().HaveCount(3);
+        after.Single(o => o.Id == second.Id).IsDeleted.Should().BeTrue();
+        after.Single(o => o.Id == second.Id).DeletedAt.Should().NotBeNull();
+        after.Where(o => o.Id != second.Id).Should().OnlyContain(o => !o.IsDeleted && o.DeletedAt == null);
+        _ = first;
+        _ = third;
+    }
+
+    [Fact]
+    public async Task ListOperations_CursorPagination_ReturnsDeletedOperationsWithoutGapsOrDuplicates()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m);
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var ids = new List<Guid>();
+        for (var i = 1; i <= 5; i++)
+        {
+            ids.Add((await CreateOperationAsync(wallet.Id, incomeTypeId, i * 10m, Today.AddDays(-i))).Id);
+        }
+
+        await Client.DeleteAsync($"/api/v1/operations/{ids[1]}");
+        await Client.DeleteAsync($"/api/v1/operations/{ids[3]}");
+
+        var collected = new List<OperationResponse>();
+        string? cursor = null;
+        do
+        {
+            var url = $"/api/v1/operations?walletId={wallet.Id}&limit=2" + (cursor is null ? "" : $"&cursor={Uri.EscapeDataString(cursor)}");
+            var page = (await (await Client.GetAsync(url)).Content.ReadFromJsonAsync<OperationPageResponse>())!;
+            collected.AddRange(page.Data);
+            cursor = page.Pagination.HasMore ? page.Pagination.NextCursor : null;
+        }
+        while (cursor is not null);
+
+        collected.Select(o => o.Id).Should().BeEquivalentTo(ids);
+        collected.Select(o => o.Id).Should().OnlyHaveUniqueItems();
+        collected.Where(o => o.IsDeleted).Select(o => o.Id).Should().BeEquivalentTo([ids[1], ids[3]]);
+    }
+
+    private async Task<IReadOnlyList<OperationResponse>> ListOperationsAsync(Guid walletId)
+    {
+        var response = await Client.GetAsync($"/api/v1/operations?walletId={walletId}&limit=100");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsync<OperationPageResponse>())!.Data;
+    }
+
+    private sealed record OperationPageMeta(string? NextCursor, bool HasMore);
+    private sealed record OperationPageResponse(IReadOnlyList<OperationResponse> Data, OperationPageMeta Pagination);
+
     [Fact]
     public async Task GetOperation_AfterCreate_ReturnsIt()
     {

@@ -99,6 +99,84 @@ public sealed class ReportingApiTests(ApiTestFixture fixture) : IntegrationTestB
     }
 
     [Fact]
+    public async Task GetTotalAmount_CurrentAndHistorical_ExcludeDeletedOperationAndCountItAgainAfterRestore()
+    {
+        // ADR-0002, §3 / D3.2: a soft-deleted operation is excluded from the current total (Wallet.CurrentBalance)
+        // and from the historical one (balance on date), and comes back on restore.
+        await AuthenticateAsync();
+        var currency = await Client.CreateCurrencyAsync("EUR", "Евро");
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var wallet = await Client.CreateWalletAsync(
+            initialBalanceAmount: 100m, currencyId: currency.Id, accountingStartDate: today.AddDays(-10), name: "Основной");
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var operationDate = today.AddDays(-3);
+        var operationId = await Client.CreateOperationReturningIdAsync(wallet.Id, incomeTypeId, 50m, operationDate);
+        decimal Parse(TotalAmountResponse r) => decimal.Parse(r.Amount.Amount, CultureInfo.InvariantCulture);
+        Parse(await GetTotalAmountAsync()).Should().Be(150m);
+        Parse(await GetTotalAmountAsync(operationDate)).Should().Be(150m);
+
+        (await Client.DeleteAsync($"/api/v1/operations/{operationId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        Parse(await GetTotalAmountAsync()).Should().Be(100m);
+        Parse(await GetTotalAmountAsync(operationDate)).Should().Be(100m);
+        Parse(await GetTotalAmountAsync(today)).Should().Be(100m);
+
+        (await Client.PostAsync($"/api/v1/operations/{operationId}/restore", null)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        Parse(await GetTotalAmountAsync()).Should().Be(150m);
+        Parse(await GetTotalAmountAsync(operationDate)).Should().Be(150m);
+        Parse(await GetTotalAmountAsync(operationDate.AddDays(-1))).Should().Be(100m, "before the operation date the balance never included it");
+    }
+
+    [Fact]
+    public async Task GetTotalAmount_DeletedTransfer_NoLongerReducesTheIncludedSourceWallet()
+    {
+        await AuthenticateAsync();
+        var currency = await Client.CreateCurrencyAsync("EUR", "Евро");
+        var walletType = await Client.CreateWalletTypeAsync();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var source = await Client.CreateWalletAsync(500m, today.AddDays(-10), "Основной", walletType.Id, currency.Id);
+        var target = await Client.CreateWalletAsync(100m, today.AddDays(-10), "Второй", walletType.Id, currency.Id);
+        await Client.CreateOperationTypeIdAsync("Transfer");
+        // The target wallet is left out of the total, so the transfer visibly changes the sum.
+        var excludeResponse = await Client.PatchAsJsonAsync($"/api/v1/wallets/{target.Id}", new
+        {
+            Name = target.Name,
+            target.WalletTypeId,
+            PurposeDescription = (string?)null,
+            IncludeInTotal = false,
+            DisplayOrder = 0,
+            Color = (string?)null,
+            Icon = (string?)null,
+        });
+        excludeResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var transferResponse = await Client.PostAsJsonAsync("/api/v1/transfers", new
+        {
+            SourceWalletId = source.Id,
+            TargetWalletId = target.Id,
+            Amount = 200m,
+            TransferDate = today.AddDays(-2),
+        });
+        transferResponse.EnsureSuccessStatusCode();
+        var transferId = (await transferResponse.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>()).GetProperty("id").GetGuid();
+        decimal Parse(TotalAmountResponse r) => decimal.Parse(r.Amount.Amount, CultureInfo.InvariantCulture);
+        Parse(await GetTotalAmountAsync()).Should().Be(300m);
+        Parse(await GetTotalAmountAsync(today.AddDays(-2))).Should().Be(300m);
+
+        await Client.DeleteAsync($"/api/v1/transfers/{transferId}");
+
+        Parse(await GetTotalAmountAsync()).Should().Be(500m);
+        Parse(await GetTotalAmountAsync(today.AddDays(-2))).Should().Be(500m);
+        Parse(await GetTotalAmountAsync(today.AddDays(-3))).Should().Be(500m);
+
+        await Client.PostAsync($"/api/v1/transfers/{transferId}/restore", null);
+
+        Parse(await GetTotalAmountAsync()).Should().Be(300m);
+        Parse(await GetTotalAmountAsync(today.AddDays(-2))).Should().Be(300m);
+        Parse(await GetTotalAmountAsync(today.AddDays(-3))).Should().Be(500m);
+    }
+
+    [Fact]
     public async Task GetTotalAmount_DateBeforeAccountingStart_ReturnsZero()
     {
         await AuthenticateAsync();

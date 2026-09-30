@@ -72,6 +72,35 @@ public sealed class DeleteOperationCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_AlreadyDeleted_ThrowsOperationAlreadyDeletedExceptionAndDoesNotTouchBalance()
+    {
+        var operation = Income(70m);
+        operation.SoftDelete();
+        _operationRepository.GetByIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(operation);
+
+        var act = () => CreateHandler().Handle(new DeleteOperationCommand(operation.Id.Value), CancellationToken.None);
+
+        await act.Should().ThrowAsync<OperationAlreadyDeletedException>();
+        await _walletBalanceGateway.DidNotReceive().ApplyDeltaAsync(Arg.Any<WalletId>(), Arg.Any<Money>(), Arg.Any<CancellationToken>());
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_NegativeAppliedDelta_ReversesWithPositiveSign()
+    {
+        // Expense: AppliedDelta = -40, the reversal returns +40 to the wallet.
+        var operation = Operation.Create(
+            OperationId.New(), WalletId.New(), OperationTypeId.New(), OperationEffectKind.Expense,
+            Money(40m), DateOnly.FromDateTime(DateTime.UtcNow), adjustmentMode: null, appliedDelta: Money(-40m));
+        _operationRepository.GetByIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(operation);
+
+        await CreateHandler().Handle(new DeleteOperationCommand(operation.Id.Value), CancellationToken.None);
+
+        await _walletBalanceGateway.Received(1).ApplyDeltaAsync(
+            operation.WalletId, Arg.Is<Money>(m => m.Amount == 40m), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Handle_StandaloneOperation_ReversesAppliedDeltaAndSoftDeletesOperation()
     {
         var operation = Income(70m);

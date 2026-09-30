@@ -28,6 +28,7 @@
 
     <ProjectReference Include="..\..\src\Modules\BalanceHistory\Domain\LupexWallet.BalanceHistory.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\BalanceHistory\Application\LupexWallet.BalanceHistory.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\BalanceHistory\Infrastructure\LupexWallet.BalanceHistory.Infrastructure.csproj" />
 
     <ProjectReference Include="..\..\src\Modules\ExchangeRates\Domain\LupexWallet.ExchangeRates.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\ExchangeRates\Application\LupexWallet.ExchangeRates.Application.csproj" />

@@ -194,6 +194,39 @@ describe('WalletsComponent', () => {
     expect(component.currencyError()).toBe('У кошелька уже есть операции или слепки баланса.');
   });
 
+  it('uses the fallback currency-change error text (operations, including deleted) when the server sends no detail', () => {
+    const fixture = createComponent();
+    const component = fixture.componentInstance;
+
+    component.openChangeCurrency(secondaryWallet);
+    component.currencyForm.patchValue({ currencyId: 'c-eur' });
+    component.submitChangeCurrency();
+
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/wallets/w-secondary/currency`)
+      .flush(null, { status: 409, statusText: 'Conflict' });
+
+    expect(component.currencyError()).toBe('Не удалось сменить валюту: у кошелька есть операции, включая удалённые.');
+    expect(component.currencyError()).not.toContain('слепк');
+  });
+
+  it('uses the fallback delete error text (operations, including deleted) when the server sends no detail', () => {
+    const fixture = createComponent();
+    const component = fixture.componentInstance;
+
+    component.requestConfirm(secondaryWallet.id, 'delete');
+    component.confirmPendingAction();
+
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/wallets/w-secondary`)
+      .flush(null, { status: 409, statusText: 'Conflict' });
+
+    expect(component.actionError()).toBe(
+      'Не удалось удалить кошелек: возможно, он основной или у него есть операции, включая удалённые, — используйте архивирование.',
+    );
+    expect(component.actionError()).not.toContain('истори');
+  });
+
   it('deletes a wallet after confirmation and shows a readable error on 409', () => {
     const fixture = createComponent();
     const component = fixture.componentInstance;

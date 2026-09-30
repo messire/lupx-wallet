@@ -238,6 +238,204 @@ public sealed class TransfersApiTests(ApiTestFixture fixture) : IntegrationTestB
         deleted.DeletedAt.Should().NotBeNull();
     }
 
+    // ---- Soft delete / restore of a transfer as a whole (ADR-0002, §3; D3.4) ----
+
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
+
+    private async Task<TransferResponse> CreateTransferAsync(Guid sourceId, Guid targetId, decimal amount, DateOnly date)
+    {
+        var response = await Client.PostAsJsonAsync("/api/v1/transfers", new
+        {
+            SourceWalletId = sourceId,
+            TargetWalletId = targetId,
+            Amount = amount,
+            TransferDate = date,
+        });
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<TransferResponse>())!;
+    }
+
+    private async Task<TransferResponse> GetTransferAsync(Guid id)
+    {
+        var response = await Client.GetAsync($"/api/v1/transfers/{id}");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsync<TransferResponse>())!;
+    }
+
+    private async Task<OperationResponse> GetOperationAsync(Guid id)
+    {
+        var response = await Client.GetAsync($"/api/v1/operations/{id}");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsync<OperationResponse>())!;
+    }
+
+    [Fact]
+    public async Task DeleteTransfer_PastDate_MarksTransferAndBothLegsDeletedWithTheSameDeletedAt()
+    {
+        await AuthenticateAsync();
+        var (source, target) = await CreateWalletPairAsync(sourceBalance: 500m, targetBalance: 100m);
+        var transfer = await CreateTransferAsync(source.Id, target.Id, 150m, Today.AddDays(-4));
+
+        var response = await Client.DeleteAsync($"/api/v1/transfers/{transfer.Id}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        var deletedTransfer = await GetTransferAsync(transfer.Id);
+        var sourceLeg = await GetOperationAsync(transfer.SourceOperationId);
+        var targetLeg = await GetOperationAsync(transfer.TargetOperationId);
+        deletedTransfer.IsDeleted.Should().BeTrue();
+        deletedTransfer.DeletedAt.Should().NotBeNull();
+        sourceLeg.IsDeleted.Should().BeTrue();
+        targetLeg.IsDeleted.Should().BeTrue();
+        sourceLeg.DeletedAt.Should().Be(deletedTransfer.DeletedAt);
+        targetLeg.DeletedAt.Should().Be(deletedTransfer.DeletedAt);
+        (await GetWalletBalanceAsync(source.Id)).Should().Be(500m);
+        (await GetWalletBalanceAsync(target.Id)).Should().Be(100m);
+    }
+
+    [Fact]
+    public async Task RestoreTransfer_Deleted_ReturnsOkRestoresBothLegsAndBothBalances()
+    {
+        await AuthenticateAsync();
+        var (source, target) = await CreateWalletPairAsync(sourceBalance: 500m, targetBalance: 100m);
+        var transfer = await CreateTransferAsync(source.Id, target.Id, 150m, Today.AddDays(-4));
+        await Client.DeleteAsync($"/api/v1/transfers/{transfer.Id}");
+
+        var response = await Client.PostAsync($"/api/v1/transfers/{transfer.Id}/restore", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var restored = (await response.Content.ReadFromJsonAsync<TransferResponse>())!;
+        restored.Id.Should().Be(transfer.Id);
+        restored.IsDeleted.Should().BeFalse();
+        restored.DeletedAt.Should().BeNull();
+        (await GetOperationAsync(transfer.SourceOperationId)).IsDeleted.Should().BeFalse();
+        (await GetOperationAsync(transfer.TargetOperationId)).IsDeleted.Should().BeFalse();
+        (await GetWalletBalanceAsync(source.Id)).Should().Be(350m);
+        (await GetWalletBalanceAsync(target.Id)).Should().Be(250m);
+    }
+
+    [Fact]
+    public async Task DeleteTransfer_AlreadyDeleted_ReturnsConflictAndDoesNotReverseTwice()
+    {
+        await AuthenticateAsync();
+        var (source, target) = await CreateWalletPairAsync(sourceBalance: 500m, targetBalance: 100m);
+        var transfer = await CreateTransferAsync(source.Id, target.Id, 150m, Today);
+        await Client.DeleteAsync($"/api/v1/transfers/{transfer.Id}");
+        var deletedAt = (await GetTransferAsync(transfer.Id)).DeletedAt;
+
+        var response = await Client.DeleteAsync($"/api/v1/transfers/{transfer.Id}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await GetWalletBalanceAsync(source.Id)).Should().Be(500m);
+        (await GetWalletBalanceAsync(target.Id)).Should().Be(100m);
+        (await GetTransferAsync(transfer.Id)).DeletedAt.Should().Be(deletedAt);
+    }
+
+    [Fact]
+    public async Task RestoreTransfer_NotDeleted_ReturnsConflictAndDoesNotApplyTwice()
+    {
+        await AuthenticateAsync();
+        var (source, target) = await CreateWalletPairAsync(sourceBalance: 500m, targetBalance: 100m);
+        var transfer = await CreateTransferAsync(source.Id, target.Id, 150m, Today);
+
+        var response = await Client.PostAsync($"/api/v1/transfers/{transfer.Id}/restore", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await GetWalletBalanceAsync(source.Id)).Should().Be(350m);
+        (await GetWalletBalanceAsync(target.Id)).Should().Be(250m);
+    }
+
+    [Fact]
+    public async Task RestoreTransfer_UnknownId_ReturnsNotFound()
+    {
+        await AuthenticateAsync();
+
+        var response = await Client.PostAsync($"/api/v1/transfers/{Guid.NewGuid()}/restore", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task DeleteAndRestoreLegViaOperations_AfterTransferDeleted_ReturnConflictAndLegsStayDeleted()
+    {
+        await AuthenticateAsync();
+        var (source, target) = await CreateWalletPairAsync(sourceBalance: 500m, targetBalance: 100m);
+        var transfer = await CreateTransferAsync(source.Id, target.Id, 150m, Today.AddDays(-2));
+        await Client.DeleteAsync($"/api/v1/transfers/{transfer.Id}");
+
+        var restoreSource = await Client.PostAsync($"/api/v1/operations/{transfer.SourceOperationId}/restore", null);
+        var restoreTarget = await Client.PostAsync($"/api/v1/operations/{transfer.TargetOperationId}/restore", null);
+        var deleteSource = await Client.DeleteAsync($"/api/v1/operations/{transfer.SourceOperationId}");
+
+        restoreSource.StatusCode.Should().Be(HttpStatusCode.Conflict, "a leg is restored only together with its transfer (D3.4)");
+        restoreTarget.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        deleteSource.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await GetOperationAsync(transfer.SourceOperationId)).IsDeleted.Should().BeTrue();
+        (await GetOperationAsync(transfer.TargetOperationId)).IsDeleted.Should().BeTrue();
+        (await GetWalletBalanceAsync(source.Id)).Should().Be(500m);
+    }
+
+    [Fact]
+    public async Task RestoreLegViaOperations_TransferActive_ReturnsConflict()
+    {
+        await AuthenticateAsync();
+        var (source, target) = await CreateWalletPairAsync(sourceBalance: 500m, targetBalance: 100m);
+        var transfer = await CreateTransferAsync(source.Id, target.Id, 150m, Today);
+
+        var response = await Client.PostAsync($"/api/v1/operations/{transfer.TargetOperationId}/restore", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task UpdateLegViaOperations_AfterTransferDeleted_ReturnsConflict()
+    {
+        await AuthenticateAsync();
+        var (source, target) = await CreateWalletPairAsync(sourceBalance: 500m, targetBalance: 100m);
+        var transfer = await CreateTransferAsync(source.Id, target.Id, 150m, Today);
+        await Client.DeleteAsync($"/api/v1/transfers/{transfer.Id}");
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+
+        var response = await Client.PatchAsJsonAsync($"/api/v1/operations/{transfer.SourceOperationId}", new
+        {
+            WalletId = source.Id,
+            OperationTypeId = incomeTypeId,
+            Amount = 1m,
+            OperationDate = Today,
+            AdjustmentMode = (string?)null,
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await GetWalletBalanceAsync(source.Id)).Should().Be(500m);
+    }
+
+    [Fact]
+    public async Task ListTransfers_IncludesDeletedTransferWithIsDeletedFlag()
+    {
+        await AuthenticateAsync();
+        var (source, target) = await CreateWalletPairAsync(sourceBalance: 500m, targetBalance: 100m);
+        var kept = await CreateTransferAsync(source.Id, target.Id, 10m, Today.AddDays(-2));
+        var removed = await CreateTransferAsync(source.Id, target.Id, 20m, Today.AddDays(-1));
+        var idsBefore = (await ListTransfersAsync()).Select(t => t.Id).ToList();
+        await Client.DeleteAsync($"/api/v1/transfers/{removed.Id}");
+
+        var after = await ListTransfersAsync();
+
+        after.Select(t => t.Id).Should().Equal(idsBefore, "deleted transfers are not hidden and keep their place");
+        after.Single(t => t.Id == removed.Id).IsDeleted.Should().BeTrue();
+        after.Single(t => t.Id == removed.Id).DeletedAt.Should().NotBeNull();
+        after.Single(t => t.Id == kept.Id).IsDeleted.Should().BeFalse();
+    }
+
+    private async Task<IReadOnlyList<TransferResponse>> ListTransfersAsync()
+    {
+        var response = await Client.GetAsync("/api/v1/transfers?limit=100");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsync<TransferPageResponse>())!.Data;
+    }
+
+    private sealed record TransferPageMeta(string? NextCursor, bool HasMore);
+    private sealed record TransferPageResponse(IReadOnlyList<TransferResponse> Data, TransferPageMeta Pagination);
+
     [Fact]
     public async Task DeleteTransfer_UnknownId_ReturnsNotFound()
     {

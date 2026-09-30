@@ -52,6 +52,47 @@ public sealed class UpdateOperationCommandHandlerTests
         await act.Should().ThrowAsync<KeyNotFoundException>();
     }
 
+    // ---- Deleted operation is not editable (ADR-0002, §3; R3) ----
+
+    [Fact]
+    public async Task Handle_DeletedOperation_SameWallet_ThrowsOperationIsDeletedExceptionBeforeAnyGatewayCall()
+    {
+        var operation = Income(WalletId.New(), amount: 100m);
+        operation.SoftDelete();
+        _operationRepository.GetByIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(operation);
+        _operationTypeLookup.GetAsync(Arg.Any<OperationTypeId>(), Arg.Any<CancellationToken>()).Returns(ActiveType("Income"));
+        _walletBalanceGateway.GetAsync(operation.WalletId, Arg.Any<CancellationToken>()).Returns(Wallet(operation.WalletId, 500m));
+        var command = new UpdateOperationCommand(
+            operation.Id.Value, operation.WalletId.Value, Guid.NewGuid(), 150m, operation.OperationDate, null);
+
+        var act = () => CreateHandler().Handle(command, CancellationToken.None);
+
+        await act.Should().ThrowAsync<OperationIsDeletedException>();
+        await _walletBalanceGateway.DidNotReceive().GetAsync(Arg.Any<WalletId>(), Arg.Any<CancellationToken>());
+        await _walletBalanceGateway.DidNotReceive().ApplyDeltaAsync(Arg.Any<WalletId>(), Arg.Any<Money>(), Arg.Any<CancellationToken>());
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_DeletedOperation_MoveToAnotherWallet_ThrowsOperationIsDeletedExceptionBeforeAnyGatewayCall()
+    {
+        var operation = Income(WalletId.New(), amount: 100m);
+        operation.SoftDelete();
+        _operationRepository.GetByIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(operation);
+        _operationTypeLookup.GetAsync(Arg.Any<OperationTypeId>(), Arg.Any<CancellationToken>()).Returns(ActiveType("Income"));
+        var newWalletId = WalletId.New();
+        _walletBalanceGateway.GetAsync(newWalletId, Arg.Any<CancellationToken>()).Returns(Wallet(newWalletId, 0m));
+        var command = new UpdateOperationCommand(
+            operation.Id.Value, newWalletId.Value, Guid.NewGuid(), 100m, operation.OperationDate, null);
+
+        var act = () => CreateHandler().Handle(command, CancellationToken.None);
+
+        await act.Should().ThrowAsync<OperationIsDeletedException>();
+        await _walletBalanceGateway.DidNotReceive().GetAsync(Arg.Any<WalletId>(), Arg.Any<CancellationToken>());
+        await _walletBalanceGateway.DidNotReceive().ApplyDeltaAsync(Arg.Any<WalletId>(), Arg.Any<Money>(), Arg.Any<CancellationToken>());
+        operation.WalletId.Should().NotBe(newWalletId);
+    }
+
     [Fact]
     public async Task Handle_SameWallet_AppliesIncrementalDeltaOnlyOnce()
     {

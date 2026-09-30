@@ -445,6 +445,95 @@ describe('TransfersComponent', () => {
     expect(component.successMessage()).toBe('Перевод восстановлен');
   });
 
+  it('sets restoreError (server detail) and shows it as an error toast when restoring a transfer fails', () => {
+    const deletedTransfer: Transfer = { ...transfer1, isDeleted: true, deletedAt: '2026-09-11T00:00:00Z' };
+    const fixture = createComponent([deletedTransfer]);
+    const component = fixture.componentInstance;
+
+    component.restoreFromRowActions(deletedTransfer);
+
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/transfers/${transfer1.id}/restore`)
+      .flush(
+        { title: 'Conflict', status: 409, detail: 'Перевод не удалён.' },
+        { status: 409, statusText: 'Conflict' },
+      );
+    fixture.detectChanges();
+
+    expect(component.restoreError()).toBe('Перевод не удалён.');
+    expect(component.successMessage()).toBeNull();
+    expect(component.isRestoring()).toBe(false);
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Перевод не удалён.');
+  });
+
+  it('falls back to a generic restoreError text when the server sends no problem details', () => {
+    const deletedTransfer: Transfer = { ...transfer1, isDeleted: true, deletedAt: '2026-09-11T00:00:00Z' };
+    const fixture = createComponent([deletedTransfer]);
+    const component = fixture.componentInstance;
+
+    component.restoreFromRowActions(deletedTransfer);
+
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/transfers/${transfer1.id}/restore`)
+      .flush(null, { status: 500, statusText: 'Server Error' });
+
+    expect(component.restoreError()).toBe('Не удалось восстановить перевод.');
+  });
+
+  it('does not send a second restore request while the first is in flight, and clears restoreError on a new attempt', () => {
+    const deletedTransfer: Transfer = { ...transfer1, isDeleted: true, deletedAt: '2026-09-11T00:00:00Z' };
+    const fixture = createComponent([deletedTransfer]);
+    const component = fixture.componentInstance;
+
+    component.restoreFromRowActions(deletedTransfer);
+    component.restoreFromRowActions(deletedTransfer); // guarded by isRestoring()
+    expect(component.isRestoring()).toBe(true);
+
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/transfers/${transfer1.id}/restore`)
+      .flush(null, { status: 500, statusText: 'Server Error' });
+    expect(component.restoreError()).not.toBeNull();
+
+    component.restoreFromRowActions(deletedTransfer);
+    expect(component.restoreError()).toBeNull();
+    httpMock.expectOne(`${environment.apiBaseUrl}/transfers/${transfer1.id}/restore`).flush(transfer1);
+    httpMock
+      .expectOne((r) => r.url === `${environment.apiBaseUrl}/transfers`)
+      .flush({ data: [transfer1], pagination: { nextCursor: null, hasMore: false } });
+  });
+
+  it('shows the new delete-confirm text: record stays in the list, is excluded from both balances, can be restored', () => {
+    const fixture = createComponent();
+    const component = fixture.componentInstance;
+
+    component.requestDeleteConfirm(transfer1); // 2026-09-10 — in the past, still deletable
+    fixture.detectChanges();
+
+    const text = ((fixture.nativeElement as HTMLElement).textContent ?? '').replace(/\s+/g, ' ');
+    expect(text).toContain('Запись останется в списке, исключится из расчётов балансов обоих кошельков, её можно восстановить.');
+    expect(text).not.toContain('без возможности восстановления');
+    expect(text).not.toContain('Отменить нельзя');
+    expect(text).not.toContain('удалить нельзя');
+  });
+
+  it('deletes a past-dated transfer: DELETE, reload, "Перевод удалён" toast', () => {
+    const fixture = createComponent();
+    const component = fixture.componentInstance;
+
+    component.requestDeleteConfirm(transfer1);
+    component.confirmDeleteTransfer();
+
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/transfers/${transfer1.id}`);
+    expect(req.request.method).toBe('DELETE');
+    req.flush(null, { status: 204, statusText: 'No Content' });
+
+    httpMock
+      .expectOne((r) => r.url === `${environment.apiBaseUrl}/transfers`)
+      .flush({ data: [{ ...transfer1, isDeleted: true, deletedAt: '2026-09-11T00:00:00Z' }], pagination: { nextCursor: null, hasMore: false } });
+
+    expect(component.successMessage()).toBe('Перевод удалён');
+  });
+
   // ---- A2: the wallet filter sends exactly one walletId parameter ----
 
   it('applyFilters sends exactly one walletId parameter, with no separate source/target parameters', () => {

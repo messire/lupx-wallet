@@ -56,6 +56,38 @@ public sealed class DeleteTransferCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_AlreadyDeleted_ThrowsTransferAlreadyDeletedExceptionAndDoesNotTouchAnyWallet()
+    {
+        var (transfer, sourceOperation, targetOperation) = Transfer.Create(
+            TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(50m), DateOnly.FromDateTime(DateTime.UtcNow));
+        transfer.SoftDelete(sourceOperation, targetOperation);
+        _transferRepository.GetByIdAsync(transfer.Id, Arg.Any<CancellationToken>()).Returns(transfer);
+        _operationRepository.GetByIdAsync(transfer.SourceOperationId, Arg.Any<CancellationToken>()).Returns(sourceOperation);
+        _operationRepository.GetByIdAsync(transfer.TargetOperationId, Arg.Any<CancellationToken>()).Returns(targetOperation);
+
+        var act = () => CreateHandler().Handle(new DeleteTransferCommand(transfer.Id.Value), CancellationToken.None);
+
+        await act.Should().ThrowAsync<TransferAlreadyDeletedException>();
+        await _walletBalanceGateway.DidNotReceive().ApplyDeltaAsync(Arg.Any<WalletId>(), Arg.Any<Money>(), Arg.Any<CancellationToken>());
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_MissingLeg_ThrowsKeyNotFoundExceptionAndDoesNotTouchAnyWallet()
+    {
+        var (transfer, sourceOperation, _) = Transfer.Create(
+            TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(50m), DateOnly.FromDateTime(DateTime.UtcNow));
+        _transferRepository.GetByIdAsync(transfer.Id, Arg.Any<CancellationToken>()).Returns(transfer);
+        _operationRepository.GetByIdAsync(transfer.SourceOperationId, Arg.Any<CancellationToken>()).Returns(sourceOperation);
+        _operationRepository.GetByIdAsync(transfer.TargetOperationId, Arg.Any<CancellationToken>()).Returns((Operation?)null);
+
+        var act = () => CreateHandler().Handle(new DeleteTransferCommand(transfer.Id.Value), CancellationToken.None);
+
+        await act.Should().ThrowAsync<KeyNotFoundException>();
+        await _walletBalanceGateway.DidNotReceive().ApplyDeltaAsync(Arg.Any<WalletId>(), Arg.Any<Money>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Handle_Valid_ReversesBothDeltasAndSoftDeletesTransferAndBothOperations()
     {
         var (transfer, sourceOperation, targetOperation) = Transfer.Create(

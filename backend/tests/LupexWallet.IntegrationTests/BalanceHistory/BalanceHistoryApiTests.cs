@@ -181,6 +181,128 @@ public sealed class BalanceHistoryApiTests(ApiTestFixture fixture) : Integration
         page.Data.Should().OnlyContain(s => decimal.Parse(s.Balance.Amount, CultureInfo.InvariantCulture) == 1000m, "удаление операции откатывает её вклад в историю");
     }
 
+    // ---- Soft delete / restore recalculates history from the operation date (ADR-0002, §3; ADR-0003, §2) ----
+
+    private static decimal Amount(BalanceSnapshotResponse snapshot) => decimal.Parse(snapshot.Balance.Amount, CultureInfo.InvariantCulture);
+
+    [Fact]
+    public async Task DeleteOperation_PastDate_RecalculatesSnapshotsFromItsDateWithoutIt()
+    {
+        await AuthenticateAsync();
+        var accountingStartDate = Today.AddDays(-10);
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m, accountingStartDate: accountingStartDate);
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var earlierId = await CreateOperationAsync(wallet.Id, incomeTypeId, 100m, Today.AddDays(-6));
+        var laterId = await CreateOperationAsync(wallet.Id, incomeTypeId, 300m, Today.AddDays(-3));
+        var before = (await Client.GetSnapshotsAsync(wallet.Id, accountingStartDate, Today)).ToDictionary(s => s.Date, Amount);
+        before[Today.AddDays(-4)].Should().Be(1100m);
+        before[Today].Should().Be(1400m);
+
+        (await Client.DeleteAsync($"/api/v1/operations/{laterId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var after = (await Client.GetSnapshotsAsync(wallet.Id, accountingStartDate, Today)).ToDictionary(s => s.Date, Amount);
+        after.Keys.Should().BeEquivalentTo(before.Keys, "snapshots are recalculated in place, not removed");
+        after[Today.AddDays(-6)].Should().Be(1100m);
+        after[Today.AddDays(-4)].Should().Be(1100m, "the deleted operation was later than this date");
+        after[Today.AddDays(-3)].Should().Be(1100m, "from the deleted operation's date the snapshots drop its effect");
+        after[Today].Should().Be(1100m);
+        _ = earlierId;
+    }
+
+    [Fact]
+    public async Task RestoreOperation_PastDate_RecalculatesSnapshotsBackToTheirPreviousValues()
+    {
+        await AuthenticateAsync();
+        var accountingStartDate = Today.AddDays(-10);
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m, accountingStartDate: accountingStartDate);
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        await CreateOperationAsync(wallet.Id, incomeTypeId, 100m, Today.AddDays(-6));
+        var operationId = await CreateOperationAsync(wallet.Id, incomeTypeId, 300m, Today.AddDays(-3));
+        var before = (await Client.GetSnapshotsAsync(wallet.Id, accountingStartDate, Today)).ToDictionary(s => s.Date, Amount);
+        await Client.DeleteAsync($"/api/v1/operations/{operationId}");
+
+        (await Client.PostAsync($"/api/v1/operations/{operationId}/restore", null)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var after = (await Client.GetSnapshotsAsync(wallet.Id, accountingStartDate, Today)).ToDictionary(s => s.Date, Amount);
+        after.Should().BeEquivalentTo(before);
+        after[Today.AddDays(-4)].Should().Be(1100m);
+        after[Today.AddDays(-3)].Should().Be(1400m);
+        after[Today].Should().Be(1400m);
+        (await Client.GetWalletBalanceAsync(wallet.Id)).Should().Be(1400m, "CurrentBalance agrees with the snapshot for today");
+    }
+
+    [Fact]
+    public async Task GetWalletBalance_OnDate_ExcludesDeletedOperationAndCountsItAgainAfterRestore()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m, accountingStartDate: Today.AddDays(-10));
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var operationId = await CreateOperationAsync(wallet.Id, incomeTypeId, 300m, Today.AddDays(-3));
+        (await Client.GetWalletBalanceOnDateAsync(wallet.Id, Today.AddDays(-3))).Should().Be(1300m);
+
+        await Client.DeleteAsync($"/api/v1/operations/{operationId}");
+
+        (await Client.GetWalletBalanceOnDateAsync(wallet.Id, Today.AddDays(-3))).Should().Be(1000m);
+        (await Client.GetWalletBalanceOnDateAsync(wallet.Id, Today)).Should().Be(1000m);
+
+        await Client.PostAsync($"/api/v1/operations/{operationId}/restore", null);
+
+        (await Client.GetWalletBalanceOnDateAsync(wallet.Id, Today.AddDays(-4))).Should().Be(1000m);
+        (await Client.GetWalletBalanceOnDateAsync(wallet.Id, Today.AddDays(-3))).Should().Be(1300m);
+        (await Client.GetWalletBalanceOnDateAsync(wallet.Id, Today)).Should().Be(1300m);
+    }
+
+    [Fact]
+    public async Task GetWalletBalance_OnDate_WithDeletedOperationOnTheSameDate_CountsOnlyActiveOnes()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m, accountingStartDate: Today.AddDays(-10));
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var date = Today.AddDays(-2);
+        await CreateOperationAsync(wallet.Id, incomeTypeId, 100m, date);
+        var deletedId = await CreateOperationAsync(wallet.Id, incomeTypeId, 50m, date);
+
+        await Client.DeleteAsync($"/api/v1/operations/{deletedId}");
+
+        (await Client.GetWalletBalanceOnDateAsync(wallet.Id, date)).Should().Be(1100m);
+    }
+
+    [Fact]
+    public async Task DeleteAndRestoreTransfer_PastDate_RecalculatesSnapshotsOfBothWallets()
+    {
+        await AuthenticateAsync();
+        var accountingStartDate = Today.AddDays(-10);
+        var currency = await Client.CreateCurrencyAsync("TH" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant(), "Тестовая валюта");
+        var walletType = await Client.CreateWalletTypeAsync();
+        var source = await Client.CreateWalletAsync(1000m, accountingStartDate, "Источник", walletType.Id, currency.Id);
+        var target = await Client.CreateWalletAsync(200m, accountingStartDate, "Назначение", walletType.Id, currency.Id);
+        await Client.CreateOperationTypeIdAsync("Transfer");
+        var transferDate = Today.AddDays(-4);
+        var transferResponse = await Client.PostAsJsonAsync("/api/v1/transfers", new
+        {
+            SourceWalletId = source.Id,
+            TargetWalletId = target.Id,
+            Amount = 150m,
+            TransferDate = transferDate,
+        });
+        transferResponse.EnsureSuccessStatusCode();
+        var transferId = (await transferResponse.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>()).GetProperty("id").GetGuid();
+        (await Client.GetSnapshotsAsync(source.Id, transferDate, Today)).Should().OnlyContain(s => Amount(s) == 850m);
+        (await Client.GetSnapshotsAsync(target.Id, transferDate, Today)).Should().OnlyContain(s => Amount(s) == 350m);
+
+        (await Client.DeleteAsync($"/api/v1/transfers/{transferId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var sourceAfterDelete = await Client.GetSnapshotsAsync(source.Id, transferDate, Today);
+        var targetAfterDelete = await Client.GetSnapshotsAsync(target.Id, transferDate, Today);
+        sourceAfterDelete.Should().HaveCount((Today.DayNumber - transferDate.DayNumber) + 1).And.OnlyContain(s => Amount(s) == 1000m);
+        targetAfterDelete.Should().HaveCount((Today.DayNumber - transferDate.DayNumber) + 1).And.OnlyContain(s => Amount(s) == 200m);
+
+        (await Client.PostAsync($"/api/v1/transfers/{transferId}/restore", null)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await Client.GetSnapshotsAsync(source.Id, transferDate, Today)).Should().OnlyContain(s => Amount(s) == 850m);
+        (await Client.GetSnapshotsAsync(target.Id, transferDate, Today)).Should().OnlyContain(s => Amount(s) == 350m);
+    }
+
     [Fact]
     public async Task GetBalanceHistory_FromGreaterThanTo_ReturnsBadRequest()
     {

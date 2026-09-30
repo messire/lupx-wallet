@@ -81,8 +81,13 @@ export async function login(page: Page): Promise<void> {
  * call needed at test sites). `name` should be unique per test to avoid
  * clashing with wallets left over from other scenarios sharing the same DB.
  */
-export async function createWallet(page: Page, options: { name: string; initialBalance?: string }): Promise<string> {
-  await page.getByRole('button', { name: 'Добавить кошелек' }).click();
+export async function createWallet(
+  page: Page,
+  options: { name: string; initialBalance?: string; accountingStartDate?: string },
+): Promise<string> {
+  // `.first()`: on an empty database the page shows the empty state, which has its own
+  // "Добавить кошелек" button next to the heading one (strict-mode violation otherwise).
+  await page.getByRole('button', { name: 'Добавить кошелек' }).first().click();
 
   const typeSelect = page.locator('select[formcontrolname="walletTypeId"]');
   // `[disabled]="walletTypesLoading()"` clears once the list has actually loaded —
@@ -128,6 +133,12 @@ export async function createWallet(page: Page, options: { name: string; initialB
     await page.locator('input[formcontrolname="initialBalanceAmount"]').fill(options.initialBalance);
   }
 
+  if (options.accountingStartDate) {
+    // Defaults to today; operations/transfers dated before it are rejected, so scenarios that
+    // create a past-dated record (ADR-0002: deletable with any date) need an earlier start date.
+    await page.locator('input[formcontrolname="accountingStartDate"]').fill(options.accountingStartDate);
+  }
+
   const [response] = await Promise.all([
     page.waitForResponse(
       (res) => res.request().method() === 'POST' && new URL(res.url()).pathname === '/api/v1/wallets',
@@ -141,6 +152,16 @@ export async function createWallet(page: Page, options: { name: string; initialB
     trackedWalletIds(page).push(created.id);
   }
   return created?.id ?? '';
+}
+
+/**
+ * UTC calendar date `daysAgo` days before today, as `YYYY-MM-DD` (the format of `<input type="date">`).
+ * UTC on purpose: the app's forms compute "today" as `new Date().toISOString().slice(0, 10)`.
+ */
+export function isoDateDaysAgo(daysAgo: number): string {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() - daysAgo);
+  return date.toISOString().slice(0, 10);
 }
 
 /**
@@ -171,4 +192,45 @@ export async function ensureOperationType(
   await panel.locator('select[formcontrolname="behaviorKindId"]').selectOption({ label: behaviorKindLabel });
   await panel.getByRole('button', { name: 'Добавить', exact: true }).click();
   await expect(page.locator('.ref-table', { hasText: name })).toBeVisible();
+}
+
+/**
+ * Makes sure an active operation type with behavior "Transfer" exists — creating a transfer
+ * is impossible without one, and a fresh database has none (the Reference Data screen
+ * deliberately cannot create it: Transfer is a system-only behavior kind). Created through
+ * the API instead, like `cleanupCreatedWallets` does for teardown; idempotent, not torn down.
+ * Requires a logged-in page (reads the auth token from localStorage).
+ */
+export async function ensureTransferOperationType(page: Page): Promise<void> {
+  const token = await page.evaluate(() => localStorage.getItem('lupexwallet.auth.token'));
+  expect(token, 'ensureTransferOperationType needs a logged-in page').toBeTruthy();
+
+  const result = await page.evaluate(
+    async ({ apiBaseUrl, token }) => {
+      const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+      const kinds = (await (await fetch(`${apiBaseUrl}/operation-behavior-kinds`, { headers })).json()) as Array<{
+        id: string;
+        code: string;
+      }>;
+      const transferKind = kinds.find((kind) => kind.code === 'Transfer');
+      if (!transferKind) {
+        return 'no-transfer-behavior-kind';
+      }
+      const types = (await (await fetch(`${apiBaseUrl}/operation-types?limit=100`, { headers })).json()) as {
+        data: Array<{ behaviorKindId: string; isActive: boolean }>;
+      };
+      if (types.data.some((type) => type.behaviorKindId === transferKind.id && type.isActive)) {
+        return 'exists';
+      }
+      const created = await fetch(`${apiBaseUrl}/operation-types`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ name: 'E2E перевод', behaviorKindId: transferKind.id }),
+      });
+      return created.ok ? 'created' : `create-failed-${created.status}`;
+    },
+    { apiBaseUrl: API_BASE_URL, token },
+  );
+
+  expect(['exists', 'created']).toContain(result);
 }

@@ -44,6 +44,32 @@ public sealed class BalanceSnapshotTests
     }
 
     [Fact]
+    public void MarkAsDeleted_RaisesBalanceSnapshotDeletedWithBalanceBeforeRemoval()
+    {
+        var walletId = WalletId.New();
+        var date = new DateOnly(2026, 2, 3);
+        var snapshot = BalanceSnapshot.Create(walletId, date, new Money(321.5m, Currency));
+
+        snapshot.MarkAsDeleted();
+
+        var deleted = snapshot.DomainEvents.OfType<BalanceSnapshotDeleted>().Should().ContainSingle().Subject;
+        deleted.WalletId.Should().Be(walletId);
+        deleted.SnapshotDate.Should().Be(date);
+        deleted.Balance.Should().Be(new Money(321.5m, Currency));
+    }
+
+    [Fact]
+    public void MarkAsDeleted_AfterUpdateBalance_CarriesTheLatestBalance()
+    {
+        var snapshot = BalanceSnapshot.Create(WalletId.New(), new DateOnly(2026, 1, 1), new Money(100m, Currency));
+        snapshot.UpdateBalance(new Money(180m, Currency));
+
+        snapshot.MarkAsDeleted();
+
+        snapshot.DomainEvents.OfType<BalanceSnapshotDeleted>().Single().Balance.Amount.Should().Be(180m);
+    }
+
+    [Fact]
     public void UpdateBalance_SameCurrency_UpdatesAmountAndRaisesBalanceSnapshotUpdated()
     {
         var snapshot = BalanceSnapshot.Create(WalletId.New(), new DateOnly(2026, 1, 1), new Money(100m, Currency));

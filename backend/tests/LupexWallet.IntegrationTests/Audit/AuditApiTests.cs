@@ -148,6 +148,132 @@ public sealed class AuditApiTests(ApiTestFixture fixture) : IntegrationTestBase(
         afterAttempt.Data.Should().BeEquivalentTo(beforeAttempt.Data, "неудачная команда не должна оставить в журнале аудита никаких следов промежуточного шага (откат той же транзакции, что и бизнес-состояние)");
     }
 
+    // ---- Soft delete / restore of operations and transfers (ADR-0002, §3, §5; ADR-0006; D3.8, D5.1) ----
+
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
+
+    private static readonly TimeSpan MicrosecondPrecision = TimeSpan.FromTicks(10);
+
+    private static DateTimeOffset ParseInstant(string? value) =>
+        DateTimeOffset.Parse(value!, System.Globalization.CultureInfo.InvariantCulture);
+
+    private async Task<Guid> CreateIncomeAsync(Guid walletId, Guid incomeTypeId, decimal amount, DateOnly date) =>
+        await Client.CreateOperationReturningIdAsync(walletId, incomeTypeId, amount, date);
+
+    [Fact]
+    public async Task DeleteAndRestoreOperation_RecordDeletedAndRestoredEntriesWithDeletedAtDiff()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m, accountingStartDate: Today.AddDays(-10));
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var operationId = await CreateIncomeAsync(wallet.Id, incomeTypeId, 300m, Today.AddDays(-3));
+
+        (await Client.DeleteAsync($"/api/v1/operations/{operationId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await Client.PostAsync($"/api/v1/operations/{operationId}/restore", null)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var entries = (await Client.GetAuditEntriesAsync("Operation", operationId)).OrderBy(e => e.OccurredAt).ToList();
+        entries.Select(e => e.Action).Should().Equal("Created", "Deleted", "Restored");
+
+        var deleted = entries.Single(e => e.Action == "Deleted");
+        deleted.ActorKind.Should().Be("User");
+        var deletedChange = deleted.Changes.Should().ContainSingle(
+            "soft deletion is a Modified aggregate: the diff holds only DeletedAt, not a full row snapshot").Subject;
+        deletedChange.Field.Should().Be("DeletedAt");
+        deletedChange.OldValue.Should().BeNull();
+        deletedChange.NewValue.Should().NotBeNullOrEmpty();
+
+        var restored = entries.Single(e => e.Action == "Restored");
+        var restoredChange = restored.Changes.Should().ContainSingle().Subject;
+        restoredChange.Field.Should().Be("DeletedAt");
+        // Deleted holds the in-memory value (100 ns ticks), Restored the value read back from timestamptz (microseconds).
+        ParseInstant(restoredChange.OldValue).Should().BeCloseTo(ParseInstant(deletedChange.NewValue), MicrosecondPrecision,
+            "Restored reverts exactly the value that Deleted set");
+        restoredChange.NewValue.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeleteOperation_PastDate_AlsoRecordsWalletBalanceChangedAndSnapshotUpdatedEntries()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m, accountingStartDate: Today.AddDays(-10));
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var operationId = await CreateIncomeAsync(wallet.Id, incomeTypeId, 300m, Today.AddDays(-3));
+        var balanceChangesBefore = (await Client.GetAuditEntriesAsync("Wallet", wallet.Id)).Count(e => e.Action == "BalanceChanged");
+        var snapshotUpdatesBefore = (await Client.GetAuditEntriesAsync("BalanceSnapshot", wallet.Id)).Count(e => e.Action == "SnapshotUpdated");
+
+        await Client.DeleteAsync($"/api/v1/operations/{operationId}");
+
+        (await Client.GetAuditEntriesAsync("Wallet", wallet.Id)).Count(e => e.Action == "BalanceChanged")
+            .Should().Be(balanceChangesBefore + 1, "the reversed delta changes CurrentBalance");
+        var snapshotUpdates = (await Client.GetAuditEntriesAsync("BalanceSnapshot", wallet.Id)).Where(e => e.Action == "SnapshotUpdated").ToList();
+        snapshotUpdates.Count.Should().Be(snapshotUpdatesBefore + 4, "snapshots from the operation date through today (4 days) change from 1300 to 1000");
+    }
+
+    [Fact]
+    public async Task DeleteAndRestoreTransfer_RecordTransferAndBothLegEntriesWithTheSameDeletedAt()
+    {
+        await AuthenticateAsync();
+        var currency = await Client.CreateCurrencyAsync("AU" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant(), "Тестовая валюта");
+        var walletType = await Client.CreateWalletTypeAsync();
+        var source = await Client.CreateWalletAsync(500m, Today.AddDays(-10), "Источник", walletType.Id, currency.Id);
+        var target = await Client.CreateWalletAsync(100m, Today.AddDays(-10), "Назначение", walletType.Id, currency.Id);
+        await Client.CreateOperationTypeIdAsync("Transfer");
+        var transferResponse = await Client.PostAsJsonAsync("/api/v1/transfers", new
+        {
+            SourceWalletId = source.Id,
+            TargetWalletId = target.Id,
+            Amount = 150m,
+            TransferDate = Today.AddDays(-4),
+        });
+        transferResponse.EnsureSuccessStatusCode();
+        var transfer = (await transferResponse.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>());
+        var transferId = transfer.GetProperty("id").GetGuid();
+        var sourceLegId = transfer.GetProperty("sourceOperationId").GetGuid();
+        var targetLegId = transfer.GetProperty("targetOperationId").GetGuid();
+
+        (await Client.DeleteAsync($"/api/v1/transfers/{transferId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await Client.PostAsync($"/api/v1/transfers/{transferId}/restore", null)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var transferEntries = (await Client.GetAuditEntriesAsync("Transfer", transferId)).OrderBy(e => e.OccurredAt).ToList();
+        transferEntries.Select(e => e.Action).Should().Equal("Created", "Deleted", "Restored");
+        var transferDeleted = transferEntries.Single(e => e.Action == "Deleted").Changes.Should().ContainSingle().Subject;
+        transferDeleted.Field.Should().Be("DeletedAt");
+        transferDeleted.OldValue.Should().BeNull();
+        transferDeleted.NewValue.Should().NotBeNullOrEmpty();
+        var transferRestored = transferEntries.Single(e => e.Action == "Restored").Changes.Should().ContainSingle().Subject;
+        transferRestored.Field.Should().Be("DeletedAt");
+        ParseInstant(transferRestored.OldValue).Should().BeCloseTo(ParseInstant(transferDeleted.NewValue), MicrosecondPrecision);
+        transferRestored.NewValue.Should().BeNull();
+
+        foreach (var legId in new[] { sourceLegId, targetLegId })
+        {
+            var legEntries = (await Client.GetAuditEntriesAsync("Operation", legId)).OrderBy(e => e.OccurredAt).ToList();
+            legEntries.Select(e => e.Action).Should().Equal("Created", "Deleted", "Restored");
+            legEntries.Single(e => e.Action == "Deleted").Changes.Should().ContainSingle(c => c.Field == "DeletedAt" && c.NewValue != null && ParseInstant(c.NewValue) == ParseInstant(transferDeleted.NewValue),
+                "the legs share the transfer's DeletedAt");
+        }
+    }
+
+    [Fact]
+    public async Task RejectedDeleteOfAlreadyDeletedOperation_DoesNotAddAuditEntries()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m, accountingStartDate: Today.AddDays(-10));
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var operationId = await CreateIncomeAsync(wallet.Id, incomeTypeId, 300m, Today.AddDays(-3));
+        await Client.DeleteAsync($"/api/v1/operations/{operationId}");
+        var operationEntries = (await Client.GetAuditEntriesAsync("Operation", operationId)).Count;
+        var walletEntries = (await Client.GetAuditEntriesAsync("Wallet", wallet.Id)).Count;
+        var snapshotEntries = (await Client.GetAuditEntriesAsync("BalanceSnapshot", wallet.Id)).Count;
+
+        (await Client.DeleteAsync($"/api/v1/operations/{operationId}")).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await Client.PostAsync($"/api/v1/operations/{Guid.NewGuid()}/restore", null)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        (await Client.GetAuditEntriesAsync("Operation", operationId)).Should().HaveCount(operationEntries);
+        (await Client.GetAuditEntriesAsync("Wallet", wallet.Id)).Should().HaveCount(walletEntries);
+        (await Client.GetAuditEntriesAsync("BalanceSnapshot", wallet.Id)).Should().HaveCount(snapshotEntries);
+    }
+
     [Fact]
     public async Task GetAuditEntries_CursorPagination_ReturnsAllEntriesWithoutDuplicates()
     {

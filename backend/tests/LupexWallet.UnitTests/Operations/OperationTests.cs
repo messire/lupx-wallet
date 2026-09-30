@@ -251,4 +251,156 @@ public sealed class OperationTests
         deletedEvent.WalletId.Should().Be(operation.WalletId);
         deletedEvent.OperationDate.Should().Be(new DateOnly(2026, 3, 1));
     }
+
+    // ---- Soft delete / restore (ADR-0002, §3; R3) ----
+
+    [Fact]
+    public void SoftDelete_StandaloneOperation_SetsDeletedAtAndRaisesEventWithOperationId()
+    {
+        var operation = CreateIncome(100m, new DateOnly(2026, 3, 1));
+        var before = DateTimeOffset.UtcNow;
+
+        operation.SoftDelete();
+
+        operation.IsDeleted.Should().BeTrue();
+        operation.DeletedAt.Should().NotBeNull().And.BeOnOrAfter(before);
+        operation.DomainEvents.OfType<OperationDeleted>().Single().OperationId.Should().Be(operation.Id);
+    }
+
+    [Fact]
+    public void SoftDelete_AlreadyDeleted_DoesNotChangeDeletedAtOrRaiseSecondEvent()
+    {
+        var operation = CreateIncome();
+        operation.SoftDelete();
+        var deletedAt = operation.DeletedAt;
+
+        var act = () => operation.SoftDelete();
+
+        act.Should().Throw<OperationAlreadyDeletedException>();
+        operation.DeletedAt.Should().Be(deletedAt);
+        operation.DomainEvents.OfType<OperationDeleted>().Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Restore_DeletedOperation_ClearsDeletedAtAndRaisesOperationRestoredWithDate()
+    {
+        var operation = CreateIncome(100m, new DateOnly(2026, 3, 1));
+        operation.SoftDelete();
+
+        operation.Restore();
+
+        operation.IsDeleted.Should().BeFalse();
+        operation.DeletedAt.Should().BeNull();
+        var restored = operation.DomainEvents.OfType<OperationRestored>().Single();
+        restored.OperationId.Should().Be(operation.Id);
+        restored.WalletId.Should().Be(operation.WalletId);
+        restored.OperationDate.Should().Be(new DateOnly(2026, 3, 1));
+    }
+
+    [Fact]
+    public void Restore_DoesNotTouchUpdatedAtNorAppliedDelta()
+    {
+        var operation = CreateIncome(100m);
+        var updatedAt = operation.UpdatedAt;
+        operation.SoftDelete();
+
+        operation.Restore();
+
+        operation.UpdatedAt.Should().Be(updatedAt, "UpdatedAt is the moment of a content edit; delete/restore moments live in DeletedAt and audit");
+        operation.AppliedDelta.Amount.Should().Be(100m);
+    }
+
+    [Fact]
+    public void Restore_NotDeletedOperation_ThrowsOperationNotDeletedExceptionAndRaisesNothing()
+    {
+        var operation = CreateIncome();
+
+        var act = () => operation.Restore();
+
+        act.Should().Throw<OperationNotDeletedException>();
+        operation.DomainEvents.OfType<OperationRestored>().Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Restore_OperationPartOfTransfer_ThrowsOperationPartOfTransferException()
+    {
+        var (_, sourceOperation, _) = Transfer.Create(
+            TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(10m), DateOnly.FromDateTime(DateTime.UtcNow));
+
+        var act = () => sourceOperation.Restore();
+
+        act.Should().Throw<OperationPartOfTransferException>();
+    }
+
+    [Fact]
+    public void SoftDeleteThenRestoreThenSoftDelete_IsAllowed()
+    {
+        var operation = CreateIncome();
+
+        operation.SoftDelete();
+        operation.Restore();
+        var act = () => operation.SoftDelete();
+
+        act.Should().NotThrow();
+        operation.IsDeleted.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Update_DeletedOperation_ThrowsOperationIsDeletedExceptionAndKeepsState()
+    {
+        var operation = CreateIncome(100m, new DateOnly(2026, 1, 10));
+        operation.SoftDelete();
+        var updatedAt = operation.UpdatedAt;
+
+        var act = () => operation.Update(
+            OperationTypeId.New(), OperationEffectKind.Income, Money(999m),
+            new DateOnly(2026, 1, 5), adjustmentMode: null, appliedDelta: Money(999m));
+
+        act.Should().Throw<OperationIsDeletedException>();
+        operation.Amount.Amount.Should().Be(100m);
+        operation.OperationDate.Should().Be(new DateOnly(2026, 1, 10));
+        operation.UpdatedAt.Should().Be(updatedAt);
+        operation.DomainEvents.OfType<OperationUpdated>().Should().BeEmpty();
+    }
+
+    [Fact]
+    public void MoveToWallet_DeletedOperation_ThrowsOperationIsDeletedExceptionAndKeepsWallet()
+    {
+        var operation = CreateIncome(100m);
+        var walletId = operation.WalletId;
+        operation.SoftDelete();
+
+        var act = () => operation.MoveToWallet(
+            WalletId.New(), operation.OperationTypeId, OperationEffectKind.Income, Money(100m),
+            operation.OperationDate, adjustmentMode: null, appliedDelta: Money(100m));
+
+        act.Should().Throw<OperationIsDeletedException>();
+        operation.WalletId.Should().Be(walletId);
+        operation.DomainEvents.OfType<OperationUpdated>().Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Update_AfterRestore_IsAllowedAgain()
+    {
+        var operation = CreateIncome(100m);
+        operation.SoftDelete();
+        operation.Restore();
+
+        var act = () => operation.Update(
+            operation.OperationTypeId, OperationEffectKind.Income, Money(150m),
+            operation.OperationDate, adjustmentMode: null, appliedDelta: Money(150m));
+
+        act.Should().NotThrow();
+        operation.Amount.Amount.Should().Be(150m);
+    }
+
+    [Fact]
+    public void EnsureNotDeleted_ActiveOperation_DoesNotThrow()
+    {
+        var operation = CreateIncome();
+
+        var act = () => operation.EnsureNotDeleted();
+
+        act.Should().NotThrow();
+    }
 }

@@ -244,6 +244,58 @@ public sealed class RefreshExchangeRatesCommandHandlerTests
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Handle_Always_LoadsAndReplacesTheAvailableListBeforeLookingForThePrimaryWallet()
+    {
+        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(null, [], null));
+        _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlyList<ExchangeRateQuote>)[]);
+
+        await CreateHandler().Handle(new RefreshExchangeRatesCommand(IsManualTrigger: false), CancellationToken.None);
+
+        Received.InOrder(() =>
+        {
+            _frankfurterClient.GetCurrenciesAsync(Arg.Any<CancellationToken>());
+            _availableCurrencyCatalog.ReplaceAsync(Arg.Any<IReadOnlyList<AvailableCurrencyItem>>(), Arg.Any<CancellationToken>());
+            _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Fact]
+    public async Task Handle_CurrencyListFails_StillRefreshesPairsAndReportsFailure()
+    {
+        SetupCurrencies();
+        _frankfurterClient.GetCurrenciesAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<IReadOnlyList<FrankfurterCurrency>>(new FrankfurterUnavailableException("down")));
+        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary], null));
+        _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlyList<ExchangeRateQuote>)[]);
+        _frankfurterClient.GetLatestRateAsync("USD", "EUR", Arg.Any<CancellationToken>()).Returns(0.9m);
+
+        var result = await CreateHandler().Handle(new RefreshExchangeRatesCommand(IsManualTrigger: true), CancellationToken.None);
+
+        result.HadFailures.Should().BeTrue("a failed list load is a failed refresh (502 for the manual button)");
+        _repository.Received(1).Add(Arg.Is<ExchangeRateQuote>(q => q.FromCurrencyId == Usd));
+        await _availableCurrencyCatalog.DidNotReceiveWithAnyArgs().ReplaceAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task Handle_CatalogOffersMoreCurrenciesThanAreActive_RequestsRatesOnlyForActiveOnes()
+    {
+        // The service offers EUR, USD, BTC, GBP; only EUR (primary) and USD are active.
+        _frankfurterClient.GetCurrenciesAsync(Arg.Any<CancellationToken>()).Returns(
+            (IReadOnlyList<FrankfurterCurrency>)[new("EUR", "Euro"), new("USD", "Dollar"), new("BTC", "Coin"), new("GBP", "Pound")]);
+        SetupCurrencies();
+        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary], null));
+        _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlyList<ExchangeRateQuote>)[]);
+        _frankfurterClient.GetLatestRateAsync("USD", "EUR", Arg.Any<CancellationToken>()).Returns(0.9m);
+
+        await CreateHandler().Handle(new RefreshExchangeRatesCommand(IsManualTrigger: false), CancellationToken.None);
+
+        await _frankfurterClient.Received(1).GetLatestRateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _frankfurterClient.Received(1).GetLatestRateAsync("USD", "EUR", Arg.Any<CancellationToken>());
+        await _availableCurrencyCatalog.Received(1).ReplaceAsync(
+            Arg.Is<IReadOnlyList<AvailableCurrencyItem>>(items => items.Count == 4), Arg.Any<CancellationToken>());
+    }
+
     private static DbUpdateConcurrencyException CreateConcurrencyException(ExchangeRateQuote quote)
     {
         // A real (never connected) context only to obtain a genuine IUpdateEntry for the exception.

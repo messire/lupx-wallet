@@ -11,7 +11,7 @@ namespace LupexWallet.IntegrationTests.ReferenceData;
 
 /// <summary>
 /// Atomicity of currency deletion (ADR-0001, §4; ADR-0002, §4): the currency row, its bulk-deleted latest
-/// and historical rates (ExecuteDelete bypasses the ChangeTracker) and the audit entry are one transaction.
+/// and historical rates and history coverage (ExecuteDelete bypasses the ChangeTracker) and the audit entry are one transaction.
 /// A failure after the rates were already deleted (here: the audit insert) rolls everything back.
 /// Technique as in RecordLifecycleAtomicityTests.
 /// </summary>
@@ -34,8 +34,11 @@ public sealed class CurrencyDeletionAtomicityTests(ApiTestFixture fixture) : Int
             "SELECT count(*) FROM exchange_rates.latest_exchange_rates WHERE from_currency_id = @id OR to_currency_id = @id", ratesFilter);
         var historicalBefore = await connection.CountAsync(
             "SELECT count(*) FROM exchange_rates.historical_exchange_rates WHERE from_currency_id = @id OR to_currency_id = @id", ratesFilter);
+        var coverageBefore = await connection.CountAsync(
+            "SELECT count(*) FROM exchange_rates.historical_rate_coverage WHERE from_currency_id = @id OR to_currency_id = @id", ratesFilter);
         latestBefore.Should().Be(2);
         historicalBefore.Should().Be(2);
+        coverageBefore.Should().Be(2);
 
         await connection.ExecuteAsync(
             "CREATE FUNCTION audit.fail_test_insert() RETURNS trigger AS $$ " +
@@ -63,6 +66,9 @@ public sealed class CurrencyDeletionAtomicityTests(ApiTestFixture fixture) : Int
         (await connection.CountAsync(
             "SELECT count(*) FROM exchange_rates.historical_exchange_rates WHERE from_currency_id = @id OR to_currency_id = @id", ratesFilter))
             .Should().Be(historicalBefore, "the bulk delete of historical rates was rolled back with the command");
+        (await connection.CountAsync(
+            "SELECT count(*) FROM exchange_rates.historical_rate_coverage WHERE from_currency_id = @id OR to_currency_id = @id", ratesFilter))
+            .Should().Be(coverageBefore, "the bulk delete of the history coverage (ADR-0004 §9) was rolled back with the command");
     }
 
     private async Task SeedRatesAsync(Guid firstCurrencyId, Guid secondCurrencyId)
@@ -78,6 +84,9 @@ public sealed class CurrencyDeletionAtomicityTests(ApiTestFixture fixture) : Int
         dbContext.HistoricalExchangeRates.AddRange(
             HistoricalExchangeRate.Create(first, second, Today.AddDays(-5), new ExchangeRateValue(0.8m), fetchedAt),
             HistoricalExchangeRate.Create(second, first, Today.AddDays(-5), new ExchangeRateValue(1.2m), fetchedAt));
+        dbContext.HistoricalRateCoverages.AddRange(
+            HistoricalRateCoverage.Create(first, second, Today.AddDays(-10), Today, fetchedAt),
+            HistoricalRateCoverage.Create(second, first, Today.AddDays(-10), Today, fetchedAt));
         await dbContext.SaveChangesAsync();
     }
 }

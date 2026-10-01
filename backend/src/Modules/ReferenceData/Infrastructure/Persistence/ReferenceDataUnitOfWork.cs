@@ -24,4 +24,11 @@ public sealed class ReferenceDataUnitOfWork(ReferenceDataDbContext dbContext) : 
             throw new CurrencyCodeAlreadyExistsException(code);
         }
     }
+
+    public async Task LockCurrencyCodeAsync(string code, CancellationToken cancellationToken)
+    {
+        var lockKey = "currency:" + code.Trim().ToUpperInvariant();
+        await dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtext({lockKey}))", cancellationToken);
+    }
 }

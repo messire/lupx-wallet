@@ -34,6 +34,11 @@ public sealed class ActivateCurrencyCommandHandler(
 {
     public async Task<CurrencyDto> Handle(ActivateCurrencyCommand request, CancellationToken cancellationToken)
     {
+        if (!string.IsNullOrWhiteSpace(request.Code))
+        {
+            await unitOfWork.LockCurrencyCodeAsync(request.Code, cancellationToken);
+        }
+
         var currency = await activationPolicy.ActivateAsync(request.Code, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return CurrencyDto.FromDomain(currency);

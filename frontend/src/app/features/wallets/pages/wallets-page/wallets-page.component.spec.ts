@@ -495,6 +495,228 @@ describe('WalletsComponent', () => {
     expect(component.submitError()).toContain('валюта недоступна');
   });
 
+  // ---- Create form: currency picker, rendered (ADR-0004 §7) ----
+
+  describe('create form currency picker', () => {
+    const emptyPage = { data: [], pagination: { nextCursor: null, hasMore: false } };
+    const hint =
+      'Список валют ещё не загружен из сервиса курсов. Обновите курсы на экране «Курсы валют» или повторите позже.';
+
+    function createOpenForm(available: unknown[] = availableCurrencies) {
+      const fixture = TestBed.createComponent(WalletsComponent);
+      fixture.detectChanges();
+      httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/wallets`).flush({ data: [primaryWallet], pagination: emptyPage.pagination });
+      httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/wallet-types`).flush({ data: [{ id: 'wt-1', name: 'Наличные', isActive: true }], pagination: emptyPage.pagination });
+      httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/currencies`).flush({ data: [{ id: 'c-usd', code: 'USD', name: 'US Dollar' }], pagination: emptyPage.pagination });
+      httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush(available);
+      fixture.componentInstance.openForm();
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    const root = (fixture: { nativeElement: unknown }) => fixture.nativeElement as HTMLElement;
+    const combobox = (fixture: { nativeElement: unknown }) => root(fixture).querySelector('app-currency-select input') as HTMLInputElement | null;
+
+    function openCombobox(fixture: ReturnType<typeof createOpenForm>) {
+      combobox(fixture)!.dispatchEvent(new Event('focus'));
+      fixture.detectChanges();
+    }
+
+    const optionTexts = (fixture: ReturnType<typeof createOpenForm>) =>
+      Array.from(root(fixture).querySelectorAll('app-currency-select [role="option"]')).map((el) => el.textContent?.replace(/\s+/g, ' ').trim());
+
+    it('lists every available currency, including the ones that are not active yet', () => {
+      const fixture = createOpenForm();
+      openCombobox(fixture);
+
+      expect(optionTexts(fixture)).toEqual(['EUR — Euro', 'USD — US Dollar']);
+    });
+
+    it('requests the available list exactly once on init and never offers the active list as the source', () => {
+      const fixture = createOpenForm([{ code: 'JPY', name: 'Japanese Yen', isActive: false }]);
+      openCombobox(fixture);
+
+      // USD is active (GET /currencies) but absent from the available list -> not offered.
+      expect(optionTexts(fixture)).toEqual(['JPY — Japanese Yen']);
+    });
+
+    it('the currency combobox is labelled "Валюта" through the field', () => {
+      const fixture = createOpenForm();
+      const input = combobox(fixture)!;
+      const label = root(fixture).querySelector(`label[for="${input.id}"]`);
+
+      expect(input.id).not.toBe('');
+      expect(label?.textContent).toContain('Валюта');
+      // A duplicate id on the <app-currency-select> host would capture the label and leave the combobox unnamed.
+      expect(root(fixture).querySelectorAll(`[id="${input.id}"]`).length).toBe(1);
+    });
+
+    it('has no quick-add for currencies (only the wallet type keeps one)', () => {
+      const fixture = createOpenForm();
+      const text = root(fixture).textContent ?? '';
+
+      expect(text).not.toContain('+ добавить валюту');
+      expect(text).toContain('+ добавить тип');
+      expect(root(fixture).querySelectorAll('.quick-add').length).toBe(0);
+    });
+
+    it('picking a currency in the combobox puts its code into the form and the request carries it', () => {
+      const fixture = createOpenForm();
+      const component = fixture.componentInstance;
+      openCombobox(fixture);
+      combobox(fixture)!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }));
+      fixture.detectChanges();
+      expect(component.form.controls.currencyCode.value).toBe('EUR');
+
+      component.form.patchValue({ name: 'Новый', walletTypeId: 'wt-1' });
+      component.submit();
+
+      const req = httpMock.expectOne(`${environment.apiBaseUrl}/wallets`);
+      expect(req.request.body.currencyCode).toBe('EUR');
+      req.flush({ ...secondaryWallet, id: 'w-new' }, { status: 201, statusText: 'Created' });
+      httpMock.expectOne((r) => r.method === 'GET' && r.url === `${environment.apiBaseUrl}/wallets`).flush(emptyPage);
+      httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/currencies`).flush(emptyPage);
+      httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush(availableCurrencies);
+    });
+
+    it('does not submit without a chosen currency', () => {
+      const fixture = createOpenForm();
+      const component = fixture.componentInstance;
+      component.form.patchValue({ name: 'Новый', walletTypeId: 'wt-1' });
+
+      component.submit();
+
+      httpMock.expectNone(`${environment.apiBaseUrl}/wallets`);
+      expect(component.form.controls.currencyCode.invalid).toBe(true);
+    });
+
+    it('an empty available list shows the "not loaded yet" hint both as the field hint and in the popup', () => {
+      const fixture = createOpenForm([]);
+      openCombobox(fixture);
+
+      expect(fixture.componentInstance.currencyOptions()).toEqual([]);
+      expect(root(fixture).textContent).toContain(hint);
+      expect(root(fixture).querySelector('app-currency-select [role="listbox"]')?.textContent).toContain(hint);
+      expect(root(fixture).querySelectorAll('app-currency-select [role="option"]').length).toBe(0);
+    });
+
+    it('a non-empty available list shows no hint', () => {
+      const fixture = createOpenForm();
+
+      expect(root(fixture).textContent).not.toContain('Список валют ещё не загружен');
+    });
+
+    it('while the list is loading shows "Загрузка…" instead of the hint', () => {
+      const fixture = createOpenForm([]);
+      fixture.componentInstance.loadAvailableCurrencies();
+      fixture.detectChanges();
+
+      expect(combobox(fixture)!.placeholder).toBe('Загрузка…');
+      expect(root(fixture).textContent).not.toContain('Список валют ещё не загружен');
+
+      httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush(availableCurrencies);
+      fixture.detectChanges();
+      expect(combobox(fixture)!.placeholder).toBe('— выберите валюту —');
+    });
+
+    it('a load error replaces the combobox with an error and a retry that re-requests the list', () => {
+      const fixture = createOpenForm();
+      fixture.componentInstance.loadAvailableCurrencies();
+      httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush('boom', { status: 500, statusText: 'Server Error' });
+      fixture.detectChanges();
+
+      expect(combobox(fixture)).toBeNull();
+      const errorState = root(fixture).querySelector('app-error-state')!;
+      expect(errorState.textContent).toContain('Не удалось загрузить список доступных валют.');
+      expect(root(fixture).textContent).not.toContain('Список валют ещё не загружен');
+
+      const retry = Array.from(errorState.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Повторить') as HTMLButtonElement;
+      retry.click();
+      fixture.detectChanges();
+      httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush(availableCurrencies);
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.availableCurrenciesLoadError()).toBeNull();
+      expect(combobox(fixture)).not.toBeNull();
+      openCombobox(fixture);
+      expect(optionTexts(fixture)).toEqual(['EUR — Euro', 'USD — US Dollar']);
+    });
+
+    it('after a successful create both currency lists are re-read (the server may have activated a currency)', () => {
+      const fixture = createOpenForm();
+      const component = fixture.componentInstance;
+      component.form.patchValue({ name: 'Новый', walletTypeId: 'wt-1', currencyCode: 'EUR' });
+      component.submit();
+      httpMock.expectOne(`${environment.apiBaseUrl}/wallets`).flush({ ...secondaryWallet, id: 'w-new' }, { status: 201, statusText: 'Created' });
+
+      httpMock.expectOne((r) => r.method === 'GET' && r.url === `${environment.apiBaseUrl}/wallets`).flush({ data: [primaryWallet, secondaryWallet], pagination: emptyPage.pagination });
+      const activeReq = httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/currencies`);
+      const availableReq = httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`);
+      activeReq.flush({ data: [{ id: 'c-usd', code: 'USD', name: 'US Dollar' }, { id: 'c-eur', code: 'EUR', name: 'Euro' }], pagination: emptyPage.pagination });
+      availableReq.flush(availableCurrencies.map((c) => ({ ...c, isActive: true })));
+
+      expect(component.currencies().map((c) => c.code)).toEqual(['USD', 'EUR']);
+      expect(component.successMessage()).toBe('Кошелек создан');
+      expect(component.isFormOpen()).toBe(false);
+      expect(component.form.controls.currencyCode.value).toBe('');
+    });
+
+    it('400 with a server message shows it in the form and re-enables the fields', () => {
+      const fixture = createOpenForm();
+      const component = fixture.componentInstance;
+      component.form.patchValue({ name: 'Новый', walletTypeId: 'wt-1', currencyCode: 'XXX' });
+      component.submit();
+      expect(component.form.disabled).toBe(true);
+
+      httpMock.expectOne(`${environment.apiBaseUrl}/wallets`).flush(
+        { title: 'Bad Request', status: 400, detail: 'Валюта недоступна.' },
+        { status: 400, statusText: 'Bad Request' },
+      );
+      fixture.detectChanges();
+
+      expect(component.submitError()).toBe('Валюта недоступна.');
+      expect(component.form.enabled).toBe(true);
+      expect(root(fixture).querySelector('form [role="alert"]')?.textContent).toContain('Валюта недоступна.');
+      // The chosen code is preserved so the user can pick another currency.
+      expect(component.form.controls.currencyCode.value).toBe('XXX');
+    });
+
+    it('400 without a server message falls back to the text that mentions the unavailable currency', () => {
+      const fixture = createOpenForm();
+      const component = fixture.componentInstance;
+      component.form.patchValue({ name: 'Новый', walletTypeId: 'wt-1', currencyCode: 'XXX' });
+      component.submit();
+
+      httpMock.expectOne(`${environment.apiBaseUrl}/wallets`).flush(null, { status: 400, statusText: 'Bad Request' });
+
+      expect(component.submitError()).toBe('Не удалось создать кошелек: проверьте поля формы; возможно, валюта недоступна.');
+    });
+
+    it('other failures show the generic message and do not re-read the currency lists', () => {
+      const fixture = createOpenForm();
+      const component = fixture.componentInstance;
+      component.form.patchValue({ name: 'Новый', walletTypeId: 'wt-1', currencyCode: 'EUR' });
+      component.submit();
+
+      httpMock.expectOne(`${environment.apiBaseUrl}/wallets`).flush('boom', { status: 500, statusText: 'Server Error' });
+
+      expect(component.submitError()).toBe('Не удалось создать кошелек.');
+      httpMock.expectNone((r) => r.url === `${environment.apiBaseUrl}/currencies`);
+      httpMock.expectNone(`${environment.apiBaseUrl}/currencies/available`);
+    });
+
+    it('the change-currency form (UC-06) still offers the active currencies, not the available list', () => {
+      const fixture = createOpenForm();
+      const component = fixture.componentInstance;
+      component.cancelForm();
+      component.openChangeCurrency(secondaryWallet);
+      fixture.detectChanges();
+
+      const options = Array.from(root(fixture).querySelectorAll('select[formcontrolname="currencyId"] option')).map((o) => o.textContent?.trim());
+      expect(options).toEqual(['USD — US Dollar']);
+    });
+  });
+
   describe('wallet card "···" menu', () => {
     function trigger(fixture: ReturnType<typeof createComponent>, walletId: string): HTMLButtonElement {
       return fixture.nativeElement.querySelector(`[data-wallet-menu-trigger="${walletId}"]`);

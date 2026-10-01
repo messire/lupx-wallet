@@ -3,10 +3,9 @@ import { test, expect, login, createWallet, ensureTransferOperationType, isoDate
 
 /**
  * Creates two wallets that end up sharing the same currency — `createWallet`
- * (fixtures.ts) always selects the *first* currency option (quick-adding EUR
- * only if the list is still empty), so calling it twice in a row with nothing
- * else touching the currency list in between yields two same-currency wallets,
- * without duplicating its quick-add flow here.
+ * (fixtures.ts) picks EUR by code from the available currencies by default
+ * (the server activates it with the first wallet), so two calls in a row yield
+ * two same-currency wallets without duplicating the currency selection here.
  */
 async function createTwoSameCurrencyWallets(
   page: Page,

@@ -54,6 +54,7 @@ public sealed class ActivateCurrencyCommandHandlerTests
         dto.Code.Should().Be("EUR");
         dto.Name.Should().Be("Euro");
         _currencies.Received(1).Add(Arg.Is<Currency>(c => c.Code == "EUR" && c.Name == "Euro"));
+        await _unitOfWork.Received(1).LockCurrencyCodeAsync(" eur ", Arg.Any<CancellationToken>());
         await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
     }
 }

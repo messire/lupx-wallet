@@ -85,6 +85,13 @@ export class ReferenceDataComponent implements OnInit {
       .map(({ code, name }) => ({ code, name }));
   });
 
+  /**
+   * Id of the combobox's inner `<input>`, targeted by the "Добавить в активные" label. Bound as a property:
+   * a plain `id="…"` attribute would also stay on the `<app-currency-select>` host, and the label would
+   * point at that (non-labelable) element, leaving the combobox without an accessible name.
+   */
+  protected readonly currencyControlId = 'currencyQuickAddControl';
+
   /** The currency awaiting confirmation before it is removed from the active ones. */
   readonly pendingCurrencyRemoval = signal<Currency | null>(null);
 

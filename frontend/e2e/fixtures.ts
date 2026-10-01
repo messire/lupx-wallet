@@ -7,10 +7,60 @@ export const DEV_PASSWORD = 'ChangeMe123!';
 const API_BASE_URL = 'http://localhost:5086/api/v1';
 
 const CREATED_WALLETS_PROP = '__e2eCreatedWalletIds';
+const TRACKED_CURRENCIES_PROP = '__e2eTrackedCurrencyCodes';
 
 function trackedWalletIds(page: Page): string[] {
   const store = page as unknown as { [CREATED_WALLETS_PROP]?: string[] };
   return (store[CREATED_WALLETS_PROP] ??= []);
+}
+
+function trackedCurrencyCodes(page: Page): string[] {
+  const store = page as unknown as { [TRACKED_CURRENCIES_PROP]?: string[] };
+  return (store[TRACKED_CURRENCIES_PROP] ??= []);
+}
+
+/** Result of {@link apiRequest}: HTTP status and the parsed JSON body (`null` when there is none). */
+export interface ApiResult<T = unknown> {
+  status: number;
+  body: T | null;
+}
+
+/**
+ * Calls the real API from inside the page with the logged-in user's token — the same way the
+ * teardown and `ensureTransferOperationType` do. Requires a logged-in page (token in localStorage).
+ */
+export async function apiRequest<T = unknown>(
+  page: Page,
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  path: string,
+  body?: unknown,
+): Promise<ApiResult<T>> {
+  const token = await page.evaluate(() => localStorage.getItem('lupexwallet.auth.token'));
+  expect(token, 'apiRequest needs a logged-in page').toBeTruthy();
+  return page.evaluate(
+    async ({ apiBaseUrl, token, method, path, body }) => {
+      const response = await fetch(`${apiBaseUrl}${path}`, {
+        method,
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const parsed = await response.json().catch(() => null);
+      return { status: response.status, body: parsed };
+    },
+    { apiBaseUrl: API_BASE_URL, token, method, path, body },
+  ) as Promise<ApiResult<T>>;
+}
+
+interface AvailableCurrencyDto {
+  code: string;
+  name: string;
+  isActive: boolean;
+}
+
+interface ActiveCurrencyDto {
+  id: string;
+  code: string;
+  name: string;
 }
 
 /**
@@ -25,7 +75,11 @@ function trackedWalletIds(page: Page): string[] {
  */
 async function cleanupCreatedWallets(page: Page): Promise<void> {
   const ids = trackedWalletIds(page);
-  if (ids.length === 0 || page.isClosed()) {
+  if (page.isClosed()) {
+    return;
+  }
+  if (ids.length === 0) {
+    await cleanupTrackedCurrencies(page);
     return;
   }
   const token = await page.evaluate(() => localStorage.getItem('lupexwallet.auth.token')).catch(() => null);
@@ -48,6 +102,19 @@ async function cleanupCreatedWallets(page: Page): Promise<void> {
         // Best-effort: a page already navigating away, or a wallet another
         // test already cleaned up, must not fail this test's own result.
       });
+  }
+  await cleanupTrackedCurrencies(page);
+}
+
+/**
+ * Best-effort removal of currencies a scenario registered with `trackCurrencyForCleanup` — after the
+ * wallets above are gone (a currency used by a wallet or an operation, even an archived/deleted one,
+ * answers 409 and simply stays active). Errors are swallowed for the same reason as above.
+ */
+async function cleanupTrackedCurrencies(page: Page): Promise<void> {
+  const codes = trackedCurrencyCodes(page);
+  for (const code of codes) {
+    await removeCurrencyIfActive(page, code).catch(() => undefined);
   }
 }
 
@@ -74,17 +141,101 @@ export async function login(page: Page): Promise<void> {
 }
 
 /**
- * Creates a wallet type and currency via the Wallets create-form quick-add
- * rows if none exist yet, then fills and submits the form. Returns once the
- * new wallet card is visible, and returns the created wallet's id (also
- * tracked automatically for teardown by the `page` fixture above — no extra
- * call needed at test sites). `name` should be unique per test to avoid
+ * Makes sure the currency `code` is in the list of available currencies (ADR-0004 §7), which
+ * is filled only by a rates refresh — a fresh database has none. If it is missing, runs
+ * `POST /exchange-rates/refresh` against the real Frankfurter service (network required) and
+ * checks again. Returns `true` when a refresh was needed, i.e. a page that was opened earlier
+ * holds a stale (empty) list and must be reloaded. Fails with a clear message if the code is
+ * still absent — without network access these e2e scenarios cannot run.
+ */
+export async function ensureAvailableCurrency(page: Page, code: string): Promise<boolean> {
+  const isAvailable = async () => {
+    const { body } = await apiRequest<AvailableCurrencyDto[]>(page, 'GET', '/currencies/available');
+    return (body ?? []).some((currency) => currency.code === code);
+  };
+
+  if (await isAvailable()) {
+    return false;
+  }
+  // 200 or 502 — only the resulting list matters; a 502 means the source is unreachable and fails below.
+  await apiRequest(page, 'POST', '/exchange-rates/refresh');
+  if (!(await isAvailable())) {
+    throw new Error(
+      `Currency ${code} is not in GET /currencies/available even after POST /exchange-rates/refresh — ` +
+        'the e2e suite needs network access to the real Frankfurter service (https://api.frankfurter.dev/v2/).',
+    );
+  }
+  return true;
+}
+
+/** {@link ensureAvailableCurrency} for the page the test is on: reloads it if the list had to be filled meanwhile. */
+export async function ensureAvailableCurrencyOnPage(page: Page, code: string): Promise<void> {
+  if (await ensureAvailableCurrency(page, code)) {
+    await page.reload();
+  }
+}
+
+/**
+ * Makes sure the currency is active (`POST /currencies {code}`; 201 created, 409 already active) —
+ * for scenarios that need an active currency without creating a wallet. Idempotent, not torn down
+ * (see `trackCurrencyForCleanup` for the scenarios that want it removed again).
+ */
+export async function ensureCurrency(page: Page, code: string): Promise<void> {
+  await ensureAvailableCurrency(page, code);
+  const { status } = await apiRequest(page, 'POST', '/currencies', { code });
+  expect([201, 409], `POST /currencies {code: ${code}} answered ${status}`).toContain(status);
+}
+
+/**
+ * Removes the currency from the active ones if it is active (`DELETE /currencies/{id}`).
+ * Returns the response status, or `null` when it was not active. 409 — still used by a wallet or an operation.
+ */
+export async function removeCurrencyIfActive(page: Page, code: string): Promise<number | null> {
+  const { body } = await apiRequest<{ data: ActiveCurrencyDto[] }>(page, 'GET', '/currencies?limit=100');
+  const active = body?.data.find((currency) => currency.code === code);
+  if (!active) {
+    return null;
+  }
+  return (await apiRequest(page, 'DELETE', `/currencies/${active.id}`)).status;
+}
+
+/** Registers a currency to be removed from the active ones when the test finishes (after its wallets are cleaned up). */
+export function trackCurrencyForCleanup(page: Page, code: string): void {
+  trackedCurrencyCodes(page).push(code);
+}
+
+/**
+ * Picks `code` in the wallet form's currency combobox (ADR-0004 §7: the choice comes from the list of
+ * available currencies, there is no quick-add): type the code, choose the matching "CODE — name" option.
+ */
+export async function selectWalletCurrency(page: Page, code: string): Promise<void> {
+  const combobox = page.locator('app-currency-select').getByRole('combobox');
+  await expect(combobox).toBeEnabled();
+  await combobox.click();
+  await combobox.fill(code);
+  await page.getByRole('option', { name: new RegExp(`^${code} —`) }).click();
+  await expect(combobox).toHaveValue(new RegExp(`^${code} —`));
+}
+
+/**
+ * Creates a wallet type via the Wallets create-form quick-add row if none exists yet, picks the currency
+ * from the available ones (default EUR — every caller assumes it: transfer/balance-history/exchange-rates
+ * scenarios need same-currency wallets), then fills and submits the form. Returns once the new wallet
+ * card is visible, and returns the created wallet's id (also tracked automatically for teardown by the
+ * `page` fixture above — no extra call needed at test sites). `name` should be unique per test to avoid
  * clashing with wallets left over from other scenarios sharing the same DB.
+ *
+ * The available list is filled only by a rates refresh, which `ensureAvailableCurrencyOnPage` triggers
+ * against the real Frankfurter service when the code is missing (network required). The server activates
+ * the currency itself when the wallet is created.
  */
 export async function createWallet(
   page: Page,
-  options: { name: string; initialBalance?: string; accountingStartDate?: string },
+  options: { name: string; initialBalance?: string; accountingStartDate?: string; currencyCode?: string },
 ): Promise<string> {
+  const currencyCode = options.currencyCode ?? 'EUR';
+  await ensureAvailableCurrencyOnPage(page, currencyCode);
+
   // `.first()`: on an empty database the page shows the empty state, which has its own
   // "Добавить кошелек" button next to the heading one (strict-mode violation otherwise).
   await page.getByRole('button', { name: 'Добавить кошелек' }).first().click();
@@ -105,28 +256,7 @@ export async function createWallet(
   }
   await typeSelect.selectOption({ index: 1 });
 
-  // Selected by label, not position: the dev database now holds more than one
-  // currency (found during the 2026-09-16 cleanup — see docs/PROGRESS.md), so
-  // `{ index: 1 }` is no longer reliably EUR. Every caller of createWallet
-  // assumes EUR (transfer/balance-history/exchange-rates scenarios need same-
-  // currency wallets), so this always ensures EUR specifically, not just "some
-  // currency exists".
-  const currencySelect = page.locator('select[formcontrolname="currencyId"]');
-  await expect(currencySelect).toBeEnabled();
-  if (!(await currencySelect.locator('option', { hasText: 'EUR' }).count())) {
-    await page.getByRole('button', { name: '+ добавить валюту' }).click();
-    const currencyCombobox = page.getByRole('combobox').last();
-    await currencyCombobox.click();
-    await currencyCombobox.fill('EUR');
-    await page.getByRole('option', { name: /EUR/ }).first().click();
-    await page.locator('.quick-add').getByRole('button', { name: 'Добавить' }).click();
-    await expect(currencySelect.locator('option', { hasText: 'EUR' })).toHaveCount(1);
-  }
-  // The option's visible text is "{code} — {name}" (e.g. "EUR — Euro"), not
-  // just the code, so `selectOption({ label })` needs an exact match we don't
-  // have — select by the option's own `value` (the currency id) instead.
-  const eurValue = await currencySelect.locator('option', { hasText: 'EUR' }).first().getAttribute('value');
-  await currencySelect.selectOption(eurValue ?? { index: 1 });
+  await selectWalletCurrency(page, currencyCode);
 
   await page.locator('input[formcontrolname="name"]').fill(options.name);
   if (options.initialBalance) {
@@ -166,7 +296,7 @@ export function isoDateDaysAgo(daysAgo: number): string {
 
 /**
  * Creates an operation type via the Reference Data screen if it doesn't already
- * exist — the Operations form has no quick-add for it (unlike wallet type/currency
+ * exist — the Operations form has no quick-add for it (unlike the wallet type
  * in the wallet form), so tests that need one must seed it here first. Reused
  * across tests by design (idempotent, checks for an existing row first) — not
  * torn down, since it doesn't accumulate the way per-test wallets do.

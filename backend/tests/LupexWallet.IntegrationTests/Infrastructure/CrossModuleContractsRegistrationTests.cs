@@ -64,4 +64,20 @@ public sealed class CrossModuleContractsRegistrationTests(ApiTestFixture fixture
             "пробник в Add<Owner>Module, либо ожидание в этом тесте устарело и должно быть " +
             "обновлено осознанно вместе с ADR-0002");
     }
+
+    /// <summary>
+    /// ADR-0001, §2, способ (c): порты записи, которые ReferenceData публикует для Wallets (<see cref="ICurrencyActivation"/>)
+    /// и ExchangeRates (<see cref="IAvailableCurrencyCatalog"/>), — ровно по одной реализации, разрешаемой из DI
+    /// (забытая регистрация проявилась бы только при первом создании кошелька / первом обновлении курсов).
+    /// </summary>
+    [Fact]
+    public void ReferenceDataWritePorts_ResolveExactlyOneImplementationEach()
+    {
+        using var scope = Fixture.Factory.Services.CreateScope();
+
+        scope.ServiceProvider.GetServices<ICurrencyActivation>().Should().ContainSingle(
+            "ADR-0004 §7: активация валюты при создании кошелька — один порт (c) ReferenceData");
+        scope.ServiceProvider.GetServices<IAvailableCurrencyCatalog>().Should().ContainSingle(
+            "ADR-0004 §7: замена списка доступных валют — один порт (c) ReferenceData");
+    }
 }

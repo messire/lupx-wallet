@@ -13,6 +13,12 @@ public sealed class CurrencyActivation(
 {
     public async Task<CurrencyLookupResult?> EnsureActiveAsync(string code, CancellationToken cancellationToken)
     {
+        if (!string.IsNullOrWhiteSpace(code))
+        {
+            // Two wallet creations may activate the same code at once; without the lock the loser fails on the unique index.
+            await unitOfWork.LockCurrencyCodeAsync(code, cancellationToken);
+        }
+
         var currency = await policy.EnsureActiveAsync(code, cancellationToken);
         if (currency is null)
         {

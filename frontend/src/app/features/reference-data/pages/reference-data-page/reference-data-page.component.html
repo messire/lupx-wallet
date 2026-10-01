@@ -163,7 +163,7 @@
           <div class="quick-form__field">
             <label class="app-field__label" for="currencyQuickAddControl">Добавить в активные</label>
             <app-currency-select
-              id="currencyQuickAddControl"
+              [id]="currencyControlId"
               [currencies]="addableCurrencies()"
               emptyListText="Все доступные валюты уже добавлены"
               formControlName="code"

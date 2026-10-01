@@ -20,6 +20,16 @@ npm run e2e
 
 Set `E2E_BASE_URL` if the frontend isn't on `http://localhost:4200`.
 
+**Network access to the real Frankfurter service is required** (`https://api.frankfurter.dev/v2/`). The
+list of available currencies (ADR-0004 §7) is empty on a fresh database and is filled only by a rates
+refresh; `createWallet` and the currency helpers in `fixtures.ts` (`ensureAvailableCurrency`,
+`ensureCurrency`) call `POST /exchange-rates/refresh` when the needed code is missing, and fail with an
+explicit message if it is still absent afterwards (no network). A wallet's currency is chosen by code in
+the currency combobox — there is no quick-add for currencies.
+
+Login is limited to 5 requests/minute and every test logs in: run spec files one at a time with a pause
+of about a minute between them.
+
 ## What each file covers
 
 - `wallets.spec.ts` — the four scenarios required by the architecture audit
@@ -27,6 +37,11 @@ Set `E2E_BASE_URL` if the frontend isn't on `http://localhost:4200`.
   save shows a readable error and keeps the entered data, delete-confirmation
   dialog removes the wallet, Escape dismisses the dialog without deleting and
   returns focus to the button that opened it.
+- `reference-data.spec.ts` — the currencies tab: add a currency from the available ones, then remove it
+  from the active ones (with the confirmation dialog).
+- `wallets.spec.ts` additionally checks that a wallet in a not-yet-active currency activates it.
+- `exchange-rates.spec.ts` additionally checks that without a primary wallet "Обновить сейчас" still loads
+  the list of available currencies.
 - `responsive-visual.spec.ts` — not a pass/fail suite; captures the Wallets
   screen at 360/768/1440px and at 200% zoom with a long Russian wallet name
   and a large amount, for manual visual review (screenshots saved under

@@ -359,6 +359,227 @@ describe('ExchangeRatesComponent', () => {
     expect(component.rows()).toEqual([{ fromCurrencyCode: 'EUR', toCurrencyCode: 'USD', rate: '1.0962' }]);
   });
 
+  // ---- ADR-0004 §7–§8: the list of available currencies, no primary wallet, active currencies only ----
+
+  describe('without a primary wallet and with the available-currencies refresh', () => {
+    const walletsWithoutPrimary = {
+      data: [{ ...walletsResponse.data[0], isPrimary: false }],
+      pagination: { nextCursor: null, hasMore: false },
+    };
+    const noWallets = { data: [], pagination: { nextCursor: null, hasMore: false } };
+
+    function createWithoutPrimary(options: { wallets?: unknown; lastSuccessfulUpdate?: string | null } = {}) {
+      const fixture = TestBed.createComponent(ExchangeRatesComponent);
+      fixture.detectChanges();
+      httpMock.expectOne(`${environment.apiBaseUrl}/exchange-rates/latest`).flush({
+        lastSuccessfulUpdate: options.lastSuccessfulUpdate ?? null,
+        rates: [],
+      });
+      httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/currencies`).flush(currenciesResponse);
+      httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/wallets`).flush(options.wallets ?? walletsWithoutPrimary);
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    const refreshButton = (fixture: { nativeElement: unknown }) =>
+      Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('app-button button')).find(
+        (b) => b.textContent?.trim() === 'Обновить сейчас',
+      ) as HTMLButtonElement;
+
+    it('loads active currencies with a limit and without includeInactive', () => {
+      const fixture = TestBed.createComponent(ExchangeRatesComponent);
+      fixture.detectChanges();
+
+      const currenciesReq = httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/currencies`);
+      expect(currenciesReq.request.params.get('limit')).toBe('100');
+      expect(currenciesReq.request.params.has('includeInactive')).toBe(false);
+      // The page never asks for the available list on load — only a refresh does, on the server.
+      httpMock.expectNone(`${environment.apiBaseUrl}/currencies/available`);
+
+      httpMock.expectOne(`${environment.apiBaseUrl}/exchange-rates/latest`).flush({ lastSuccessfulUpdate: null, rates: [] });
+      currenciesReq.flush(currenciesResponse);
+      httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/wallets`).flush(walletsResponse);
+    });
+
+    it('shows the "no primary wallet" empty state, mentioning that refresh still loads the available currencies', () => {
+      const fixture = createWithoutPrimary();
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+
+      expect(fixture.componentInstance.primaryWalletMissing()).toBe(true);
+      expect(text).toContain('Основной кошелёк не назначен');
+      expect(text).toContain('Кнопка «Обновить сейчас» и без него загружает список доступных валют.');
+      expect((fixture.nativeElement as HTMLElement).querySelector('table')).toBeNull();
+    });
+
+    it('shows the same empty state when there are no wallets at all', () => {
+      const fixture = createWithoutPrimary({ wallets: noWallets });
+
+      expect(fixture.componentInstance.primaryWalletMissing()).toBe(true);
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('Основной кошелёк не назначен');
+    });
+
+    it('keeps "Обновить сейчас" enabled without a primary wallet and sends the refresh request', () => {
+      const fixture = createWithoutPrimary();
+      const button = refreshButton(fixture);
+
+      expect(button.disabled).toBe(false);
+      button.click();
+
+      const req = httpMock.expectOne(`${environment.apiBaseUrl}/exchange-rates/refresh`);
+      expect(req.request.method).toBe('POST');
+      req.flush({ lastSuccessfulUpdate: null, rates: [] });
+    });
+
+    it('confirms "Список доступных валют обновлён." (not "Курсы валют обновлены.") when refreshed without a primary wallet', () => {
+      const fixture = createWithoutPrimary();
+      const component = fixture.componentInstance;
+
+      component.refresh();
+      httpMock.expectOne(`${environment.apiBaseUrl}/exchange-rates/refresh`).flush({ lastSuccessfulUpdate: null, rates: [] });
+      fixture.detectChanges();
+
+      expect(component.successMessage()).toBe('Список доступных валют обновлён.');
+      const toast = (fixture.nativeElement as HTMLElement).querySelector('app-toast');
+      expect(toast?.textContent).toContain('Список доступных валют обновлён.');
+      // The state remains the "no primary wallet" one: no rows are fabricated.
+      expect((fixture.nativeElement as HTMLElement).querySelector('table')).toBeNull();
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('Основной кошелёк не назначен');
+    });
+
+    it('confirms "Курсы валют обновлены." when a primary wallet exists, even if the rate list stays empty', () => {
+      const fixture = TestBed.createComponent(ExchangeRatesComponent);
+      fixture.detectChanges();
+      httpMock.expectOne(`${environment.apiBaseUrl}/exchange-rates/latest`).flush({ lastSuccessfulUpdate: null, rates: [] });
+      httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/currencies`).flush(currenciesResponse);
+      httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/wallets`).flush(walletsResponse);
+
+      fixture.componentInstance.refresh();
+      httpMock.expectOne(`${environment.apiBaseUrl}/exchange-rates/refresh`).flush({ lastSuccessfulUpdate: null, rates: [] });
+
+      expect(fixture.componentInstance.successMessage()).toBe('Курсы валют обновлены.');
+    });
+
+    it('a 502 with no data and no primary wallet shows the message inside the empty state (as an alert-like status)', () => {
+      const fixture = createWithoutPrimary();
+      const component = fixture.componentInstance;
+
+      component.refresh();
+      httpMock
+        .expectOne(`${environment.apiBaseUrl}/exchange-rates/refresh`)
+        .flush({ lastSuccessfulUpdate: null, rates: [] }, { status: 502, statusText: 'Bad Gateway' });
+      fixture.detectChanges();
+
+      expect(component.sourceUnavailableEmpty()).toBe('Источник курсов недоступен, а прежних данных ещё нет.');
+      const root = fixture.nativeElement as HTMLElement;
+      const empty = root.querySelector('app-empty-state')!;
+      expect(empty.textContent).toContain('Основной кошелёк не назначен');
+      const status = empty.querySelector('[role="status"]');
+      expect(status?.textContent).toContain('Источник курсов недоступен, а прежних данных ещё нет.');
+      // No success toast and no "source unavailable" badge for the empty case.
+      expect(root.querySelector('app-toast')).toBeNull();
+      expect(component.successMessage()).toBeNull();
+    });
+
+    it('a 502 problem+json without a rates payload and no data lands in the empty state with the server text', () => {
+      const fixture = createWithoutPrimary();
+      const component = fixture.componentInstance;
+
+      component.refresh();
+      httpMock
+        .expectOne(`${environment.apiBaseUrl}/exchange-rates/refresh`)
+        .flush({ title: 'Bad Gateway', status: 502, detail: 'Сервис курсов недоступен.' }, { status: 502, statusText: 'Bad Gateway' });
+      fixture.detectChanges();
+
+      expect(component.sourceUnavailableEmpty()).toBe('Сервис курсов недоступен.');
+      expect(component.refreshError()).toBeNull();
+      expect((fixture.nativeElement as HTMLElement).querySelector('app-empty-state [role="status"]')?.textContent).toContain(
+        'Сервис курсов недоступен.',
+      );
+    });
+
+    it('a retry after a failed 502 clears the empty-state message', () => {
+      const fixture = createWithoutPrimary();
+      const component = fixture.componentInstance;
+
+      component.refresh();
+      httpMock
+        .expectOne(`${environment.apiBaseUrl}/exchange-rates/refresh`)
+        .flush({ lastSuccessfulUpdate: null, rates: [] }, { status: 502, statusText: 'Bad Gateway' });
+      expect(component.sourceUnavailableEmpty()).not.toBeNull();
+
+      component.refresh();
+      expect(component.sourceUnavailableEmpty()).toBeNull();
+      httpMock.expectOne(`${environment.apiBaseUrl}/exchange-rates/refresh`).flush({ lastSuccessfulUpdate: null, rates: [] });
+      fixture.detectChanges();
+
+      expect(component.successMessage()).toBe('Список доступных валют обновлён.');
+      expect((fixture.nativeElement as HTMLElement).querySelector('app-empty-state [role="status"]')).toBeNull();
+    });
+
+    it('with no rates yet and a primary wallet, a 502 shows "Курсов ещё нет" with the message and a retry', () => {
+      const fixture = TestBed.createComponent(ExchangeRatesComponent);
+      fixture.detectChanges();
+      httpMock.expectOne(`${environment.apiBaseUrl}/exchange-rates/latest`).flush({ lastSuccessfulUpdate: null, rates: [] });
+      httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/currencies`).flush(currenciesResponse);
+      httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/wallets`).flush(walletsResponse);
+
+      fixture.componentInstance.refresh();
+      httpMock
+        .expectOne(`${environment.apiBaseUrl}/exchange-rates/refresh`)
+        .flush({ lastSuccessfulUpdate: null, rates: [] }, { status: 502, statusText: 'Bad Gateway' });
+      fixture.detectChanges();
+
+      const empty = (fixture.nativeElement as HTMLElement).querySelector('app-empty-state')!;
+      expect(empty.textContent).toContain('Курсов ещё нет');
+      expect(empty.textContent).toContain('Источник курсов недоступен, а прежних данных ещё нет.');
+      expect(Array.from(empty.querySelectorAll('button')).map((b) => b.textContent?.trim())).toContain('Повторить');
+    });
+
+    it('with previous data a 502 shows the new note about rates or the available list, plus the badge', () => {
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+
+      component.refresh();
+      httpMock.expectOne(`${environment.apiBaseUrl}/exchange-rates/refresh`).flush(
+        { lastSuccessfulUpdate: '2026-09-10T12:00:00Z', rates: [{ fromCurrencyId: 'cur-usd', toCurrencyId: 'cur-eur', rate: '0.9123' }] },
+        { status: 502, statusText: 'Bad Gateway' },
+      );
+      fixture.detectChanges();
+
+      const root = fixture.nativeElement as HTMLElement;
+      const note = root.querySelector('.status-note--warning');
+      expect(note?.getAttribute('role')).toBe('status');
+      expect(note?.textContent?.trim()).toBe('Курсы или список доступных валют обновить не удалось. Показаны последние известные курсы.');
+      expect(root.querySelector('app-badge')?.textContent).toContain('Источник недоступен');
+      expect(root.querySelector('table')).not.toBeNull();
+    });
+
+    it('a 502 whose body is not a rates payload (gateway) does not touch the rows already on screen', () => {
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+
+      component.refresh();
+      httpMock.expectOne(`${environment.apiBaseUrl}/exchange-rates/refresh`).flush('<html>Bad Gateway</html>', { status: 502, statusText: 'Bad Gateway' });
+
+      expect(component.rows()).toEqual([{ fromCurrencyCode: 'USD', toCurrencyCode: 'EUR', rate: '0.9123' }]);
+      expect(component.sourceUnavailable()).not.toBeNull();
+      expect(component.refreshError()).toBeNull();
+    });
+
+    it('the first-ever refresh with a primary wallet and no previous run explains that it loads rates and the available list', () => {
+      const fixture = TestBed.createComponent(ExchangeRatesComponent);
+      fixture.detectChanges();
+      httpMock.expectOne(`${environment.apiBaseUrl}/exchange-rates/latest`).flush({ lastSuccessfulUpdate: null, rates: [] });
+      httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/currencies`).flush(currenciesResponse);
+      httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/wallets`).flush(walletsResponse);
+      fixture.detectChanges();
+
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('Ещё не было');
+      expect(text).toContain('Нажмите «Обновить сейчас», чтобы получить актуальные курсы и список доступных валют.');
+    });
+  });
+
   it('displays a long decimal rate as-is, without rounding (ADR-0005)', () => {
     const fixture = TestBed.createComponent(ExchangeRatesComponent);
     fixture.detectChanges();

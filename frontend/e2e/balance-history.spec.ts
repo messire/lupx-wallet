@@ -12,7 +12,7 @@ test('selecting a wallet and showing balance with an empty date displays the rea
   await createWallet(page, { name: walletName, initialBalance: '250' });
 
   await page.goto('/balance-history');
-  await page.locator('select#walletId').selectOption({ label: walletName });
+  await page.getByLabel('Кошелек', { exact: true }).selectOption({ label: walletName });
 
   // Date field left empty — "Показать" (not "Показать историю") must return the
   // real current balance from the API, never a client-side default of 0.
@@ -28,7 +28,7 @@ test('a reverse date range for the history shows a validation error without call
   await createWallet(page, { name: walletName });
 
   await page.goto('/balance-history');
-  await page.locator('select#walletId').selectOption({ label: walletName });
+  await page.getByLabel('Кошелек', { exact: true }).selectOption({ label: walletName });
 
   let historyRequests = 0;
   await page.route('**/balance-history**', (route) => {
@@ -51,7 +51,7 @@ test('changing the wallet after a result is shown clears both results and both s
   await createWallet(page, { name: otherWalletName, initialBalance: '200' });
 
   await page.goto('/balance-history');
-  await page.locator('select#walletId').selectOption({ label: walletName });
+  await page.getByLabel('Кошелек', { exact: true }).selectOption({ label: walletName });
 
   // Balance-on-date section: produce a shown result.
   await page.getByRole('button', { name: 'Показать', exact: true }).click();
@@ -63,7 +63,7 @@ test('changing the wallet after a result is shown clears both results and both s
   await page.getByRole('button', { name: 'Показать историю' }).click();
   await expect(page.locator('.history-period')).toBeVisible();
 
-  await page.locator('select#walletId').selectOption({ label: otherWalletName });
+  await page.getByLabel('Кошелек', { exact: true }).selectOption({ label: otherWalletName });
 
   // Both results are cleared…
   await expect(page.locator('.balance-result .balance')).toHaveText('—');

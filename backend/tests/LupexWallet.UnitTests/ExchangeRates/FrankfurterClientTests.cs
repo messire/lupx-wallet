@@ -134,6 +134,53 @@ public sealed class FrankfurterClientTests
         _requests.Should().ContainSingle().Which.ToString().Should().Be("https://api.frankfurter.dev/v2/currencies");
     }
 
+    [Fact]
+    public async Task GetCurrencies_MissingOrBlankName_FallsBackToTheCode()
+    {
+        var client = CreateClient(_ => Json(HttpStatusCode.OK,
+            """[{"iso_code":"XAU"},{"iso_code":"XAG","name":"  "},{"iso_code":"BTC","name":null},{"iso_code":" CHF ","name":" Swiss Franc "}]"""));
+
+        var currencies = await client.GetCurrenciesAsync(CancellationToken.None);
+
+        currencies.Should().Equal(
+            new FrankfurterCurrency("XAU", "XAU"),
+            new FrankfurterCurrency("XAG", "XAG"),
+            new FrankfurterCurrency("BTC", "BTC"),
+            new FrankfurterCurrency("CHF", "Swiss Franc"));
+    }
+
+    [Fact]
+    public async Task GetCurrencies_DuplicateCodes_KeepsTheFirstOccurrenceCaseInsensitively()
+    {
+        var client = CreateClient(_ => Json(HttpStatusCode.OK,
+            """[{"iso_code":"EUR","name":"Euro"},{"iso_code":"eur","name":"Duplicate"},{"iso_code":"USD","name":"Dollar"}]"""));
+
+        var currencies = await client.GetCurrenciesAsync(CancellationToken.None);
+
+        currencies.Should().Equal(new FrankfurterCurrency("EUR", "Euro"), new FrankfurterCurrency("USD", "Dollar"));
+    }
+
+    [Fact]
+    public async Task GetCurrencies_EmptyArray_ReturnsEmptyListLeavingTheDecisionToTheCaller()
+    {
+        var client = CreateClient(_ => Json(HttpStatusCode.OK, "[]"));
+
+        var currencies = await client.GetCurrenciesAsync(CancellationToken.None);
+
+        currencies.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetCurrencies_ServerError_RetriesThreeTimesThenThrowsUnavailable()
+    {
+        var client = CreateClient(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+
+        var act = () => client.GetCurrenciesAsync(CancellationToken.None);
+
+        await act.Should().ThrowAsync<FrankfurterUnavailableException>();
+        _requests.Should().HaveCount(3);
+    }
+
     [Theory]
     [InlineData("""{"currencies":[]}""")]
     [InlineData("""[{"name":"Euro"}]""")]

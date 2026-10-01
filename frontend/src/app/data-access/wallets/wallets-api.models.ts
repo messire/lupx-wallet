@@ -29,7 +29,8 @@ export type WalletPage = CursorPage<Wallet>;
 export interface CreateWalletRequest {
   name: string;
   walletTypeId: string;
-  currencyId: string;
+  /** Code from GET /currencies/available; the server activates the currency if it is not active yet. */
+  currencyCode: string;
   /** Decimal-point string, arbitrary precision (ADR-0005) — see shared/money/money.ts. */
   initialBalanceAmount: string;
   accountingStartDate: string;

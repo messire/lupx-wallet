@@ -46,8 +46,8 @@ public sealed class GetTotalAmountQueryHandler(
         var excludedWallets = new List<ExcludedWalletDto>();
 
         // Несколько разных фактических дат курса возможны только при нескольких разных
-        // не-основных валютах с историческим fallback (GetOrFetchHistoricalRateAsync может
-        // вернуть более раннюю дату, чем запрошенная) — ratesAsOfDate в ответе один на весь
+        // не-основных валютах (GetHistoricalRateAsync возвращает ближайший более ранний курс,
+        // если на запрошенную дату курса нет) — ratesAsOfDate в ответе один на весь
         // расчет (openapi.yaml: TotalAmount.ratesAsOfDate — одиночное поле), поэтому берем
         // самую раннюю из фактически примененных дат (наиболее консервативная оценка
         // "насколько устарели данные", а не самую позднюю, которая скрыла бы устаревший курс).
@@ -86,7 +86,7 @@ public sealed class GetTotalAmountQueryHandler(
             DateOnly appliedRateDate;
             if (request.Date is { } historicalDate)
             {
-                var rateResult = await exchangeRateLookup.GetOrFetchHistoricalRateAsync(
+                var rateResult = await exchangeRateLookup.GetHistoricalRateAsync(
                     wallet.CurrencyId, targetCurrencyId, historicalDate, cancellationToken);
                 if (rateResult is null)
                 {

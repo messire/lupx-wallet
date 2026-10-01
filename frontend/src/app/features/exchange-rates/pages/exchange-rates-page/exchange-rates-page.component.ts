@@ -27,8 +27,14 @@ interface ExchangeRateRow {
 /**
  * UC-08 (auto-refresh — shows the result of the last run), UC-09 (manual refresh
  * button), UC-10 (timestamp of the last successful update). Currency codes come
- * via ReferenceDataApiService (/currencies), the same service used by the
- * reference-data screen (features/reference-data), so the HTTP call is not duplicated.
+ * via ReferenceDataApiService (/currencies — active currencies only), the same
+ * service used by the reference-data screen (features/reference-data), so the HTTP
+ * call is not duplicated.
+ *
+ * A manual refresh also reloads the list of available currencies (ADR-0004 §7), so
+ * the button stays usable without a primary wallet — in that case only that list is
+ * refreshed and no rates are shown. `GET /exchange-rates/latest` reads the database
+ * only and never calls the rates source (ADR-0004 §8).
  *
  * The primary currency (ADR-0004 §5: quotes are computed relative to the current
  * primary wallet's currency) is resolved from GET /wallets (`isPrimary`) → its
@@ -143,7 +149,7 @@ export class ExchangeRatesComponent implements OnInit {
 
     forkJoin({
       latest: this.exchangeRatesService.getLatest(),
-      currencies: this.referenceDataService.listCurrencies({ includeInactive: true, limit: 100 }),
+      currencies: this.referenceDataService.listCurrencies({ limit: 100 }),
       wallets: this.walletsService.list({ includeArchived: true, limit: 100 }),
     }).subscribe({
       next: ({ latest, currencies, wallets }) => {
@@ -173,7 +179,11 @@ export class ExchangeRatesComponent implements OnInit {
       next: (latest) => {
         this.applyLatest(latest);
         this.isRefreshing.set(false);
-        this.successMessage.set('Курсы валют обновлены.');
+        // Without a primary wallet only the list of available currencies is refreshed
+        // (openapi.yaml: /exchange-rates/refresh), so the confirmation says exactly that.
+        this.successMessage.set(
+          this.primaryWallet() === null ? 'Список доступных валют обновлён.' : 'Курсы валют обновлены.',
+        );
       },
       error: (error: unknown) => {
         this.isRefreshing.set(false);
@@ -190,7 +200,9 @@ export class ExchangeRatesComponent implements OnInit {
           }
 
           if (this.lastSuccessfulUpdate() !== null) {
-            this.sourceUnavailable.set('Источник курсов недоступен сейчас. Показаны последние известные курсы.');
+            this.sourceUnavailable.set(
+              'Курсы или список доступных валют обновить не удалось. Показаны последние известные курсы.',
+            );
           } else {
             // No previous data at all (not even before this attempt) — do not
             // fabricate rows, show a dedicated empty state with the error and a retry.

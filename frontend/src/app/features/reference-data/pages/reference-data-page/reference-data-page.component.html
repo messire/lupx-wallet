@@ -153,32 +153,43 @@
       [attr.aria-labelledby]="tabsRef.tabElementId('currencies')"
       [hidden]="activeTab() !== 'currencies'"
     >
-      <form class="quick-form" [formGroup]="currencyForm" (ngSubmit)="submitCurrency()">
-        <div class="quick-form__field">
-          <label class="app-field__label" for="currencyQuickAddControl">Валюта</label>
-          <app-currency-select id="currencyQuickAddControl" [currencies]="availableIsoCurrencies()" formControlName="isoCode" />
-        </div>
-        <app-button
-          type="submit"
-          variant="primary"
-          class="quick-form__submit app-field-align"
-          [disabled]="currencyForm.invalid"
-          [loading]="isSubmittingCurrency()"
-          loadingText="Сохранение…"
-        >
-          Добавить
-        </app-button>
-      </form>
+      @if (availableCurrencies().length === 0) {
+        <app-empty-state
+          title="Список доступных валют пуст"
+          description="Список доступных валют загружается вместе с курсами — нажмите «Обновить сейчас» на экране курсов."
+        />
+      } @else {
+        <form class="quick-form" [formGroup]="currencyForm" (ngSubmit)="submitCurrency()">
+          <div class="quick-form__field">
+            <label class="app-field__label" for="currencyQuickAddControl">Добавить в активные</label>
+            <app-currency-select
+              id="currencyQuickAddControl"
+              [currencies]="addableCurrencies()"
+              emptyListText="Все доступные валюты уже добавлены"
+              formControlName="code"
+            />
+          </div>
+          <app-button
+            type="submit"
+            variant="primary"
+            class="quick-form__submit app-field-align"
+            [disabled]="currencyForm.invalid"
+            [loading]="isSubmittingCurrency()"
+            loadingText="Сохранение…"
+          >
+            Добавить
+          </app-button>
+        </form>
+      }
 
       @if (currencies().length === 0) {
-        <app-empty-state title="Валюты пока не добавлены" description="Добавьте первую валюту, чтобы использовать её при создании кошелька." />
+        <app-empty-state title="Активных валют пока нет" description="Валюта становится активной при создании кошелька или при добавлении из списка выше." />
       } @else {
           <table class="app-table ref-table">
             <thead>
               <tr>
                 <th>Код</th>
                 <th>Название</th>
-                <th>Статус</th>
                 <th></th>
               </tr>
             </thead>
@@ -187,16 +198,8 @@
                 <tr>
                   <td>{{ item.code }}</td>
                   <td>{{ item.name }}</td>
-                  <td>
-                    <app-badge [tone]="item.isActive ? 'success' : 'neutral'">
-                      {{ item.isActive ? 'Активна' : 'Деактивирована' }}
-                    </app-badge>
-                  </td>
                   <td class="ref-table__actions">
-                    @if (item.isActive) {
-                      <app-button variant="ghost" (click)="deactivateCurrency(item)">Деактивировать</app-button>
-                    }
-                    <app-button variant="danger" (click)="deleteCurrency(item)">Удалить</app-button>
+                    <app-button variant="danger" (click)="requestCurrencyRemoval(item)">Убрать из активных</app-button>
                   </td>
                 </tr>
               }
@@ -205,4 +208,23 @@
       }
     </div>
   }
+
+  <app-dialog
+    [open]="pendingCurrencyRemoval() !== null"
+    titleText="Убрать валюту из активных"
+    size="sm"
+    (dismissRequested)="cancelCurrencyRemoval()"
+    (closed)="cancelCurrencyRemoval()"
+  >
+    @if (pendingCurrencyRemoval(); as pending) {
+      <p>
+        Валюта {{ pending.code }} будет убрана из активных вместе с её курсами. Она останется в списке доступных, и
+        её можно добавить снова. Если валюту используют кошелёк или операция (включая удалённые), убрать её не получится.
+      </p>
+    }
+    <div dialogActions>
+      <app-button variant="secondary" type="button" (click)="cancelCurrencyRemoval()">Отмена</app-button>
+      <app-button variant="danger" type="button" (click)="confirmCurrencyRemoval()">Убрать</app-button>
+    </div>
+  </app-dialog>
 </div>

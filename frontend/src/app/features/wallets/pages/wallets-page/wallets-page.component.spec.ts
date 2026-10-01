@@ -55,6 +55,11 @@ describe('WalletsComponent', () => {
     httpMock.verify();
   });
 
+  const availableCurrencies = [
+    { code: 'EUR', name: 'Euro', isActive: false },
+    { code: 'USD', name: 'US Dollar', isActive: true },
+  ];
+
   function createComponent(wallets: Wallet[] = [primaryWallet, secondaryWallet]) {
     const fixture = TestBed.createComponent(WalletsComponent);
     fixture.detectChanges();
@@ -67,7 +72,8 @@ describe('WalletsComponent', () => {
       .flush({ data: [{ id: 'wt-1', name: 'Наличные', isActive: true }], pagination: { nextCursor: null, hasMore: false } });
     httpMock
       .expectOne((req) => req.url === `${environment.apiBaseUrl}/currencies`)
-      .flush({ data: [{ id: 'c-usd', code: 'USD', name: 'US Dollar', isActive: true }], pagination: { nextCursor: null, hasMore: false } });
+      .flush({ data: [{ id: 'c-usd', code: 'USD', name: 'US Dollar' }], pagination: { nextCursor: null, hasMore: false } });
+    httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush(availableCurrencies);
 
     fixture.detectChanges();
     return fixture;
@@ -425,64 +431,68 @@ describe('WalletsComponent', () => {
       .flush({ data: [{ id: 'wt-2', name: 'Наличные 2', isActive: true }], pagination: { nextCursor: null, hasMore: false } });
   });
 
-  // ---- Quick-add currency (submitNewCurrency) ----
+  // ---- Create form: currency chosen from the available list (loadAvailableCurrencies / submit) ----
 
-  it('submitNewCurrency: creates the currency, selects it in the form, and closes the quick-add row', () => {
+  it('loadAvailableCurrencies: maps the available list to picker options', () => {
     const fixture = createComponent();
     const component = fixture.componentInstance;
 
-    component.toggleAddCurrency();
-    component.newCurrencyIsoCode.setValue('EUR');
-    component.submitNewCurrency();
+    expect(component.currencyOptions()).toEqual([
+      { code: 'EUR', name: 'Euro' },
+      { code: 'USD', name: 'US Dollar' },
+    ]);
+    expect(component.availableCurrenciesLoadError()).toBeNull();
+  });
 
-    expect(component.isSubmittingCurrency()).toBe(true);
+  it('loadAvailableCurrencies: sets a readable error on failure and clears the loading flag', () => {
+    const fixture = createComponent();
+    const component = fixture.componentInstance;
 
-    const req = httpMock.expectOne(`${environment.apiBaseUrl}/currencies`);
+    component.loadAvailableCurrencies();
+    expect(component.availableCurrenciesLoading()).toBe(true);
+    httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush('boom', { status: 500, statusText: 'Server Error' });
+
+    expect(component.availableCurrenciesLoading()).toBe(false);
+    expect(component.availableCurrenciesLoadError()).toBe('Не удалось загрузить список доступных валют.');
+  });
+
+  it('submit: sends currencyCode (not currencyId) and refreshes the active currencies afterwards', () => {
+    const fixture = createComponent();
+    const component = fixture.componentInstance;
+
+    component.openForm();
+    component.form.patchValue({ name: 'Новый', walletTypeId: 'wt-1', currencyCode: 'EUR' });
+    component.submit();
+
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/wallets`);
     expect(req.request.method).toBe('POST');
-    expect(req.request.body).toEqual({ code: 'EUR', name: 'Евро' });
-    req.flush({ id: 'c-eur', code: 'EUR', name: 'Евро', isActive: true });
+    expect(req.request.body.currencyCode).toBe('EUR');
+    expect(req.request.body.currencyId).toBeUndefined();
+    req.flush({ ...secondaryWallet, id: 'w-new' }, { status: 201, statusText: 'Created' });
 
+    // The server may have activated the currency: the list that supplies the balance's code is re-read.
+    httpMock.expectOne((r) => r.method === 'GET' && r.url === `${environment.apiBaseUrl}/wallets`).flush({
+      data: [primaryWallet],
+      pagination: { nextCursor: null, hasMore: false },
+    });
     httpMock
       .expectOne((r) => r.url === `${environment.apiBaseUrl}/currencies`)
-      .flush({ data: [{ id: 'c-eur', code: 'EUR', name: 'Евро', isActive: true }], pagination: { nextCursor: null, hasMore: false } });
-
-    expect(component.isSubmittingCurrency()).toBe(false);
-    expect(component.form.controls.currencyId.value).toBe('c-eur');
-    expect(component.isAddingCurrency()).toBe(false);
-    expect(component.newCurrencyIsoCode.value).toBeNull();
+      .flush({ data: [], pagination: { nextCursor: null, hasMore: false } });
+    httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush(availableCurrencies);
   });
 
-  it('submitNewCurrency: on failure, shows a readable error, ends the loading state, and preserves the selected currency', () => {
+  it('submit: shows a currency-aware error when the server rejects the code (400)', () => {
     const fixture = createComponent();
     const component = fixture.componentInstance;
 
-    component.toggleAddCurrency();
-    component.newCurrencyIsoCode.setValue('EUR');
-    component.submitNewCurrency();
+    component.openForm();
+    component.form.patchValue({ name: 'Новый', walletTypeId: 'wt-1', currencyCode: 'XXX' });
+    component.submit();
 
-    httpMock
-      .expectOne(`${environment.apiBaseUrl}/currencies`)
-      .flush({ title: 'Conflict', status: 409, detail: 'Валюта уже добавлена.' }, { status: 409, statusText: 'Conflict' });
+    httpMock.expectOne(`${environment.apiBaseUrl}/wallets`).flush({ status: 400 }, { status: 400, statusText: 'Bad Request' });
 
-    expect(component.isSubmittingCurrency()).toBe(false);
-    expect(component.addCurrencyError()).toBe('Валюта уже добавлена.');
-    expect(component.isAddingCurrency()).toBe(true);
-    expect(component.newCurrencyIsoCode.value).toBe('EUR');
-  });
-
-  it('submitNewCurrency: a second call while the first is in flight does not send a second request', () => {
-    const fixture = createComponent();
-    const component = fixture.componentInstance;
-
-    component.toggleAddCurrency();
-    component.newCurrencyIsoCode.setValue('EUR');
-    component.submitNewCurrency();
-    component.submitNewCurrency(); // guarded by isSubmittingCurrency()
-
-    httpMock.expectOne(`${environment.apiBaseUrl}/currencies`).flush({ id: 'c-eur', code: 'EUR', name: 'Евро', isActive: true });
-    httpMock
-      .expectOne((r) => r.url === `${environment.apiBaseUrl}/currencies`)
-      .flush({ data: [{ id: 'c-eur', code: 'EUR', name: 'Евро', isActive: true }], pagination: { nextCursor: null, hasMore: false } });
+    expect(component.isSubmitting()).toBe(false);
+    expect(component.submitError()).toContain('валюта недоступна');
   });
 
   describe('wallet card "···" menu', () => {

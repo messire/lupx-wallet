@@ -43,8 +43,12 @@
   } @else if (primaryWalletMissing()) {
     <app-empty-state
       title="Основной кошелёк не назначен"
-      description="Курсы валют показываются относительно основного кошелька. Назначьте основной кошелёк на экране «Кошельки», чтобы увидеть курсы."
-    />
+      description="Курсы валют показываются относительно основного кошелька. Назначьте основной кошелёк на экране «Кошельки», чтобы увидеть курсы. Кнопка «Обновить сейчас» и без него загружает список доступных валют."
+    >
+      @if (sourceUnavailableEmpty(); as message) {
+        <p class="warning" role="status">{{ message }}</p>
+      }
+    </app-empty-state>
   } @else if (rows().length === 0) {
     @if (sourceUnavailableEmpty(); as message) {
       <app-empty-state title="Курсов ещё нет" [description]="message">
@@ -53,7 +57,10 @@
         </app-button>
       </app-empty-state>
     } @else {
-      <app-empty-state title="Ещё не было" description="Нажмите «Обновить сейчас», чтобы получить актуальные курсы.">
+      <app-empty-state
+        title="Ещё не было"
+        description="Нажмите «Обновить сейчас», чтобы получить актуальные курсы и список доступных валют."
+      >
         <app-button variant="secondary" [loading]="isRefreshing()" loadingText="Обновление…" (click)="refresh()">
           Обновить сейчас
         </app-button>

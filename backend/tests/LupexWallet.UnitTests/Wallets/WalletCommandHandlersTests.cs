@@ -49,7 +49,7 @@ public sealed class WalletCommandHandlersTests
         }).ToArray();
     }
 
-    // W2.5, случай d: walletTypeId is checked for existence and activity, currencyId for existence.
+    // walletTypeId is checked for existence and activity; the currency code is resolved/activated through ICurrencyActivation.
     private static IWalletTypeLookup WalletTypeLookupReturning(bool? isActive)
     {
         var lookup = Substitute.For<IWalletTypeLookup>();
@@ -66,6 +66,14 @@ public sealed class WalletCommandHandlersTests
         return lookup;
     }
 
+    private static ICurrencyActivation CurrencyActivationReturning(bool resolves)
+    {
+        var activation = Substitute.For<ICurrencyActivation>();
+        activation.EnsureActiveAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(resolves ? new CurrencyLookupResult(new CurrencyId(Guid.NewGuid()), "USD") : null);
+        return activation;
+    }
+
     // ---- CreateWalletCommand ----
 
     [Fact]
@@ -75,10 +83,10 @@ public sealed class WalletCommandHandlersTests
         var policy = new PrimaryWalletPolicy(repository, Substitute.For<IWalletsUnitOfWork>());
         var handler = new CreateWalletCommandHandler(
             repository, Substitute.For<IWalletsUnitOfWork>(), policy,
-            WalletTypeLookupReturning(null), CurrencyLookupReturning(true));
+            WalletTypeLookupReturning(null), CurrencyActivationReturning(true));
 
         var act = () => handler.Handle(
-            new CreateWalletCommand("Кошелек", Guid.NewGuid(), Guid.NewGuid(), 0m, DateOnly.FromDateTime(DateTime.UtcNow), null, true, 0, null, null),
+            new CreateWalletCommand("Кошелек", Guid.NewGuid(), "USD", 0m, DateOnly.FromDateTime(DateTime.UtcNow), null, true, 0, null, null),
             CancellationToken.None);
 
         await act.Should().ThrowAsync<WalletTypeReferenceNotFoundException>();
@@ -91,10 +99,10 @@ public sealed class WalletCommandHandlersTests
         var policy = new PrimaryWalletPolicy(repository, Substitute.For<IWalletsUnitOfWork>());
         var handler = new CreateWalletCommandHandler(
             repository, Substitute.For<IWalletsUnitOfWork>(), policy,
-            WalletTypeLookupReturning(false), CurrencyLookupReturning(true));
+            WalletTypeLookupReturning(false), CurrencyActivationReturning(true));
 
         var act = () => handler.Handle(
-            new CreateWalletCommand("Кошелек", Guid.NewGuid(), Guid.NewGuid(), 0m, DateOnly.FromDateTime(DateTime.UtcNow), null, true, 0, null, null),
+            new CreateWalletCommand("Кошелек", Guid.NewGuid(), "USD", 0m, DateOnly.FromDateTime(DateTime.UtcNow), null, true, 0, null, null),
             CancellationToken.None);
 
         await act.Should().ThrowAsync<WalletTypeReferenceInactiveException>();
@@ -107,10 +115,10 @@ public sealed class WalletCommandHandlersTests
         var policy = new PrimaryWalletPolicy(repository, Substitute.For<IWalletsUnitOfWork>());
         var handler = new CreateWalletCommandHandler(
             repository, Substitute.For<IWalletsUnitOfWork>(), policy,
-            WalletTypeLookupReturning(true), CurrencyLookupReturning(false));
+            WalletTypeLookupReturning(true), CurrencyActivationReturning(false));
 
         var act = () => handler.Handle(
-            new CreateWalletCommand("Кошелек", Guid.NewGuid(), Guid.NewGuid(), 0m, DateOnly.FromDateTime(DateTime.UtcNow), null, true, 0, null, null),
+            new CreateWalletCommand("Кошелек", Guid.NewGuid(), "USD", 0m, DateOnly.FromDateTime(DateTime.UtcNow), null, true, 0, null, null),
             CancellationToken.None);
 
         await act.Should().ThrowAsync<CurrencyReferenceNotFoundException>();
@@ -123,10 +131,10 @@ public sealed class WalletCommandHandlersTests
         var unitOfWork = Substitute.For<IWalletsUnitOfWork>();
         var policy = new PrimaryWalletPolicy(repository, unitOfWork);
         var handler = new CreateWalletCommandHandler(
-            repository, unitOfWork, policy, WalletTypeLookupReturning(true), CurrencyLookupReturning(true));
+            repository, unitOfWork, policy, WalletTypeLookupReturning(true), CurrencyActivationReturning(true));
 
         var dto = await handler.Handle(
-            new CreateWalletCommand("Кошелек", Guid.NewGuid(), Guid.NewGuid(), 100m, DateOnly.FromDateTime(DateTime.UtcNow), null, true, 0, null, null),
+            new CreateWalletCommand("Кошелек", Guid.NewGuid(), "USD", 100m, DateOnly.FromDateTime(DateTime.UtcNow), null, true, 0, null, null),
             CancellationToken.None);
 
         dto.Name.Should().Be("Кошелек");
@@ -356,7 +364,7 @@ public sealed class WalletCommandHandlersTests
     public async Task ChangeWalletCurrency_UnknownWallet_ThrowsWalletNotFoundException()
     {
         var repository = RepositoryReturning(null);
-        var handler = new ChangeWalletCurrencyCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>(), HistorySources(false));
+        var handler = new ChangeWalletCurrencyCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>(), HistorySources(false), CurrencyLookupReturning(true));
 
         var act = () => handler.Handle(new ChangeWalletCurrencyCommand(Guid.NewGuid(), Guid.NewGuid()), CancellationToken.None);
 
@@ -364,11 +372,24 @@ public sealed class WalletCommandHandlersTests
     }
 
     [Fact]
+    public async Task ChangeWalletCurrency_UnknownCurrency_ThrowsCurrencyReferenceNotFoundException()
+    {
+        var wallet = CreateWallet();
+        var repository = RepositoryReturning(wallet);
+        var handler = new ChangeWalletCurrencyCommandHandler(
+            repository, Substitute.For<IWalletsUnitOfWork>(), HistorySources(false), CurrencyLookupReturning(false));
+
+        var act = () => handler.Handle(new ChangeWalletCurrencyCommand(wallet.Id.Value, Guid.NewGuid()), CancellationToken.None);
+
+        await act.Should().ThrowAsync<CurrencyReferenceNotFoundException>();
+    }
+
+    [Fact]
     public async Task ChangeWalletCurrency_HasHistory_ThrowsWalletCurrencyChangeNotAllowedException()
     {
         var wallet = CreateWallet();
         var repository = RepositoryReturning(wallet);
-        var handler = new ChangeWalletCurrencyCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>(), HistorySources(true, false));
+        var handler = new ChangeWalletCurrencyCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>(), HistorySources(true, false), CurrencyLookupReturning(true));
 
         var act = () => handler.Handle(new ChangeWalletCurrencyCommand(wallet.Id.Value, Guid.NewGuid()), CancellationToken.None);
 
@@ -381,7 +402,7 @@ public sealed class WalletCommandHandlersTests
         var wallet = CreateWallet();
         var repository = RepositoryReturning(wallet);
         var unitOfWork = Substitute.For<IWalletsUnitOfWork>();
-        var handler = new ChangeWalletCurrencyCommandHandler(repository, unitOfWork, HistorySources(false, false));
+        var handler = new ChangeWalletCurrencyCommandHandler(repository, unitOfWork, HistorySources(false, false), CurrencyLookupReturning(true));
         var newCurrencyId = Guid.NewGuid();
 
         var dto = await handler.Handle(new ChangeWalletCurrencyCommand(wallet.Id.Value, newCurrencyId), CancellationToken.None);

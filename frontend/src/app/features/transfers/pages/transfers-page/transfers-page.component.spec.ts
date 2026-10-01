@@ -36,7 +36,7 @@ const walletUsd2: Wallet = {
   accountingStartDate: '2026-02-01',
 };
 
-const currencies: Currency[] = [{ id: 'c-usd', code: 'USD', name: 'US Dollar', isActive: true }];
+const currencies: Currency[] = [{ id: 'c-usd', code: 'USD', name: 'US Dollar' }];
 
 const transfer1: Transfer = {
   id: 't-1',

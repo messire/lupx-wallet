@@ -1,15 +1,17 @@
 import { ChangeDetectionStrategy, Component, computed, ElementRef, forwardRef, HostListener, inject, input, signal } from '@angular/core';
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
-import { IsoCurrency } from '../iso-currencies';
+import { CurrencyOption } from '../currency-option';
 
 let nextId = 0;
 
 /**
  * Searchable currency picker (ARIA combobox pattern) — a plain <select> with
- * 150+ ISO 4217 currencies has no way to filter as you type, so finding one
- * meant scanning the whole list. Filters by code or name (case-insensitive
+ * 150+ currencies has no way to filter as you type, so finding one meant
+ * scanning the whole list. Filters by code or name (case-insensitive
  * substring), keyboard-navigable, usable via formControlName like any other
- * ControlValueAccessor.
+ * ControlValueAccessor. The option list is supplied by the caller (see
+ * `CurrencyOption`); when it is empty the popup shows `emptyListText` instead
+ * of a bare "nothing found".
  */
 @Component({
   selector: 'app-currency-select',
@@ -28,8 +30,12 @@ let nextId = 0;
 export class CurrencySelectComponent implements ControlValueAccessor {
   private readonly host = inject(ElementRef<HTMLElement>);
 
-  readonly currencies = input.required<readonly IsoCurrency[]>();
+  readonly currencies = input.required<readonly CurrencyOption[]>();
   readonly placeholder = input('— выберите валюту —');
+  /** Shown in the popup when the caller supplies no options at all (as opposed to a search that matched nothing). */
+  readonly emptyListText = input('Список валют пуст');
+  /** Accessible name for the input and the popup when no external `<label for>` points at the input. */
+  readonly ariaLabel = input<string | null>(null);
   /** Lets an external `<label for>` (e.g. `app-field`'s `controlId()`) target the inner `<input>`. */
   readonly id = input<string | null>(null);
 
@@ -122,7 +128,7 @@ export class CurrencySelectComponent implements ControlValueAccessor {
     switch (event.key) {
       case 'ArrowDown':
         event.preventDefault();
-        this.highlightedIndex.update((index) => Math.min(index + 1, optionCount - 1));
+        this.highlightedIndex.update((index) => Math.max(Math.min(index + 1, optionCount - 1), 0));
         break;
       case 'ArrowUp':
         event.preventDefault();

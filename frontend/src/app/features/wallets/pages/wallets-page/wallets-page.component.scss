@@ -35,10 +35,10 @@
   flex-wrap: wrap;
   gap: var(--lw-space-3);
   margin-top: var(--lw-space-2);
+}
 
-  app-currency-select {
-    display: block;
-  }
+app-currency-select {
+  display: block;
 }
 
 .quick-add__field {

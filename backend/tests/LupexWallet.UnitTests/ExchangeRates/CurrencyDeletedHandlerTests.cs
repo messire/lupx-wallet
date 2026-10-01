@@ -16,18 +16,22 @@ public sealed class CurrencyDeletedHandlerTests
 {
     private readonly ILatestExchangeRateRepository _latestRepository = Substitute.For<ILatestExchangeRateRepository>();
     private readonly IHistoricalExchangeRateRepository _historicalRepository = Substitute.For<IHistoricalExchangeRateRepository>();
+    private readonly IHistoricalRateCoverageRepository _coverageRepository = Substitute.For<IHistoricalRateCoverageRepository>();
 
     [Fact]
-    public async Task Handle_CurrencyDeleted_RemovesLatestAndHistoricalRatesForThatCurrencyOnly()
+    public async Task Handle_CurrencyDeleted_RemovesLatestHistoricalAndCoverageForThatCurrencyOnly()
     {
         var currencyId = new CurrencyId(Guid.NewGuid());
-        var handler = new CurrencyDeletedHandler(_latestRepository, _historicalRepository);
+        var handler = new CurrencyDeletedHandler(_latestRepository, _historicalRepository, _coverageRepository);
 
         await handler.Handle(
             new DomainEventNotification<CurrencyDeleted>(new CurrencyDeleted(currencyId)), CancellationToken.None);
 
         await _latestRepository.Received(1).RemoveAllForCurrencyAsync(currencyId, Arg.Any<CancellationToken>());
         await _historicalRepository.Received(1).RemoveAllForCurrencyAsync(currencyId, Arg.Any<CancellationToken>());
+        await _coverageRepository.Received(1).RemoveAllForCurrencyAsync(currencyId, Arg.Any<CancellationToken>());
+        await _coverageRepository.DidNotReceive().RemoveAllForCurrencyAsync(
+            Arg.Is<CurrencyId>(id => id != currencyId), Arg.Any<CancellationToken>());
         await _latestRepository.DidNotReceive().RemoveAllForCurrencyAsync(
             Arg.Is<CurrencyId>(id => id != currencyId), Arg.Any<CancellationToken>());
         await _historicalRepository.DidNotReceive().RemoveAllForCurrencyAsync(

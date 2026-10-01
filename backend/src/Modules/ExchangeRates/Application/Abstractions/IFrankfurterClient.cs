@@ -11,13 +11,25 @@ public interface IFrankfurterClient
     Task<decimal> GetLatestRateAsync(string fromCurrencyCode, string toCurrencyCode, CancellationToken cancellationToken);
 
     /// <summary>
-    /// from→to rate on a date (or the closest earlier trading date Frankfurter itself
-    /// returns — RatesAsOfDate carries the actually applied date). Throws
-    /// FrankfurterClientException on error.
+    /// Daily from→to rates for [<paramref name="fromDate"/>; <paramref name="toDate"/>] in one request
+    /// (ADR-0004, §9), ordered by date. Days the service has no rate for (weekends, dates before the
+    /// currency's data starts) are absent. <c>200 []</c> yields an empty list — the caller decides
+    /// what that means for the period; a code the service rejects (422) throws
+    /// <see cref="FrankfurterUnsupportedCurrencyException"/>.
     /// </summary>
-    Task<(decimal Rate, DateOnly RatesAsOfDate)> GetHistoricalRateAsync(
-        string fromCurrencyCode, string toCurrencyCode, DateOnly date, CancellationToken cancellationToken);
+    Task<IReadOnlyList<(DateOnly Date, decimal Rate)>> GetRatesForPeriodAsync(
+        string fromCurrencyCode, string toCurrencyCode, DateOnly fromDate, DateOnly toDate, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Currencies the service offers (ADR-0004, §7) — the available list. Throws
+    /// <see cref="FrankfurterUnavailableException"/> when the body is not the expected array of
+    /// objects with a non-empty <c>iso_code</c>.
+    /// </summary>
+    Task<IReadOnlyList<FrankfurterCurrency>> GetCurrenciesAsync(CancellationToken cancellationToken);
 }
+
+/// <summary>A currency offered by Frankfurter: ISO-like code and the service's English name.</summary>
+public sealed record FrankfurterCurrency(string Code, string Name);
 
 public abstract class FrankfurterClientException(string message, Exception? inner = null) : Exception(message, inner);
 

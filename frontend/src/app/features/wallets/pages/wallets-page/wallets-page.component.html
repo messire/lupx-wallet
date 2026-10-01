@@ -74,50 +74,22 @@
           }
         </app-field>
 
-        <app-field label="Валюта" [required]="true">
-          @if (currenciesLoadError(); as error) {
-            <app-error-state [message]="error" retryLabel="Повторить" (retry)="loadCurrencies()" />
+        <app-field
+          #currencyField
+          label="Валюта"
+          [required]="true"
+          [hint]="availableCurrenciesEmpty() ? emptyAvailableCurrenciesHint : null"
+        >
+          @if (availableCurrenciesLoadError(); as error) {
+            <app-error-state [message]="error" retryLabel="Повторить" (retry)="loadAvailableCurrencies()" />
           } @else {
-            <select appFieldControl formControlName="currencyId" [disabled]="currenciesLoading()">
-              @if (currenciesLoading()) {
-                <option value="" disabled>Загрузка…</option>
-              } @else {
-                <option value="" disabled>— выберите валюту —</option>
-                @for (currency of currencies(); track currency.id) {
-                  <option [value]="currency.id">{{ currency.code }} — {{ currency.name }}</option>
-                }
-              }
-            </select>
-          }
-
-          <app-button variant="ghost" type="button" (click)="toggleAddCurrency()">
-            {{ isAddingCurrency() ? 'Отмена' : '+ добавить валюту' }}
-          </app-button>
-
-          @if (isAddingCurrency()) {
-            <div class="quick-add">
-              <app-field #newCurrencyField label="Новая валюта" class="quick-add__field">
-                <app-currency-select
-                  [id]="newCurrencyField.controlId()"
-                  [currencies]="availableIsoCurrencies()"
-                  [formControl]="newCurrencyIsoCode"
-                />
-              </app-field>
-              <app-button
-                variant="secondary"
-                type="button"
-                class="app-field-align"
-                [disabled]="!newCurrencyIsoCode.value || isSubmittingCurrency()"
-                [loading]="isSubmittingCurrency()"
-                loadingText="Сохранение…"
-                (click)="submitNewCurrency()"
-              >
-                Добавить
-              </app-button>
-            </div>
-            @if (addCurrencyError(); as error) {
-              <p class="form-error" role="alert">{{ error }}</p>
-            }
+            <app-currency-select
+              [id]="currencyField.controlId()"
+              [currencies]="currencyOptions()"
+              [placeholder]="availableCurrenciesLoading() ? 'Загрузка…' : '— выберите валюту —'"
+              [emptyListText]="availableCurrenciesLoading() ? 'Загрузка…' : emptyAvailableCurrenciesHint"
+              formControlName="currencyCode"
+            />
           }
         </app-field>
 

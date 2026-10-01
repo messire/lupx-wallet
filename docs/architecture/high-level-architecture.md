@@ -68,7 +68,7 @@ frontend/
 **Правило границы модуля:** проект `Modules/X/*.Domain` и `*.Application` другого модуля **не может ссылаться** на `Modules/Y/*.Domain`/`*.Infrastructure` напрямую. Единственные разрешенные способы связи между модулями:
 1. Ссылка по строго типизированному Id (например, `Operation.WalletId: WalletId` — тип `WalletId` живет в `SharedKernel`, а не в `Wallets.Domain`, чтобы не тянуть зависимость на весь модуль Wallets).
 2. Доменное событие (см. §4).
-3. Узкий порт, объявленный в `Application` **владельца данных** и реализованный в его `Infrastructure`; вызывает `Application` потребителя (например, `IWalletBalanceGateway`, `IWalletTotalsSource`). Может быть и записывающим.
+3. Узкий порт, объявленный в `Application` **владельца данных** и реализованный в его `Infrastructure`; вызывает `Application` потребителя (например, `IWalletBalanceGateway`, `IWalletTotalsSource`; записывающие порты ReferenceData — `IAvailableCurrencyCatalog` для ExchangeRates (замена списка доступных валют, ADR-0004 §7) и `ICurrencyActivation` для Wallets (активация валюты при создании кошелька)). Может быть и записывающим.
 4. Узкий порт, объявленный в `Application` **потребителя**, когда прямая ссылка образовала бы цикл; реализации — в `Infrastructure` одного или нескольких владельцев данных, потребитель внедряет `IEnumerable<TПорт>` и агрегирует ответы сам (например, `IWalletHistorySource`, `IReferenceItemUsageProbe`). Пустой список реализаций — ошибка конфигурации, а не отрицательный ответ.
 5. `*.Infrastructure`-подписчик на доменное событие другого модуля ссылается на `*.Domain` издателя ради типа события (не бизнес-логики).
 

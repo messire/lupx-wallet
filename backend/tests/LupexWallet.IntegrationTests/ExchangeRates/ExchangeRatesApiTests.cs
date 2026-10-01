@@ -1,10 +1,11 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
-using System.Text;
 using FluentAssertions;
 using LupexWallet.ExchangeRates.Infrastructure;
 using LupexWallet.IntegrationTests.Infrastructure;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace LupexWallet.IntegrationTests.ExchangeRates;
@@ -17,68 +18,22 @@ public sealed record LatestExchangeRatesResponse(DateTimeOffset? LastSuccessfulU
 /// ExchangeRates API (docs/api/openapi.yaml, тег ExchangeRates) — GET /latest,
 /// POST /refresh, включая 502 при недоступности Frankfurter (ADR-0004 п.6) и пропуск
 /// валюты, не поддерживаемой Frankfurter (ADR-0004, "Последствия"). HTTP-вызов к Frankfurter
-/// подменён через FrankfurterTestableHandler — реального сетевого вызова нет
-/// (docs/PROGRESS.md, W1.1 DoD).
+/// подменён через FrankfurterFake — реального сетевого вызова нет.
 /// </summary>
 public sealed class ExchangeRatesApiTests(ApiTestFixture fixture) : IntegrationTestBase(fixture)
 {
-    // xunit создаёт новый экземпляр класса теста на каждый [Fact] — сброс TestOverride здесь
-    // (в инициализаторе поля primary-конструктора) гарантирует, что предыдущий тест не
-    // оставит подмену ответа Frankfurter для следующего (Singleton на весь прогон коллекции).
-    private readonly FrankfurterTestableHandler _frankfurterHandler = ResetOverride(fixture.Factory.GetFrankfurterTestableHandler());
+    // xunit создаёт новый экземпляр класса теста на каждый [Fact] — новый FrankfurterFake заменяет
+    // TestOverride Singleton-обработчика (общий на весь прогон коллекции) и сбрасывает настройки,
+    // так что подмена предыдущего теста не доживает до следующего.
+    private readonly FrankfurterFake _fake = new(fixture.Factory.GetFrankfurterTestableHandler());
 
-    private static FrankfurterTestableHandler ResetOverride(FrankfurterTestableHandler handler)
-    {
-        handler.TestOverride = null;
-        return handler;
-    }
+    private void SetSuccessfulRate(decimal rate) => _fake.DefaultRate = rate;
 
-    private static string GetQueryParam(Uri uri, string name)
-    {
-        var query = uri.Query.TrimStart('?');
-        foreach (var pair in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var parts = pair.Split('=', 2);
-            if (Uri.UnescapeDataString(parts[0]) == name)
-            {
-                return Uri.UnescapeDataString(parts.Length > 1 ? parts[1] : string.Empty);
-            }
-        }
+    private void SetUnavailable() => _fake.RatesFailure = FrankfurterFakeFailure.ServerError;
 
-        return string.Empty;
-    }
-
-    private void SetSuccessfulRate(decimal rate)
-    {
-        _frankfurterHandler.TestOverride = (request, _) =>
-        {
-            var baseCode = GetQueryParam(request.RequestUri!, "base");
-            var quote = GetQueryParam(request.RequestUri!, "quotes");
-            // Frankfurter API v2: array of {date, base, quote, rate}.
-            var json = "[{\"date\":\"2024-01-01\",\"base\":\"" + baseCode + "\",\"quote\":\"" + quote
-                + "\",\"rate\":" + rate.ToString(CultureInfo.InvariantCulture) + "}]";
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(json, Encoding.UTF8, "application/json"),
-            });
-        };
-    }
-
-    private void SetUnavailable()
-    {
-        _frankfurterHandler.TestOverride = (_, _) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
-    }
-
-    private void SetUnsupportedCurrency()
-    {
-        _frankfurterHandler.TestOverride = (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-        {
-            // Frankfurter API v2 отвечает 200 и пустым массивом — ровно так себя ведёт реальный
-            // сервис для валюты, которой у него нет (ADR-0004, §6).
-            Content = new StringContent("[]", Encoding.UTF8, "application/json"),
-        });
-    }
+    // Frankfurter API v2 отвечает 200 и пустым массивом — ровно так себя ведёт реальный сервис для
+    // валюты, которой у него нет (ADR-0004, §6).
+    private void SetUnsupportedCurrency() => _fake.RatesFailure = FrankfurterFakeFailure.EmptyArray;
 
     [Fact]
     public async Task GetLatest_BeforeAnyRefresh_ReturnsNullUpdateAndEmptyRates()
@@ -105,20 +60,13 @@ public sealed class ExchangeRatesApiTests(ApiTestFixture fixture) : IntegrationT
         body!.Rates.Should().BeEmpty();
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Refresh_CatalogCurrencyWithoutWallet_UpdatesRateAndReflectsInLatest(bool deactivate)
+    [Fact]
+    public async Task Refresh_ActiveCurrencyWithoutWallet_UpdatesRateAndReflectsInLatest()
     {
         await AuthenticateAsync();
-        var primaryCurrency = await Client.CreateCurrencyAsync("EUR", "Евро");
-        var secondCurrency = await Client.CreateCurrencyAsync("USD", "Доллар США");
+        var primaryCurrency = await Client.CreateCurrencyAsync("EUR");
+        var secondCurrency = await Client.CreateCurrencyAsync("USD");
         await Client.CreateWalletAsync(currencyId: primaryCurrency.Id, name: "Основной"); // первый кошелек -> primary
-        if (deactivate)
-        {
-            var deactivateResponse = await Client.PostAsync($"/api/v1/currencies/{secondCurrency.Id}/deactivate", null);
-            deactivateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        }
         SetSuccessfulRate(0.92m);
 
         var refreshResponse = await Client.PostAsync("/api/v1/exchange-rates/refresh", null);
@@ -143,8 +91,8 @@ public sealed class ExchangeRatesApiTests(ApiTestFixture fixture) : IntegrationT
         // docs/api/openapi.yaml (ExchangeRateQuoteQuote.rate: string/decimal) и не пройдёт
         // AMOUNT_PATTERN на фронтенде (frontend/src/app/core/money/money.ts).
         await AuthenticateAsync();
-        var primaryCurrency = await Client.CreateCurrencyAsync("EUR", "Евро");
-        var secondCurrency = await Client.CreateCurrencyAsync("BTC", "Биткоин");
+        var primaryCurrency = await Client.CreateCurrencyAsync("EUR");
+        var secondCurrency = await Client.CreateCurrencyAsync("BTC");
         await Client.CreateWalletAsync(currencyId: primaryCurrency.Id, name: "Основной");
         await Client.CreateWalletAsync(currencyId: secondCurrency.Id, name: "Крипто");
         SetSuccessfulRate(0.00001m);
@@ -163,8 +111,8 @@ public sealed class ExchangeRatesApiTests(ApiTestFixture fixture) : IntegrationT
         // основной валюте. До фикса эндпоинт отдавал все строки latest_exchange_rates без
         // фильтра, включая пары к уже неактуальной прежней основной валюте.
         await AuthenticateAsync();
-        var eur = await Client.CreateCurrencyAsync("EUR", "Евро");
-        var usd = await Client.CreateCurrencyAsync("USD", "Доллар США");
+        var eur = await Client.CreateCurrencyAsync("EUR");
+        var usd = await Client.CreateCurrencyAsync("USD");
         var eurWallet = await Client.CreateWalletAsync(currencyId: eur.Id, name: "Евро (основной)"); // первый -> primary
         await Client.CreateWalletAsync(currencyId: usd.Id, name: "Доллары");
         SetSuccessfulRate(0.92m);
@@ -177,7 +125,7 @@ public sealed class ExchangeRatesApiTests(ApiTestFixture fixture) : IntegrationT
         // запускается (IHostedService отключены, LupexWalletApiFactory), поэтому это ровно то
         // окно "смена основного кошелька уже произошла, обновление курсов ещё нет", которое
         // и должен закрывать читающий фильтр в GetLatestExchangeRatesQueryHandler.
-        var gbp = await Client.CreateCurrencyAsync("GBP", "Фунт стерлингов");
+        var gbp = await Client.CreateCurrencyAsync("GBP");
         var gbpWallet = await Client.CreateWalletAsync(currencyId: gbp.Id, name: "Фунты");
         var setPrimaryResponse = await Client.PostAsync($"/api/v1/wallets/{gbpWallet.Id}/set-primary", null);
         setPrimaryResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -201,8 +149,8 @@ public sealed class ExchangeRatesApiTests(ApiTestFixture fixture) : IntegrationT
     public async Task Refresh_FrankfurterUnavailable_ReturnsBadGatewayAndKeepsPreviousRate()
     {
         await AuthenticateAsync();
-        var primaryCurrency = await Client.CreateCurrencyAsync("EUR", "Евро");
-        var secondCurrency = await Client.CreateCurrencyAsync("USD", "Доллар США");
+        var primaryCurrency = await Client.CreateCurrencyAsync("EUR");
+        var secondCurrency = await Client.CreateCurrencyAsync("USD");
         await Client.CreateWalletAsync(currencyId: primaryCurrency.Id, name: "Основной");
         await Client.CreateWalletAsync(currencyId: secondCurrency.Id, name: "Второй");
 
@@ -224,8 +172,8 @@ public sealed class ExchangeRatesApiTests(ApiTestFixture fixture) : IntegrationT
     public async Task Refresh_CurrencyUnsupportedByFrankfurter_SkipsPairAndStillReturnsOk()
     {
         await AuthenticateAsync();
-        var primaryCurrency = await Client.CreateCurrencyAsync("EUR", "Евро");
-        var unsupportedCurrency = await Client.CreateCurrencyAsync("XYZ", "Неизвестная валюта");
+        var primaryCurrency = await Client.CreateCurrencyAsync("EUR");
+        var unsupportedCurrency = await Client.CreateCurrencyAsync("XYZ");
         await Client.CreateWalletAsync(currencyId: primaryCurrency.Id, name: "Основной");
         await Client.CreateWalletAsync(currencyId: unsupportedCurrency.Id, name: "Второй");
         SetUnsupportedCurrency();
@@ -235,5 +183,62 @@ public sealed class ExchangeRatesApiTests(ApiTestFixture fixture) : IntegrationT
         response.StatusCode.Should().Be(HttpStatusCode.OK, "валюта, не поддерживаемая Frankfurter, пропускается молча, не эскалируется до 502");
         var body = await response.Content.ReadFromJsonAsync<LatestExchangeRatesResponse>();
         body!.Rates.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Refresh_CurrencyListUnavailable_ReturnsBadGatewayEvenWithoutPrimaryWallet()
+    {
+        await AuthenticateAsync();
+        _fake.CurrenciesFailure = FrankfurterFakeFailure.ServerError;
+
+        var response = await Client.PostAsync("/api/v1/exchange-rates/refresh", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadGateway, "сбой загрузки списка доступных валют — это сбой обновления (ADR-0004 §7)");
+        _fake.CurrenciesCalls.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task Refresh_EmptyCurrencyList_ReturnsBadGateway()
+    {
+        await AuthenticateAsync();
+        _fake.SetCatalog();
+
+        var response = await Client.PostAsync("/api/v1/exchange-rates/refresh", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadGateway, "пустой список считается сбоем и не стирает сохранённый");
+    }
+
+    [Fact]
+    public async Task BackgroundPass_LoadsHistoryInChunksAndRepeatedPassRequestsNothingNew()
+    {
+        await AuthenticateAsync();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var eur = await Client.CreateCurrencyAsync("EUR");
+        var usd = await Client.CreateCurrencyAsync("USD");
+        await Client.CreateWalletAsync(currencyId: eur.Id, name: "Основной", accountingStartDate: today.AddDays(-400));
+        await Client.CreateWalletAsync(currencyId: usd.Id, name: "USD", accountingStartDate: today.AddDays(-300));
+
+        var (_, backfill) = await Fixture.RunExchangeRatesBackgroundPassAsync();
+
+        // Период [старт − 7; сегодня] = 408 дней, порции по 366: две загрузки, от новых дат к старым.
+        var periodRequests = _fake.RatesRequests.Where(r => r.From is not null).ToList();
+        periodRequests.Should().HaveCount(2);
+        periodRequests[0].To.Should().Be(today);
+        periodRequests[1].From.Should().Be(today.AddDays(-407));
+        backfill.Loaded.Should().ContainSingle(l => l.RangeFrom == today.AddDays(-407) && l.RangeTo == today);
+
+        using (var scope = Fixture.Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ExchangeRatesDbContext>();
+            var coverage = await db.HistoricalRateCoverages.AsNoTracking().SingleAsync();
+            coverage.CoveredFrom.Should().Be(today.AddDays(-407));
+            coverage.CoveredTo.Should().Be(today);
+            (await db.HistoricalExchangeRates.CountAsync()).Should().BeGreaterThan(250, "будни за 408 дней");
+        }
+
+        _fake.ResetCounters();
+        await Fixture.RunExchangeRatesBackgroundPassAsync();
+
+        _fake.RatesRequests.Where(r => r.From is not null).Should().BeEmpty("покрытие уже доходит до сегодняшнего дня и до левой границы");
     }
 }

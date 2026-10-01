@@ -143,9 +143,7 @@ export class ReportingComponent implements OnInit {
 
   private loadLookups(): void {
     this.walletsService.list({ includeArchived: true, limit: 100 }).subscribe((page) => this.wallets.set(page.data));
-    this.referenceDataService
-      .listCurrencies({ includeInactive: true, limit: 100 })
-      .subscribe((page) => this.currencies.set(page.data));
+    this.referenceDataService.listCurrencies({ limit: 100 }).subscribe((page) => this.currencies.set(page.data));
   }
 
   private today(): string {

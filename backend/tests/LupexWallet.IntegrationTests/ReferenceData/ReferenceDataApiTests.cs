@@ -290,7 +290,7 @@ public sealed class ReferenceDataApiTests(ApiTestFixture fixture) : IntegrationT
         await AuthenticateAsync();
         await Client.CreateCurrencyAsync("XYZ", "Первая");
 
-        var response = await Client.PostAsJsonAsync("/api/v1/currencies", new { Code = "xyz", Name = "Вторая" });
+        var response = await Client.PostAsJsonAsync("/api/v1/currencies", new { Code = "xyz" });
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict, "код валюты уникален глобально, включая регистр (нормализуется в UPPER)");
     }

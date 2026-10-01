@@ -32,12 +32,20 @@ public sealed class RefreshExchangeRatesCommandHandlerTests
     private readonly IFrankfurterClient _frankfurterClient = Substitute.For<IFrankfurterClient>();
     private readonly IWalletCurrencySet _walletCurrencySet = Substitute.For<IWalletCurrencySet>();
     private readonly ICurrencyLookup _currencyLookup = Substitute.For<ICurrencyLookup>();
+    private readonly IAvailableCurrencyCatalog _availableCurrencyCatalog = Substitute.For<IAvailableCurrencyCatalog>();
     private readonly IExchangeRateRefreshSignal _refreshSignal = Substitute.For<IExchangeRateRefreshSignal>();
     private readonly IDomainEventDispatcher _eventDispatcher = Substitute.For<IDomainEventDispatcher>();
 
+    public RefreshExchangeRatesCommandHandlerTests()
+    {
+        // A healthy service by default: the available list loads on every run (ADR-0004 §7).
+        _frankfurterClient.GetCurrenciesAsync(Arg.Any<CancellationToken>()).Returns(
+            (IReadOnlyList<FrankfurterCurrency>)[new("EUR", "Euro"), new("USD", "United States Dollar")]);
+    }
+
     private RefreshExchangeRatesCommandHandler CreateHandler() => new(
-        _repository, _unitOfWork, _frankfurterClient, _walletCurrencySet, _currencyLookup, _refreshSignal,
-        _eventDispatcher, Substitute.For<ILogger<RefreshExchangeRatesCommandHandler>>());
+        _repository, _unitOfWork, _frankfurterClient, _walletCurrencySet, _currencyLookup, _availableCurrencyCatalog,
+        _refreshSignal, _eventDispatcher, Substitute.For<ILogger<RefreshExchangeRatesCommandHandler>>());
 
     private void SetupCurrencies(bool useBtc = false)
     {
@@ -62,6 +70,50 @@ public sealed class RefreshExchangeRatesCommandHandlerTests
         result.HadFailures.Should().BeFalse();
         result.LastSuccessfulUpdate.Should().BeNull();
         await _frankfurterClient.DidNotReceiveWithAnyArgs().GetLatestRateAsync(default!, default!, default);
+    }
+
+    [Fact]
+    public async Task Handle_NoPrimaryWallet_StillReplacesAvailableCurrencies()
+    {
+        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(null, [], null));
+        _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlyList<ExchangeRateQuote>)[]);
+
+        var result = await CreateHandler().Handle(new RefreshExchangeRatesCommand(IsManualTrigger: false), CancellationToken.None);
+
+        result.HadFailures.Should().BeFalse();
+        await _availableCurrencyCatalog.Received(1).ReplaceAsync(
+            Arg.Is<IReadOnlyList<AvailableCurrencyItem>>(items =>
+                items.Count == 2 && items[0] == new AvailableCurrencyItem("EUR", "Euro")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_EmptyCurrencyList_DoesNotReplaceListAndReportsFailure()
+    {
+        _frankfurterClient.GetCurrenciesAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlyList<FrankfurterCurrency>)[]);
+        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(null, [], null));
+        _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlyList<ExchangeRateQuote>)[]);
+
+        var result = await CreateHandler().Handle(new RefreshExchangeRatesCommand(IsManualTrigger: true), CancellationToken.None);
+
+        result.HadFailures.Should().BeTrue();
+        await _availableCurrencyCatalog.DidNotReceiveWithAnyArgs().ReplaceAsync(default!, default);
+        await _eventDispatcher.DidNotReceiveWithAnyArgs().DispatchAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task Handle_CurrencyListUnavailable_DoesNotReplaceListAndReportsFailure()
+    {
+        _frankfurterClient.GetCurrenciesAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<IReadOnlyList<FrankfurterCurrency>>(new FrankfurterUnavailableException("недоступен")));
+        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(null, [], null));
+        _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlyList<ExchangeRateQuote>)[]);
+
+        var result = await CreateHandler().Handle(new RefreshExchangeRatesCommand(IsManualTrigger: true), CancellationToken.None);
+
+        result.HadFailures.Should().BeTrue();
+        await _availableCurrencyCatalog.DidNotReceiveWithAnyArgs().ReplaceAsync(default!, default);
+        _refreshSignal.Received(1).NotifyManualRefreshCompleted();
     }
 
     [Fact]

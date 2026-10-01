@@ -31,7 +31,5 @@ public sealed class WalletTypeReferenceNotFoundException() : WalletDomainExcepti
 public sealed class WalletTypeReferenceInactiveException()
     : WalletDomainException("Тип кошелька деактивирован — нельзя ссылаться на него в новом/изменяемом кошельке.");
 
-public sealed class CurrencyReferenceNotFoundException() : WalletDomainException("Валюта не найдена.");
-
-public sealed class CurrencyReferenceInactiveException()
-    : WalletDomainException("Валюта деактивирована — нельзя ссылаться на неё при создании кошелька.");
+/// <summary>The currency is neither active nor (for creation by code) available.</summary>
+public sealed class CurrencyReferenceNotFoundException() : WalletDomainException("Валюта не найдена или недоступна.");

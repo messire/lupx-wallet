@@ -12,11 +12,11 @@ namespace LupexWallet.ExchangeRates.Infrastructure;
 /// <summary>
 /// Composition point for the ExchangeRates module (schema "exchange_rates") — called from
 /// Host/Program.cs. Registers the DbContext, repositories, Frankfurter client, the
-/// auto-refresh background job (ADR-0004) and the PrimaryWalletChanged subscriber
-/// (ADR-0004 p.5, ADR-0004) — the latter is registered manually (not via
+/// background job (rates refresh + history load, ADR-0004) and the event subscribers
+/// (PrimaryWalletChanged, WalletCreated, WalletCurrencyChanged, CurrencyCreated, CurrencyDeleted).
+/// Subscribers and the command handlers of Refresh/Backfill are registered manually (not via
 /// MediatR.RegisterServicesFromAssembly, which in Program.cs scans only *.Application
-/// assemblies, while the handler and RefreshExchangeRatesCommand's command handler live in
-/// Infrastructure, see RefreshExchangeRatesCommandHandler.cs).
+/// assemblies, while they live in Infrastructure, see RefreshExchangeRatesCommandHandler.cs).
 /// </summary>
 public static class ExchangeRatesModuleExtensions
 {
@@ -35,6 +35,7 @@ public static class ExchangeRatesModuleExtensions
 
         services.AddScoped<ILatestExchangeRateRepository, LatestExchangeRateRepository>();
         services.AddScoped<IHistoricalExchangeRateRepository, HistoricalExchangeRateRepository>();
+        services.AddScoped<IHistoricalRateCoverageRepository, HistoricalRateCoverageRepository>();
         services.AddScoped<IExchangeRatesUnitOfWork, ExchangeRatesUnitOfWork>();
         services.AddScoped<IExchangeRateLookup, ExchangeRateLookup>();
 
@@ -53,19 +54,48 @@ public static class ExchangeRatesModuleExtensions
             .ConfigurePrimaryHttpMessageHandler(provider => provider.GetRequiredService<FrankfurterTestableHandler>());
         services.AddScoped<IFrankfurterClient, FrankfurterClient>();
 
+        services.AddSingleton(ReadHistoryOptions(configuration));
+
         services.AddSingleton<ExchangeRateRefreshSignal>();
         services.AddSingleton<IExchangeRateRefreshSignal>(provider => provider.GetRequiredService<ExchangeRateRefreshSignal>());
 
         // RefreshExchangeRatesCommandHandler живёт в Infrastructure (не найдётся сканированием
         // *.Application-сборок в Program.cs) — регистрируется вручную, как и подписчик ниже.
         services.AddScoped<IRequestHandler<RefreshExchangeRatesCommand, RefreshExchangeRatesResult>, RefreshExchangeRatesCommandHandler>();
+        services.AddScoped<IRequestHandler<BackfillExchangeRateHistoryCommand, BackfillResult>, BackfillExchangeRateHistoryCommandHandler>();
+        // ADR-0004 §5, §9: each of these means "something to catch up on" — the subscribers only signal.
         services.AddScoped<INotificationHandler<DomainEventNotification<PrimaryWalletChanged>>, PrimaryWalletChangedHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<WalletCreated>>, WalletCreatedHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<WalletCurrencyChanged>>, WalletCurrencyChangedHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<CurrencyCreated>>, CurrencyCreatedHandler>();
         // ADR-0002 §4: rates are not "usage" of a currency — they are deleted together with it.
         services.AddScoped<INotificationHandler<DomainEventNotification<CurrencyDeleted>>, CurrencyDeletedHandler>();
 
         services.AddHostedService<ExchangeRateRefreshBackgroundService>();
 
         return services;
+    }
+
+    /// <summary>
+    /// <c>ExchangeRates:HistoryChunkDays</c> (default 366) — fails fast at startup on a non-positive or
+    /// non-numeric value instead of silently loading the history in a wrong chunk size.
+    /// </summary>
+    private static ExchangeRateHistoryOptions ReadHistoryOptions(IConfiguration configuration)
+    {
+        var raw = configuration["ExchangeRates:HistoryChunkDays"];
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return new ExchangeRateHistoryOptions();
+        }
+
+        if (!int.TryParse(raw, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var chunkDays)
+            || chunkDays < 1)
+        {
+            throw new InvalidOperationException(
+                $"ExchangeRates:HistoryChunkDays должен быть целым числом не меньше 1 (получено \"{raw}\").");
+        }
+
+        return new ExchangeRateHistoryOptions(chunkDays);
     }
 
     /// <summary>

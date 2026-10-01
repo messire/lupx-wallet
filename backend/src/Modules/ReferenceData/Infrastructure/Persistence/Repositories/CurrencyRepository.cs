@@ -14,6 +14,12 @@ public sealed class CurrencyRepository(ReferenceDataDbContext dbContext) : ICurr
     public Task<Currency?> GetByIdAsync(CurrencyId id, CancellationToken cancellationToken) =>
         dbContext.Currencies.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
+    public Task<Currency?> GetByCodeAsync(string code, CancellationToken cancellationToken)
+    {
+        var normalized = code.Trim().ToUpperInvariant();
+        return dbContext.Currencies.FirstOrDefaultAsync(x => x.Code == normalized, cancellationToken);
+    }
+
     public Task<bool> CodeExistsAsync(string code, CancellationToken cancellationToken)
     {
         var normalized = code.Trim().ToUpperInvariant();

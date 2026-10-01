@@ -81,8 +81,9 @@ public static class AuditModuleExtensions
         services.AddScoped<INotificationHandler<DomainEventNotification<BalanceSnapshotUpdated>>, BalanceSnapshotUpdatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<BalanceSnapshotDeleted>>, BalanceSnapshotDeletedAuditHandler>();
 
-        // ExchangeRates (ExchangeRatesUpdated, ExchangeRateUpdateFailed).
+        // ExchangeRates (ExchangeRatesUpdated, ExchangeRateUpdateFailed, ExchangeRateHistoryLoaded).
         services.AddScoped<INotificationHandler<DomainEventNotification<ExchangeRatesUpdated>>, ExchangeRatesUpdatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<ExchangeRateUpdateFailed>>, ExchangeRateUpdateFailedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<ExchangeRateHistoryLoaded>>, ExchangeRateHistoryLoadedAuditHandler>();
     }
 }

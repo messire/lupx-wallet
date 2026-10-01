@@ -13,8 +13,8 @@ const walletsResponse = {
 
 const currenciesResponse = {
   data: [
-    { id: 'cur-usd', code: 'USD', name: 'US Dollar', isActive: true },
-    { id: 'cur-btc', code: 'BTC', name: 'Bitcoin', isActive: true },
+    { id: 'cur-usd', code: 'USD', name: 'US Dollar' },
+    { id: 'cur-btc', code: 'BTC', name: 'Bitcoin' },
   ],
   pagination: { nextCursor: null, hasMore: false },
 };

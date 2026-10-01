@@ -9,7 +9,7 @@ namespace LupexWallet.Wallets.Application;
 public sealed record CreateWalletCommand(
     string Name,
     Guid WalletTypeId,
-    Guid CurrencyId,
+    string CurrencyCode,
     decimal InitialBalanceAmount,
     DateOnly AccountingStartDate,
     string? PurposeDescription,
@@ -19,17 +19,18 @@ public sealed record CreateWalletCommand(
     string? Icon) : IRequest<WalletDto>, ICommand<WalletDto>;
 
 /// <summary>
-/// walletTypeId/currencyId are validated for existence and active status via
-/// ReferenceData.Application.IWalletTypeLookup/ICurrencyLookup. Top-down direction
-/// (Wallets.Application → ReferenceData.Application), no cycle — ADR-0001 does not apply
-/// (same approach as Operations.Application's IOperationTypeLookup, ADR-0001).
+/// walletTypeId is validated for existence and active status via
+/// ReferenceData.Application.IWalletTypeLookup. The currency is given by code and resolved through
+/// ICurrencyActivation: an available but inactive currency becomes active in this command's
+/// transaction (ADR-0004 §7), so a later failure rolls the activation back. Top-down direction
+/// (Wallets.Application → ReferenceData.Application), no cycle (ADR-0001).
 /// </summary>
 public sealed class CreateWalletCommandHandler(
     IWalletRepository repository,
     IWalletsUnitOfWork unitOfWork,
     PrimaryWalletPolicy primaryWalletPolicy,
     IWalletTypeLookup walletTypeLookup,
-    ICurrencyLookup currencyLookup) : IRequestHandler<CreateWalletCommand, WalletDto>
+    ICurrencyActivation currencyActivation) : IRequestHandler<CreateWalletCommand, WalletDto>
 {
     public async Task<WalletDto> Handle(CreateWalletCommand request, CancellationToken cancellationToken)
     {
@@ -41,9 +42,9 @@ public sealed class CreateWalletCommandHandler(
             throw new WalletTypeReferenceInactiveException();
         }
 
-        var currencyId = new CurrencyId(request.CurrencyId);
-        var currency = await currencyLookup.GetAsync(currencyId, cancellationToken)
+        var currency = await currencyActivation.EnsureActiveAsync(request.CurrencyCode, cancellationToken)
             ?? throw new CurrencyReferenceNotFoundException();
+        var currencyId = currency.Id;
 
         var isFirstWallet = await primaryWalletPolicy.IsFirstWalletAsync(cancellationToken);
 

@@ -44,3 +44,26 @@ public sealed class ExchangeRateUpdateFailedAuditHandler(AuditRecorder recorder)
         return recorder.RecordAsync("ExchangeRateQuote", Guid.Empty, "RateUpdateFailed", changes, cancellationToken);
     }
 }
+
+/// <summary>
+/// One entry per history load pass (ADR-0004 §9, ADR-0006): loaded ranges per pair
+/// (<c>from-&gt;to</c> → <c>yyyy-MM-dd..yyyy-MM-dd</c>) and pairs whose load failed
+/// (<c>from-&gt;to</c> → reason), like ExchangeRatesUpdated — batched, entity_id = Guid.Empty.
+/// </summary>
+public sealed class ExchangeRateHistoryLoadedAuditHandler(AuditRecorder recorder)
+    : INotificationHandler<DomainEventNotification<ExchangeRateHistoryLoaded>>
+{
+    public Task Handle(DomainEventNotification<ExchangeRateHistoryLoaded> notification, CancellationToken cancellationToken)
+    {
+        var changes = notification.DomainEvent.Loaded
+            .Select(range => new AuditFieldChange(
+                $"{range.FromCurrencyId.Value}->{range.ToCurrencyId.Value}",
+                null,
+                $"{range.RangeFrom.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}..{range.RangeTo.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}"))
+            .Concat(notification.DomainEvent.Failed
+                .Select(pair => new AuditFieldChange($"{pair.FromCurrencyId.Value}->{pair.ToCurrencyId.Value}", null, pair.Reason)))
+            .ToList();
+
+        return recorder.RecordAsync("ExchangeRateQuote", Guid.Empty, "HistoryLoaded", changes, cancellationToken);
+    }
+}

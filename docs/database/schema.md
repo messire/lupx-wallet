@@ -51,16 +51,27 @@ CREATE UNIQUE INDEX ux_operation_types_active_name
     ON reference_data.operation_types (lower(name)) WHERE is_active;
 CREATE INDEX ix_operation_types_behavior_kind ON reference_data.operation_types (behavior_kind_id);
 
+-- Активные валюты пользователя (ADR-0004, §7). Наличие строки = валюта активна; колонки is_active нет
+-- (состояния «деактивирована» у валюты нет; колонка удалена миграцией AvailableCurrenciesAndNoDeactivation).
 CREATE TABLE reference_data.currencies (
     id          uuid PRIMARY KEY,
-    code        varchar(16)  NOT NULL,   -- напр. 'USD', 'BTC' — свободный код, не обязательно ISO 4217
-    name        varchar(200) NOT NULL,
-    is_active   boolean      NOT NULL DEFAULT true,
+    code        varchar(16)  NOT NULL,   -- напр. 'USD'; код из списка доступных валют (available_currencies), проверяется приложением, без FK
+    name        varchar(200) NOT NULL,   -- английское название сервиса; синхронизируется при обновлении списка доступных
     created_at  timestamptz  NOT NULL DEFAULT now(),
     updated_at  timestamptz  NOT NULL DEFAULT now()
 );
--- Код валюты уникален глобально (включая неактивные) — переиспользование кода для другой валюты недопустимо, это исказило бы историю.
+-- Код валюты уникален (регистронезависимо) — не более одной активной валюты на код.
 CREATE UNIQUE INDEX ux_currencies_code ON reference_data.currencies (upper(code));
+
+-- Список доступных валют — копия списка сервиса курсов (ADR-0004, §7). Пользователем не управляется;
+-- заменяется целиком при каждом обновлении курсов (upsert по code, отсутствующие в ответе удаляются).
+-- Нужен только для списков выбора и проверки «код есть среди доступных». Без FK на currencies в обе
+-- стороны: валюта, исчезнувшая из сервиса, остается активной; ссылка идет по коду.
+CREATE TABLE reference_data.available_currencies (
+    code          varchar(16)  PRIMARY KEY,
+    name          varchar(200) NOT NULL,   -- английское название из сервиса
+    refreshed_at  timestamptz  NOT NULL    -- момент последнего обновления списка, затронувшего строку
+);
 ```
 
 ## Схема `wallets`
@@ -211,9 +222,26 @@ CREATE TABLE exchange_rates.historical_exchange_rates (
     PRIMARY KEY (from_currency_id, to_currency_id, rate_date),
     CONSTRAINT ck_historical_rates_distinct_currencies CHECK (from_currency_id <> to_currency_id)
 );
+
+-- Какой диапазон дат истории уже загружен для пары (ADR-0004, §9). Одна строка на пару.
+CREATE TABLE exchange_rates.historical_rate_coverage (
+    from_currency_id  uuid        NOT NULL,  -- reference_data.currencies.id, без FK
+    to_currency_id    uuid        NOT NULL,
+    covered_from      date        NOT NULL,  -- левая граница загруженного диапазона
+    covered_to        date        NOT NULL,  -- правая граница; продлевается до сегодняшнего дня
+    updated_at        timestamptz NOT NULL,
+
+    PRIMARY KEY (from_currency_id, to_currency_id),
+    CONSTRAINT ck_historical_coverage_distinct_currencies CHECK (from_currency_id <> to_currency_id),
+    CONSTRAINT ck_historical_coverage_range CHECK (covered_from <= covered_to)
+);
 ```
 
-Две отдельные таблицы, а не одна с nullable-датой: разный жизненный цикл (`latest_exchange_rates` — upsert одной строки на пару при каждом обновлении; `historical_exchange_rates` — append-only, пополняется по мере того, как приложению реально требуется курс на конкретную прошедшую дату для расчета исторической общей суммы, раздел 5).
+Две отдельные таблицы курсов, а не одна с nullable-датой: разный жизненный цикл. `latest_exchange_rates` — upsert одной строки на пару при каждом обновлении. `historical_exchange_rates` — **загружаемая история**, а не накопление по требованию: ее заполняет фоновая дозагрузка (ADR-0004, §9) для активных валют к основной за период от самой ранней даты начала учета (по всем кошелькам, включая архивные, с запасом в несколько дней слева) до сегодняшнего дня; строки записываются upsert'ом по `(from_currency_id, to_currency_id, rate_date)` — повторная загрузка того же дня обновляет курс (таблица не append-only). Чтение курсов (`GET /reporting/total-amount`) идет только из этой таблицы: курс на дату или ближайший более ранний; к сервису при чтении обращений нет (§8). Строки для дат без публикации курса (выходные) не создаются.
+
+`historical_rate_coverage` делает дозагрузку идемпотентной и возобновляемой: диапазон `[covered_from; covered_to]` непрерывен, поэтому прерванный проход продолжается с места остановки, а повторный запрашивает только недостающие края; заведомо пустой ранний период (у сервиса нет данных раньше некоторой даты) фиксируется сдвигом `covered_from` и больше не перезапрашивается. Покрытие и история пар не к текущей основной валюте или с неактивной валютой удаляются в конце прохода дозагрузки; при удалении валюты (`CurrencyDeleted`) — в той же транзакции, вместе с курсами пары.
+
+При смене основной валюты (смена основного кошелька или валюты основного кошелька) история и покрытие пар к прежней основной валюте удаляются, пары к новой загружаются за весь период заново: пока дозагрузка не завершена, исторические курсы за часть дат отсутствуют, и кошельки без курса исключаются из исторической общей суммы.
 
 ## Схема `audit`
 
@@ -224,7 +252,7 @@ CREATE TABLE audit.audit_entries (
     id                    uuid        PRIMARY KEY,
     entity_type           varchar(64) NOT NULL,   -- 'Wallet' | 'Operation' | 'Transfer' | 'BalanceSnapshot' | 'ExchangeRateQuote' | 'WalletType' | 'OperationType' | 'Currency'
     entity_id             uuid        NOT NULL,
-    action                 varchar(32) NOT NULL,   -- 'Created' | 'Updated' | 'Deleted' | 'Restored' | 'Archived' | 'Deactivated' | 'SnapshotCreated' | 'SnapshotUpdated' | 'SnapshotDeleted' | 'RatesUpdated' | 'RateUpdateFailed' | ...
+    action                 varchar(32) NOT NULL,   -- 'Created' | 'Updated' | 'Deleted' | 'Restored' | 'Archived' | 'Deactivated' | 'SnapshotCreated' | 'SnapshotUpdated' | 'SnapshotDeleted' | 'RatesUpdated' | 'RateUpdateFailed' | 'HistoryLoaded' | ...
     occurred_at             timestamptz NOT NULL DEFAULT now(),
     actor_kind               varchar(16) NOT NULL CHECK (actor_kind IN ('User', 'System')),
     actor_system_process     varchar(128),
@@ -246,11 +274,11 @@ CREATE RULE audit_entries_no_delete AS ON DELETE TO audit.audit_entries DO INSTE
 
 | Схема | Модуль | Таблицы |
 |---|---|---|
-| `reference_data` | ReferenceData | `operation_behavior_kinds`, `wallet_types`, `operation_types`, `currencies` |
+| `reference_data` | ReferenceData | `operation_behavior_kinds`, `wallet_types`, `operation_types`, `currencies`, `available_currencies` |
 | `wallets` | Wallets | `wallets` |
 | `operations` | Operations | `operations`, `transfers` |
 | `balance_history` | BalanceHistory | `balance_snapshots` |
-| `exchange_rates` | ExchangeRates | `latest_exchange_rates`, `historical_exchange_rates` |
+| `exchange_rates` | ExchangeRates | `latest_exchange_rates`, `historical_exchange_rates`, `historical_rate_coverage` |
 | `audit` | Audit | `audit_entries` |
 
 `Reporting` не владеет таблицами — читает через узкие read-контракты остальных модулей или (как будущая оптимизация) через SQL-представления, объединяющие несколько схем на чтение.

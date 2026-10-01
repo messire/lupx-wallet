@@ -59,27 +59,103 @@ public sealed class FrankfurterClientTests
     }
 
     [Fact]
-    public async Task GetHistoricalRate_ReturnsActualDateFromResponse()
+    public async Task GetRatesForPeriod_ParsesSeriesOrderedByDateAndUsesFromToQuery()
     {
-        // A non-trading date: the service answers with the closest earlier date.
-        var client = CreateClient(_ => Json(HttpStatusCode.OK, """[{"date":"1999-01-01","base":"USD","quote":"EUR","rate":0.85657}]"""));
+        // The service skips non-trading days and may return the series in any order.
+        var client = CreateClient(_ => Json(HttpStatusCode.OK,
+            """[{"date":"1999-01-05","base":"USD","quote":"EUR","rate":0.8547},{"date":"1999-01-04","base":"USD","quote":"EUR","rate":0.85657}]"""));
 
-        var (rate, asOf) = await client.GetHistoricalRateAsync("USD", "EUR", new DateOnly(1999, 1, 2), CancellationToken.None);
+        var rates = await client.GetRatesForPeriodAsync("USD", "EUR", new DateOnly(1999, 1, 1), new DateOnly(1999, 1, 10), CancellationToken.None);
 
-        rate.Should().Be(0.85657m);
-        asOf.Should().Be(new DateOnly(1999, 1, 1));
+        rates.Should().Equal([(new DateOnly(1999, 1, 4), 0.85657m), (new DateOnly(1999, 1, 5), 0.8547m)]);
         _requests.Should().ContainSingle().Which.PathAndQuery
-            .Should().Be("/v2/rates?base=USD&quotes=EUR&date=1999-01-02");
+            .Should().Be("/v2/rates?base=USD&quotes=EUR&from=1999-01-01&to=1999-01-10");
     }
 
     [Fact]
-    public async Task GetHistoricalRate_ResponseWithoutDate_FallsBackToRequestedDate()
+    public async Task GetRatesForPeriod_EmptyArray_ReturnsEmptyListWithoutRetry()
     {
-        var client = CreateClient(_ => Json(HttpStatusCode.OK, """[{"base":"USD","quote":"EUR","rate":0.9}]"""));
+        // No data in the range (the currency's data starts later) is an answer, not a failure.
+        var client = CreateClient(_ => Json(HttpStatusCode.OK, "[]"));
 
-        var (_, asOf) = await client.GetHistoricalRateAsync("USD", "EUR", new DateOnly(2024, 5, 6), CancellationToken.None);
+        var rates = await client.GetRatesForPeriodAsync("GBP", "EUR", new DateOnly(1990, 1, 1), new DateOnly(1990, 12, 31), CancellationToken.None);
 
-        asOf.Should().Be(new DateOnly(2024, 5, 6));
+        rates.Should().BeEmpty();
+        _requests.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task GetRatesForPeriod_UnprocessableEntity_ThrowsUnsupportedWithoutRetry()
+    {
+        var client = CreateClient(_ => Json(HttpStatusCode.UnprocessableEntity, """{"status":422,"message":"invalid currency: XXX"}"""));
+
+        var act = () => client.GetRatesForPeriodAsync("XXX", "EUR", new DateOnly(2024, 1, 1), new DateOnly(2024, 1, 31), CancellationToken.None);
+
+        await act.Should().ThrowAsync<FrankfurterUnsupportedCurrencyException>();
+        _requests.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task GetRatesForPeriod_ServerError_RetriesThreeTimesThenThrowsUnavailable()
+    {
+        var client = CreateClient(_ => new HttpResponseMessage(HttpStatusCode.BadGateway));
+
+        var act = () => client.GetRatesForPeriodAsync("USD", "EUR", new DateOnly(2024, 1, 1), new DateOnly(2024, 1, 31), CancellationToken.None);
+
+        await act.Should().ThrowAsync<FrankfurterUnavailableException>();
+        _requests.Should().HaveCount(3);
+    }
+
+    [Theory]
+    [InlineData("""[{"base":"USD","quote":"EUR","rate":0.9}]""")]
+    [InlineData("""[{"date":"not-a-date","base":"USD","quote":"EUR","rate":0.9}]""")]
+    [InlineData("""[{"date":"2024-01-02","base":"USD","quote":"EUR","rate":"0.9"}]""")]
+    [InlineData("""[{"date":"2024-01-02","base":"USD","quote":"EUR","rate":0}]""")]
+    [InlineData("""{"rates":{}}""")]
+    public async Task GetRatesForPeriod_MalformedBody_ThrowsUnavailableWithoutRetry(string json)
+    {
+        var client = CreateClient(_ => Json(HttpStatusCode.OK, json));
+
+        var act = () => client.GetRatesForPeriodAsync("USD", "EUR", new DateOnly(2024, 1, 1), new DateOnly(2024, 1, 31), CancellationToken.None);
+
+        await act.Should().ThrowAsync<FrankfurterUnavailableException>();
+        _requests.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task GetCurrencies_ParsesIsoCodeAndName()
+    {
+        var client = CreateClient(_ => Json(HttpStatusCode.OK,
+            """[{"iso_code":"AED","iso_numeric":"784","name":"United Arab Emirates Dirham","symbol":"x","start_date":"1996-04-11","end_date":"2026-10-01"},{"iso_code":"EUR","name":"Euro"}]"""));
+
+        var currencies = await client.GetCurrenciesAsync(CancellationToken.None);
+
+        currencies.Should().Equal([new FrankfurterCurrency("AED", "United Arab Emirates Dirham"), new FrankfurterCurrency("EUR", "Euro")]);
+        _requests.Should().ContainSingle().Which.ToString().Should().Be("https://api.frankfurter.dev/v2/currencies");
+    }
+
+    [Theory]
+    [InlineData("""{"currencies":[]}""")]
+    [InlineData("""[{"name":"Euro"}]""")]
+    [InlineData("""[{"iso_code":"  ","name":"Euro"}]""")]
+    [InlineData("""["EUR"]""")]
+    public async Task GetCurrencies_UnexpectedShapeOrEmptyCode_ThrowsUnavailable(string json)
+    {
+        var client = CreateClient(_ => Json(HttpStatusCode.OK, json));
+
+        var act = () => client.GetCurrenciesAsync(CancellationToken.None);
+
+        await act.Should().ThrowAsync<FrankfurterUnavailableException>();
+    }
+
+    [Fact]
+    public async Task GetCurrencies_UnprocessableEntity_ThrowsUnavailable()
+    {
+        var client = CreateClient(_ => Json(HttpStatusCode.UnprocessableEntity, "{}"));
+
+        var act = () => client.GetCurrenciesAsync(CancellationToken.None);
+
+        await act.Should().ThrowAsync<FrankfurterUnavailableException>();
     }
 
     [Fact]
@@ -91,17 +167,6 @@ public sealed class FrankfurterClientTests
 
         await act.Should().ThrowAsync<FrankfurterUnsupportedCurrencyException>();
         _requests.Should().HaveCount(1);
-    }
-
-    [Fact]
-    public async Task GetHistoricalRate_EmptyArray_ThrowsUnsupported()
-    {
-        // A date before the start of the service's data also yields 200 [].
-        var client = CreateClient(_ => Json(HttpStatusCode.OK, "[]"));
-
-        var act = () => client.GetHistoricalRateAsync("GBP", "EUR", new DateOnly(1990, 1, 1), CancellationToken.None);
-
-        await act.Should().ThrowAsync<FrankfurterUnsupportedCurrencyException>();
     }
 
     [Fact]
@@ -165,16 +230,6 @@ public sealed class FrankfurterClientTests
         var act = () => client.GetLatestRateAsync("GBP", "EUR", CancellationToken.None);
 
         await act.Should().ThrowAsync<FrankfurterUnsupportedCurrencyException>();
-    }
-
-    [Fact]
-    public async Task GetHistoricalRate_DateNotAString_FallsBackToRequestedDate()
-    {
-        var client = CreateClient(_ => Json(HttpStatusCode.OK, """[{"date":20240506,"base":"USD","quote":"EUR","rate":0.9}]"""));
-
-        var (_, asOf) = await client.GetHistoricalRateAsync("USD", "EUR", new DateOnly(2024, 5, 6), CancellationToken.None);
-
-        asOf.Should().Be(new DateOnly(2024, 5, 6));
     }
 
     [Fact]

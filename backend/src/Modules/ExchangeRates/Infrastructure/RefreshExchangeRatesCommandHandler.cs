@@ -24,6 +24,7 @@ public sealed class RefreshExchangeRatesCommandHandler(
     IFrankfurterClient frankfurterClient,
     IWalletCurrencySet walletCurrencySet,
     ICurrencyLookup currencyLookup,
+    IAvailableCurrencyCatalog availableCurrencyCatalog,
     IExchangeRateRefreshSignal refreshSignal,
     IDomainEventDispatcher eventDispatcher,
     ILogger<RefreshExchangeRatesCommandHandler> logger)
@@ -31,6 +32,10 @@ public sealed class RefreshExchangeRatesCommandHandler(
 {
     public async Task<RefreshExchangeRatesResult> Handle(RefreshExchangeRatesCommand request, CancellationToken cancellationToken)
     {
+        // ADR-0004 §7: the list of available currencies is reloaded on every run, before the primary
+        // wallet check — the first wallet cannot be created until the list is loaded.
+        var availableCurrenciesLoaded = await RefreshAvailableCurrenciesAsync(cancellationToken);
+
         var currencySet = await walletCurrencySet.GetAsync(cancellationToken);
         var failedPairs = new List<ExchangeRatePairFailure>();
 
@@ -103,7 +108,34 @@ public sealed class RefreshExchangeRatesCommandHandler(
         return new RefreshExchangeRatesResult(
             lastSuccessfulUpdate,
             allLatest.Select(ToDto).ToList(),
-            HadFailures: failedPairs.Count > 0);
+            HadFailures: failedPairs.Count > 0 || !availableCurrenciesLoaded);
+    }
+
+    /// <summary>
+    /// Replaces the stored available list with the service's. An empty list or an unavailable source
+    /// leaves the stored list untouched and counts as a failure (it does not raise
+    /// ExchangeRateUpdateFailed — that event describes pairs).
+    /// </summary>
+    private async Task<bool> RefreshAvailableCurrenciesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var currencies = await frankfurterClient.GetCurrenciesAsync(cancellationToken);
+            if (currencies.Count == 0)
+            {
+                logger.LogWarning("Frankfurter вернул пустой список валют — список доступных не изменён");
+                return false;
+            }
+
+            await availableCurrencyCatalog.ReplaceAsync(
+                currencies.Select(c => new AvailableCurrencyItem(c.Code, c.Name)).ToList(), cancellationToken);
+            return true;
+        }
+        catch (FrankfurterClientException ex)
+        {
+            logger.LogWarning(ex, "Не удалось загрузить список доступных валют — список не изменён");
+            return false;
+        }
     }
 
     /// <summary>

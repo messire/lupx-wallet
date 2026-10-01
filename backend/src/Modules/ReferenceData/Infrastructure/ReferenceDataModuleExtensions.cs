@@ -28,10 +28,16 @@ public static class ReferenceDataModuleExtensions
         services.AddScoped<IWalletTypeRepository, WalletTypeRepository>();
         services.AddScoped<IOperationTypeRepository, OperationTypeRepository>();
         services.AddScoped<ICurrencyRepository, CurrencyRepository>();
+        services.AddScoped<IAvailableCurrencyRepository, AvailableCurrencyRepository>();
+        services.AddScoped<CurrencyActivationPolicy>();
         services.AddScoped<IOperationBehaviorKindRepository, OperationBehaviorKindRepository>();
         services.AddScoped<IReferenceDataUnitOfWork, ReferenceDataUnitOfWork>();
         services.AddScoped<IOperationTypeLookup, OperationTypeLookup>();
         services.AddScoped<ICurrencyLookup, CurrencyLookup>();
+
+        // Ports published for other modules (ADR-0001 §2, way c).
+        services.AddScoped<IAvailableCurrencyCatalog, AvailableCurrencyCatalog>();
+        services.AddScoped<ICurrencyActivation, CurrencyActivation>();
 
         // W2.5, случай d: разрешение типа кошелька для CreateWalletCommand/UpdateWalletCommand.
         services.AddScoped<IWalletTypeLookup, WalletTypeLookup>();

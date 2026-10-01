@@ -5,8 +5,8 @@ import { ExchangeRatesComponent } from './exchange-rates-page.component';
 
 const currenciesResponse = {
   data: [
-    { id: 'cur-usd', code: 'USD', name: 'US Dollar', isActive: true },
-    { id: 'cur-eur', code: 'EUR', name: 'Euro', isActive: true },
+    { id: 'cur-usd', code: 'USD', name: 'US Dollar' },
+    { id: 'cur-eur', code: 'EUR', name: 'Euro' },
   ],
   pagination: { nextCursor: null, hasMore: false },
 };
@@ -141,7 +141,9 @@ describe('ExchangeRatesComponent', () => {
 
     expect(component.isRefreshing()).toBe(false);
     expect(component.loadError()).toBeNull();
-    expect(component.sourceUnavailable()).toBe('Источник курсов недоступен сейчас. Показаны последние известные курсы.');
+    expect(component.sourceUnavailable()).toBe(
+      'Курсы или список доступных валют обновить не удалось. Показаны последние известные курсы.',
+    );
     expect(component.sourceUnavailableEmpty()).toBeNull();
     // Previous rates are kept (ADR-0004 §6), not cleared or flagged as an error.
     expect(component.rows()).toEqual([{ fromCurrencyCode: 'USD', toCurrencyCode: 'EUR', rate: '0.9123' }]);

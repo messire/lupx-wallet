@@ -11,6 +11,14 @@ namespace LupexWallet.ExchangeRates.Application;
 /// on completion: the manual call itself already happened synchronously, the background
 /// service only needs to restart the daily countdown — see IExchangeRateRefreshSignal).
 ///
+/// Every run first reloads the list of available currencies from the service (ADR-0004 §7), even
+/// without a primary wallet — a first wallet cannot be created before the list is loaded. An
+/// empty list or an unavailable source leaves the stored list as is and counts as a failure
+/// (<see cref="RefreshExchangeRatesResult.HadFailures"/>). Rates are refreshed only for active
+/// currencies. The run does not load rate history: that is BackfillExchangeRateHistoryCommand,
+/// which the background service runs right after this command (a manual run is synchronous in an
+/// HTTP request and cannot wait for a multi-year load).
+///
 /// The handler (RefreshExchangeRatesCommandHandler) lives in ExchangeRates.Infrastructure,
 /// not here like the project's other command handlers — it needs IDomainEventDispatcher
 /// (BuildingBlocks.Infrastructure) to publish ExchangeRatesUpdated/ExchangeRateUpdateFailed

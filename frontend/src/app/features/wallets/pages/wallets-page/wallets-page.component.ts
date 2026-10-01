@@ -1,13 +1,14 @@
 import { Component, computed, effect, ElementRef, HostListener, inject, OnInit, signal, viewChild } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { finalize } from 'rxjs';
-import { FormBuilder, FormControl, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { extractErrorMessage } from '../../../../core/http/problem-details';
 import { amountValidator, formatMoney } from '@shared/money/money';
 import { fieldError } from '@shared/forms/field-error';
-import { ISO_CURRENCIES } from '@shared/currencies/iso-currencies';
+import { CurrencyOption } from '@shared/currencies/currency-option';
 import { CurrencySelectComponent } from '@shared/currencies/currency-select/currency-select.component';
-import { Currency, ReferenceItem } from '../../../../data-access/reference-data/reference-data-api.models';
+import { AvailableCurrency, Currency, ReferenceItem } from '../../../../data-access/reference-data/reference-data-api.models';
 import { ReferenceDataApiService } from '../../../../data-access/reference-data/reference-data-api.service';
 import { CreateWalletRequest, UpdateWalletRequest, Wallet } from '../../../../data-access/wallets/wallets-api.models';
 import { WalletsApiService } from '../../../../data-access/wallets/wallets-api.service';
@@ -35,10 +36,13 @@ type WalletMenuAction = 'edit' | 'primary' | 'archive' | 'currency' | 'delete';
 
 /**
  * UC-01 (create), UC-02…UC-06 (edit, archive, set primary, change currency,
- * delete) and UC-07 (list) — docs/requirements/user-scenarios.md. walletTypeId/
- * currencyId are chosen from the ReferenceData module's reference lists; next to
- * each list there is a quick-add mini-form, reused by the reference-data
- * management screen (features/reference-data).
+ * delete) and UC-07 (list) — docs/requirements/user-scenarios.md. walletTypeId is
+ * chosen from the ReferenceData module's wallet-type list, with a quick-add
+ * mini-form next to it (the same list is managed on features/reference-data). A
+ * new wallet's currency is chosen by code from the list of available currencies
+ * provided by the exchange-rate service (ADR-0004 §7) — the server activates it
+ * on creation, so there is no quick-add for currencies; changing the currency of
+ * an existing wallet picks from the active ones.
  */
 @Component({
   selector: 'app-wallets',
@@ -87,6 +91,22 @@ export class WalletsComponent implements OnInit {
   readonly currenciesLoading = signal(false);
   readonly currenciesLoadError = signal<string | null>(null);
 
+  /** Source of the create form's currency: the full list from the exchange-rate service (not only the active currencies). */
+  readonly availableCurrencies = signal<AvailableCurrency[]>([]);
+  readonly availableCurrenciesLoading = signal(false);
+  readonly availableCurrenciesLoadError = signal<string | null>(null);
+  readonly currencyOptions = computed<CurrencyOption[]>(() =>
+    this.availableCurrencies().map(({ code, name }) => ({ code, name })),
+  );
+  /** Loaded without error, yet nothing to choose from. */
+  protected readonly availableCurrenciesEmpty = computed(
+    () =>
+      !this.availableCurrenciesLoading() && !this.availableCurrenciesLoadError() && this.availableCurrencies().length === 0,
+  );
+  /** Shown instead of a silent empty picker: on a fresh install the list is empty until the first rates refresh. */
+  protected readonly emptyAvailableCurrenciesHint =
+    'Список валют ещё не загружен из сервиса курсов. Обновите курсы на экране «Курсы валют» или повторите позже.';
+
   readonly isFormOpen = signal(false);
   readonly isSubmitting = signal(false);
   readonly submitError = signal<string | null>(null);
@@ -99,21 +119,10 @@ export class WalletsComponent implements OnInit {
   readonly isSubmittingWalletType = signal(false);
   readonly addWalletTypeError = signal<string | null>(null);
 
-  readonly isAddingCurrency = signal(false);
-  readonly newCurrencyIsoCode = new FormControl<string | null>(null);
-  readonly isSubmittingCurrency = signal(false);
-  readonly addCurrencyError = signal<string | null>(null);
-
-  /** ISO_CURRENCIES minus codes already present in the reference list — avoid offering duplicates. */
-  readonly availableIsoCurrencies = computed(() => {
-    const existingCodes = new Set(this.currencies().map((currency) => currency.code));
-    return ISO_CURRENCIES.filter((currency) => !existingCodes.has(currency.code));
-  });
-
   readonly form = this.formBuilder.nonNullable.group({
     name: ['', Validators.required],
     walletTypeId: ['', Validators.required],
-    currencyId: ['', Validators.required],
+    currencyCode: ['', Validators.required],
     initialBalanceAmount: ['0', [Validators.required, amountValidator]],
     accountingStartDate: [this.today(), Validators.required],
     // Дополнительные настройки (docs/design/wallet-form.html «Дополнительные настройки»,
@@ -199,6 +208,7 @@ export class WalletsComponent implements OnInit {
     this.loadWallets();
     this.loadWalletTypes();
     this.loadCurrencies();
+    this.loadAvailableCurrencies();
   }
 
   loadWallets(): void {
@@ -251,6 +261,20 @@ export class WalletsComponent implements OnInit {
       });
   }
 
+  loadAvailableCurrencies(): void {
+    this.availableCurrenciesLoading.set(true);
+    this.availableCurrenciesLoadError.set(null);
+
+    this.referenceDataService
+      .listAvailableCurrencies()
+      .pipe(finalize(() => this.availableCurrenciesLoading.set(false)))
+      .subscribe({
+        next: (currencies) => this.availableCurrencies.set(currencies),
+        error: (error: unknown) =>
+          this.availableCurrenciesLoadError.set(extractErrorMessage(error, 'Не удалось загрузить список доступных валют.')),
+      });
+  }
+
   openForm(): void {
     this.submitError.set(null);
     this.isFormOpen.set(true);
@@ -262,7 +286,7 @@ export class WalletsComponent implements OnInit {
     this.form.reset({
       name: '',
       walletTypeId: '',
-      currencyId: '',
+      currencyCode: '',
       initialBalanceAmount: '0',
       accountingStartDate: this.today(),
       purposeDescription: '',
@@ -287,7 +311,7 @@ export class WalletsComponent implements OnInit {
     const request: CreateWalletRequest = {
       name: raw.name,
       walletTypeId: raw.walletTypeId,
-      currencyId: raw.currencyId,
+      currencyCode: raw.currencyCode,
       initialBalanceAmount: raw.initialBalanceAmount,
       accountingStartDate: raw.accountingStartDate,
       includeInTotal: raw.includeInTotal,
@@ -304,14 +328,24 @@ export class WalletsComponent implements OnInit {
         this.isSubmitting.set(false);
         this.cancelForm();
         this.loadWallets();
+        // The server may have just activated the wallet's currency — the active list drives the balance's currency code.
+        this.loadCurrencies();
+        this.loadAvailableCurrencies();
         this.successMessage.set('Кошелек создан');
       },
       error: (error: unknown) => {
         this.isSubmitting.set(false);
         this.form.enable({ emitEvent: false });
-        this.submitError.set(extractErrorMessage(error, 'Не удалось создать кошелек.'));
+        this.submitError.set(this.createWalletError(error));
       },
     });
+  }
+
+  private createWalletError(error: unknown): string {
+    if (error instanceof HttpErrorResponse && error.status === 400) {
+      return extractErrorMessage(error, 'Не удалось создать кошелек: проверьте поля формы; возможно, валюта недоступна.');
+    }
+    return extractErrorMessage(error, 'Не удалось создать кошелек.');
   }
 
   toggleAddWalletType(): void {
@@ -341,40 +375,6 @@ export class WalletsComponent implements OnInit {
         },
         // Input is deliberately not cleared — the user can adjust and resubmit.
         error: (error: unknown) => this.addWalletTypeError.set(extractErrorMessage(error, 'Не удалось добавить тип кошелька.')),
-      });
-  }
-
-  toggleAddCurrency(): void {
-    this.isAddingCurrency.set(!this.isAddingCurrency());
-    this.newCurrencyIsoCode.reset(null);
-    this.addCurrencyError.set(null);
-  }
-
-  submitNewCurrency(): void {
-    const isoCurrency = ISO_CURRENCIES.find((currency) => currency.code === this.newCurrencyIsoCode.value);
-    if (!isoCurrency || this.isSubmittingCurrency()) {
-      return;
-    }
-
-    this.isSubmittingCurrency.set(true);
-    this.addCurrencyError.set(null);
-    this.newCurrencyIsoCode.disable({ emitEvent: false });
-
-    this.referenceDataService
-      .createCurrency(isoCurrency.code, isoCurrency.name)
-      .pipe(finalize(() => {
-        this.isSubmittingCurrency.set(false);
-        this.newCurrencyIsoCode.enable({ emitEvent: false });
-      }))
-      .subscribe({
-        next: (created) => {
-          this.loadCurrencies();
-          this.form.patchValue({ currencyId: created.id });
-          this.isAddingCurrency.set(false);
-          this.newCurrencyIsoCode.reset(null);
-        },
-        // The selected currency is deliberately not reset — the user can resubmit.
-        error: (error: unknown) => this.addCurrencyError.set(extractErrorMessage(error, 'Не удалось добавить валюту.')),
       });
   }
 

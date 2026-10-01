@@ -36,7 +36,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
         second.IsPrimary.Should().BeFalse();
     }
 
-    // ---- W2.5, случай d: валидация walletTypeId/currencyId ----
+    // ---- W2.5, случай d: валидация walletTypeId/currencyCode ----
 
     [Fact]
     public async Task CreateWallet_UnknownWalletTypeId_ReturnsBadRequest()
@@ -48,7 +48,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
         {
             Name = "Кошелек",
             WalletTypeId = Guid.NewGuid(),
-            CurrencyId = currency.Id,
+            CurrencyCode = currency.Code,
             InitialBalanceAmount = 0m,
             AccountingStartDate = DateOnly.FromDateTime(DateTime.UtcNow),
         });
@@ -68,7 +68,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
         {
             Name = "Кошелек",
             WalletTypeId = walletType.Id,
-            CurrencyId = currency.Id,
+            CurrencyCode = currency.Code,
             InitialBalanceAmount = 0m,
             AccountingStartDate = DateOnly.FromDateTime(DateTime.UtcNow),
         });
@@ -77,7 +77,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
     }
 
     [Fact]
-    public async Task CreateWallet_UnknownCurrencyId_ReturnsBadRequest()
+    public async Task CreateWallet_UnknownCurrencyCode_ReturnsBadRequest()
     {
         await AuthenticateAsync();
         var walletType = await Client.CreateWalletTypeAsync();
@@ -86,7 +86,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
         {
             Name = "Кошелек",
             WalletTypeId = walletType.Id,
-            CurrencyId = Guid.NewGuid(),
+            CurrencyCode = "ZZ9",
             InitialBalanceAmount = 0m,
             AccountingStartDate = DateOnly.FromDateTime(DateTime.UtcNow),
         });
@@ -125,7 +125,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
         {
             Name = "   ",
             WalletTypeId = walletType.Id,
-            CurrencyId = currency.Id,
+            CurrencyCode = currency.Code,
             InitialBalanceAmount = 0m,
             AccountingStartDate = DateOnly.FromDateTime(DateTime.UtcNow),
         });

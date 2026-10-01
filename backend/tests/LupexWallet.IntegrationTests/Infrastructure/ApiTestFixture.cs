@@ -43,6 +43,7 @@ public sealed class ApiTestFixture : IAsyncLifetime
     {
         await _container.StartAsync();
         _connectionString = _container.GetConnectionString();
+        TestDataBuilder.UseDatabase(_connectionString);
 
         Factory = new LupexWalletApiFactory(_connectionString);
         await Factory.MigrateAllAsync();

@@ -22,10 +22,11 @@ public sealed record WalletResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
 
+/// <summary>CurrencyCode: an active or available currency; an available inactive one becomes active (ADR-0004 §7).</summary>
 public sealed record WalletCreateRequest(
     string Name,
     Guid WalletTypeId,
-    Guid CurrencyId,
+    string CurrencyCode,
     decimal InitialBalanceAmount,
     DateOnly AccountingStartDate,
     string? PurposeDescription,

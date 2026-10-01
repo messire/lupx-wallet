@@ -100,7 +100,7 @@ public sealed class GetTotalAmountQueryHandlerTests
         SetupWallets(primaryBalance: 0m, secondaryBalance: 0m);
         _balanceOnDateLookup.GetBalanceOnDateAsync(PrimaryWalletId, date, Arg.Any<CancellationToken>()).Returns(50m);
         _balanceOnDateLookup.GetBalanceOnDateAsync(SecondaryWalletId, date, Arg.Any<CancellationToken>()).Returns(20m);
-        _exchangeRateLookup.GetOrFetchHistoricalRateAsync(Secondary, Primary, date, Arg.Any<CancellationToken>())
+        _exchangeRateLookup.GetHistoricalRateAsync(Secondary, Primary, date, Arg.Any<CancellationToken>())
             .Returns(((decimal Rate, DateOnly RatesAsOfDate)?)(0.8m, date));
 
         var result = await CreateHandler().Handle(new GetTotalAmountQuery(date), CancellationToken.None);
@@ -117,7 +117,7 @@ public sealed class GetTotalAmountQueryHandlerTests
         SetupWallets(primaryBalance: 0m, secondaryBalance: 0m);
         _balanceOnDateLookup.GetBalanceOnDateAsync(PrimaryWalletId, date, Arg.Any<CancellationToken>()).Returns(0m);
         _balanceOnDateLookup.GetBalanceOnDateAsync(SecondaryWalletId, date, Arg.Any<CancellationToken>()).Returns(0m);
-        _exchangeRateLookup.GetOrFetchHistoricalRateAsync(Secondary, Primary, date, Arg.Any<CancellationToken>())
+        _exchangeRateLookup.GetHistoricalRateAsync(Secondary, Primary, date, Arg.Any<CancellationToken>())
             .Returns(((decimal Rate, DateOnly RatesAsOfDate)?)(1m, date));
 
         var result = await CreateHandler().Handle(new GetTotalAmountQuery(date), CancellationToken.None);

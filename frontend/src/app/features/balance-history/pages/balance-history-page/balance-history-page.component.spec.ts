@@ -47,7 +47,7 @@ describe('BalanceHistoryComponent', () => {
       pagination: { nextCursor: null, hasMore: false },
     });
     httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/currencies`).flush({
-      data: [{ id: 'currency-1', code: 'USD', name: 'US Dollar', isActive: true }],
+      data: [{ id: 'currency-1', code: 'USD', name: 'US Dollar' }],
       pagination: { nextCursor: null, hasMore: false },
     });
 

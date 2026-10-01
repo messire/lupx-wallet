@@ -1,9 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
-using System.Text;
 using FluentAssertions;
-using LupexWallet.ExchangeRates.Infrastructure;
 using LupexWallet.IntegrationTests.Infrastructure;
 using Xunit;
 
@@ -19,35 +17,13 @@ public sealed record TotalAmountResponse(
 /// Reporting API (docs/api/openapi.yaml, тег Reporting) — GET /total-amount, текущая (UC-19)
 /// и историческая (UC-21) сумма. Риск №6 (docs/PROGRESS.md, П.5.1): кошелек без курса для
 /// своей валюты исключается из суммы с явной пометкой — основной путь, не 409, не курс 1:1.
-/// HTTP-вызов к Frankfurter подменен через FrankfurterTestableHandler (см. ExchangeRatesApiTests).
+/// HTTP-вызов к Frankfurter подменен через FrankfurterFake; чтение суммы к сервису не обращается (ADR-0004 §8).
 /// </summary>
 public sealed class ReportingApiTests(ApiTestFixture fixture) : IntegrationTestBase(fixture)
 {
-    private readonly FrankfurterTestableHandler _frankfurterHandler = ResetOverride(fixture.Factory.GetFrankfurterTestableHandler());
+    private readonly FrankfurterFake _fake = new(fixture.Factory.GetFrankfurterTestableHandler());
 
-    private static FrankfurterTestableHandler ResetOverride(FrankfurterTestableHandler handler)
-    {
-        handler.TestOverride = null;
-        return handler;
-    }
-
-    private void SetSuccessfulRate(decimal rate)
-    {
-        _frankfurterHandler.TestOverride = (request, _) =>
-        {
-            var query = request.RequestUri!.Query.TrimStart('?');
-            string GetParam(string name) => Uri.UnescapeDataString(query.Split('&', StringSplitOptions.RemoveEmptyEntries)
-                .Select(p => p.Split('=', 2))
-                .First(p => Uri.UnescapeDataString(p[0]) == name)[1]);
-            // Frankfurter API v2: array of {date, base, quote, rate}.
-            var json = "[{\"date\":\"2024-01-01\",\"base\":\"" + GetParam("base") + "\",\"quote\":\"" + GetParam("quotes")
-                + "\",\"rate\":" + rate.ToString(CultureInfo.InvariantCulture) + "}]";
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(json, Encoding.UTF8, "application/json"),
-            });
-        };
-    }
+    private void SetSuccessfulRate(decimal rate) => _fake.DefaultRate = rate;
 
     private async Task<TotalAmountResponse> GetTotalAmountAsync(DateOnly? date = null)
     {
@@ -61,8 +37,8 @@ public sealed class ReportingApiTests(ApiTestFixture fixture) : IntegrationTestB
     public async Task GetTotalAmount_ThreeWalletsTwoCurrencies_ConvertsSecondaryAndSumsExactly()
     {
         await AuthenticateAsync();
-        var primaryCurrency = await Client.CreateCurrencyAsync("EUR", "Евро");
-        var secondCurrency = await Client.CreateCurrencyAsync("USD", "Доллар США");
+        var primaryCurrency = await Client.CreateCurrencyAsync("EUR");
+        var secondCurrency = await Client.CreateCurrencyAsync("USD");
 
         // Первый созданный кошелек становится основным (Wallet.Create) — задает валюту отображения (EUR).
         await Client.CreateWalletAsync(initialBalanceAmount: 100m, currencyId: primaryCurrency.Id, name: "Основной");
@@ -85,8 +61,8 @@ public sealed class ReportingApiTests(ApiTestFixture fixture) : IntegrationTestB
     public async Task GetTotalAmount_WalletCurrencyWithoutRate_IsExcludedWithReasonAndSumsRemainingWallets()
     {
         await AuthenticateAsync();
-        var primaryCurrency = await Client.CreateCurrencyAsync("EUR", "Евро");
-        var unratedCurrency = await Client.CreateCurrencyAsync("XYZ", "Без курса");
+        var primaryCurrency = await Client.CreateCurrencyAsync("EUR");
+        var unratedCurrency = await Client.CreateCurrencyAsync("XYZ");
 
         await Client.CreateWalletAsync(initialBalanceAmount: 100m, currencyId: primaryCurrency.Id, name: "Основной");
         var unratedWallet = await Client.CreateWalletAsync(initialBalanceAmount: 30m, currencyId: unratedCurrency.Id, name: "Без курса");
@@ -104,7 +80,7 @@ public sealed class ReportingApiTests(ApiTestFixture fixture) : IntegrationTestB
         // ADR-0002, §3: a soft-deleted operation is excluded from the current total (Wallet.CurrentBalance)
         // and from the historical one (balance on date), and comes back on restore.
         await AuthenticateAsync();
-        var currency = await Client.CreateCurrencyAsync("EUR", "Евро");
+        var currency = await Client.CreateCurrencyAsync("EUR");
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var wallet = await Client.CreateWalletAsync(
             initialBalanceAmount: 100m, currencyId: currency.Id, accountingStartDate: today.AddDays(-10), name: "Основной");
@@ -132,7 +108,7 @@ public sealed class ReportingApiTests(ApiTestFixture fixture) : IntegrationTestB
     public async Task GetTotalAmount_DeletedTransfer_NoLongerReducesTheIncludedSourceWallet()
     {
         await AuthenticateAsync();
-        var currency = await Client.CreateCurrencyAsync("EUR", "Евро");
+        var currency = await Client.CreateCurrencyAsync("EUR");
         var walletType = await Client.CreateWalletTypeAsync();
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var source = await Client.CreateWalletAsync(500m, today.AddDays(-10), "Основной", walletType.Id, currency.Id);
@@ -180,7 +156,7 @@ public sealed class ReportingApiTests(ApiTestFixture fixture) : IntegrationTestB
     public async Task GetTotalAmount_DateBeforeAccountingStart_ReturnsZero()
     {
         await AuthenticateAsync();
-        var primaryCurrency = await Client.CreateCurrencyAsync("EUR", "Евро");
+        var primaryCurrency = await Client.CreateCurrencyAsync("EUR");
         var accountingStart = DateOnly.FromDateTime(DateTime.UtcNow);
         await Client.CreateWalletAsync(
             initialBalanceAmount: 100m, currencyId: primaryCurrency.Id, accountingStartDate: accountingStart, name: "Основной");
@@ -190,5 +166,53 @@ public sealed class ReportingApiTests(ApiTestFixture fixture) : IntegrationTestB
         decimal.Parse(body.Amount.Amount, CultureInfo.InvariantCulture).Should().Be(0m, "Q13: баланс раньше accounting_start_date всегда равен нулю");
         body.ExcludedWallets.Should().BeEmpty();
         body.Date.Should().Be(accountingStart.AddDays(-1));
+    }
+
+    [Fact]
+    public async Task GetTotalAmount_HistoricalDate_UsesLoadedHistoryAndClosestEarlierRateWithoutCallingSource()
+    {
+        await AuthenticateAsync();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var eur = await Client.CreateCurrencyAsync("EUR");
+        var usd = await Client.CreateCurrencyAsync("USD");
+        await Client.CreateWalletAsync(initialBalanceAmount: 0m, currencyId: eur.Id, name: "Основной", accountingStartDate: today.AddDays(-60));
+        await Client.CreateWalletAsync(initialBalanceAmount: 100m, currencyId: usd.Id, name: "USD", accountingStartDate: today.AddDays(-60));
+        // The rate differs per day, so the test sees which day was applied.
+        _fake.RateForDate = (_, _, date) => 1m + (date.DayNumber % 100) / 1000m;
+        await Fixture.RunExchangeRatesBackgroundPassAsync();
+
+        var saturday = today.AddDays(-30);
+        while (saturday.DayOfWeek != DayOfWeek.Saturday)
+        {
+            saturday = saturday.AddDays(-1);
+        }
+
+        var friday = saturday.AddDays(-1);
+        _fake.ResetCounters();
+
+        var body = await GetTotalAmountAsync(saturday);
+
+        body.ExcludedWallets.Should().BeEmpty();
+        body.RatesAsOfDate.Should().Be(friday, "у субботы курса нет — применяется ближайший более ранний");
+        decimal.Parse(body.Amount.Amount, CultureInfo.InvariantCulture).Should().Be(100m * (1m + (friday.DayNumber % 100) / 1000m));
+        _fake.TotalCalls.Should().Be(0, "чтение сумм не обращается к Frankfurter (ADR-0004 §8)");
+    }
+
+    [Fact]
+    public async Task GetTotalAmount_HistoricalDateWithoutLoadedHistory_ExcludesWalletWithReasonAndDoesNotCallSource()
+    {
+        await AuthenticateAsync();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var eur = await Client.CreateCurrencyAsync("EUR");
+        var usd = await Client.CreateCurrencyAsync("USD");
+        await Client.CreateWalletAsync(initialBalanceAmount: 0m, currencyId: eur.Id, name: "Основной", accountingStartDate: today.AddDays(-60));
+        var usdWallet = await Client.CreateWalletAsync(initialBalanceAmount: 100m, currencyId: usd.Id, name: "USD", accountingStartDate: today.AddDays(-60));
+        _fake.ResetCounters();
+
+        var body = await GetTotalAmountAsync(today.AddDays(-10));
+
+        decimal.Parse(body.Amount.Amount, CultureInfo.InvariantCulture).Should().Be(0m);
+        body.ExcludedWallets.Should().ContainSingle(w => w.WalletId == usdWallet.Id && !string.IsNullOrWhiteSpace(w.Reason));
+        _fake.TotalCalls.Should().Be(0, "дозагрузка истории — работа фонового сервиса, не чтения (ADR-0004 §8, §9)");
     }
 }

@@ -25,7 +25,7 @@ const wallet: Wallet = {
   updatedAt: '2026-01-01T00:00:00Z',
 };
 
-const currencies = [{ id: 'c-usd', code: 'USD', name: 'US Dollar', isActive: true }];
+const currencies = [{ id: 'c-usd', code: 'USD', name: 'US Dollar' }];
 const operationTypes = [{ id: 'ot-exp', name: 'Расход', behaviorKindId: 'bk-exp', isActive: true }];
 const behaviorKinds = [{ id: 'bk-exp', code: 'Expense', name: 'Расход' }];
 

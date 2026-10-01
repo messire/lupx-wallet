@@ -150,11 +150,17 @@ public static class ReferenceDataEndpointsExtensions
             return Results.Ok(ToResponse(page));
         }).WithName("listCurrencies");
 
+        group.MapGet("/available", async (ISender sender, CancellationToken ct) =>
+        {
+            var items = await sender.Send(new ListAvailableCurrenciesQuery(), ct);
+            return Results.Ok(items.Select(x => new AvailableCurrencyResponse(x.Code, x.Name, x.IsActive)));
+        }).WithName("listAvailableCurrencies");
+
         group.MapPost("/", async ([FromBody] CurrencyCreateRequest request, ISender sender, CancellationToken ct) =>
         {
             try
             {
-                var dto = await sender.Send(new CreateCurrencyCommand(request.Code, request.Name), ct);
+                var dto = await sender.Send(new ActivateCurrencyCommand(request.Code), ct);
                 var response = ToResponse(dto);
                 return Results.Created($"/api/v1/currencies/{response.Id}", response);
             }

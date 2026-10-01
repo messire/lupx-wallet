@@ -110,8 +110,7 @@ public sealed class Operation : AggregateRoot<OperationId>
         AdjustmentMode? adjustmentMode,
         Money appliedDelta)
     {
-        EnsureNotPartOfTransfer();
-        EnsureNotDeleted();
+        EnsureEditable();
         ValidateForStandaloneCreation(effectKind, TransferId);
         ValidateAmountAndMode(effectKind, amount, adjustmentMode);
 
@@ -141,8 +140,7 @@ public sealed class Operation : AggregateRoot<OperationId>
         AdjustmentMode? adjustmentMode,
         Money appliedDelta)
     {
-        EnsureNotPartOfTransfer();
-        EnsureNotDeleted();
+        EnsureEditable();
         ValidateForStandaloneCreation(effectKind, TransferId);
         ValidateAmountAndMode(effectKind, amount, adjustmentMode);
 
@@ -195,7 +193,18 @@ public sealed class Operation : AggregateRoot<OperationId>
     /// <summary>Transfer-only entry point (leg restored together with its transfer).</summary>
     internal void RestoreAsTransferLeg() => RevokeDeletion();
 
-    /// <summary>Throws if the operation is soft-deleted; lets callers fail before touching other modules.</summary>
+    /// <summary>
+    /// Throws if the operation cannot be edited: a transfer leg is checked first (a leg cannot be
+    /// restored on its own, so "restore first" would be misleading), then soft deletion. Lets
+    /// callers fail before touching other modules.
+    /// </summary>
+    public void EnsureEditable()
+    {
+        EnsureNotPartOfTransfer();
+        EnsureNotDeleted();
+    }
+
+    /// <summary>Throws if the operation is soft-deleted.</summary>
     public void EnsureNotDeleted()
     {
         if (IsDeleted)

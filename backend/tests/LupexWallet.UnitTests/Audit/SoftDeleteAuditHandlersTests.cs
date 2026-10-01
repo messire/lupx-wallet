@@ -12,7 +12,7 @@ using Xunit;
 namespace LupexWallet.UnitTests.Audit;
 
 /// <summary>
-/// Audit subscribers for the record lifecycle (ADR-0002, §3, §5; ADR-0006; R13): Operation/Transfer
+/// Audit subscribers for the record lifecycle (ADR-0002, §3, §5; ADR-0006): Operation/Transfer
 /// Deleted and Restored take their diff from the ChangeTracker (covered by the integration tests —
 /// here only the entity type/id/action routing with no tracked diff), while BalanceSnapshotDeleted
 /// is enriched by hand from the event fields: entity_id = WalletId, SnapshotDate and Balance as the

@@ -46,6 +46,7 @@ namespace LupexWallet.Operations.Infrastructure.Migrations
                         .HasColumnName("currency_id");
 
                     b.Property<DateTimeOffset?>("DeletedAt")
+                        .IsConcurrencyToken()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deleted_at");
 
@@ -111,6 +112,7 @@ namespace LupexWallet.Operations.Infrastructure.Migrations
                         .HasColumnName("currency_id");
 
                     b.Property<DateTimeOffset?>("DeletedAt")
+                        .IsConcurrencyToken()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deleted_at");
 

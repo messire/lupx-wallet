@@ -9,7 +9,7 @@ using Xunit;
 namespace LupexWallet.UnitTests.Operations;
 
 /// <summary>
-/// RestoreTransferCommandHandler (ADR-0002, §3; R6, R7) — restores the transfer and both legs as
+/// RestoreTransferCommandHandler (ADR-0002, §3, §6) — restores the transfer and both legs as
 /// a whole and re-applies each leg's AppliedDelta on its own wallet (source: debit, target: credit).
 /// </summary>
 public sealed class RestoreTransferCommandHandlerTests

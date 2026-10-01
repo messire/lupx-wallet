@@ -148,7 +148,7 @@ public sealed class AuditApiTests(ApiTestFixture fixture) : IntegrationTestBase(
         afterAttempt.Data.Should().BeEquivalentTo(beforeAttempt.Data, "неудачная команда не должна оставить в журнале аудита никаких следов промежуточного шага (откат той же транзакции, что и бизнес-состояние)");
     }
 
-    // ---- Soft delete / restore of operations and transfers (ADR-0002, §3, §5; ADR-0006; D3.8, D5.1) ----
+    // ---- Soft delete / restore of operations and transfers (ADR-0002, §3, §5; ADR-0006) ----
 
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
 

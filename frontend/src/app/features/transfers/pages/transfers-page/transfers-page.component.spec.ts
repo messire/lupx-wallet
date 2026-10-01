@@ -78,6 +78,10 @@ afterAll(() => {
   proto['close'] = originalClose;
 });
 
+function compiledText(fixture: ComponentFixture<TransfersComponent>): string {
+  return (fixture.nativeElement as HTMLElement).textContent ?? '';
+}
+
 describe('TransfersComponent', () => {
   let httpMock: HttpTestingController;
 
@@ -322,10 +326,15 @@ describe('TransfersComponent', () => {
       { title: 'Conflict', status: 409, detail: 'Перевод уже удалён.' },
       { status: 409, statusText: 'Conflict' },
     );
+    // 409 means the list on screen is stale (changed in another tab) - it is reloaded.
+    httpMock
+      .expectOne((r) => r.url === `${environment.apiBaseUrl}/transfers`)
+      .flush({ data: [{ ...transfer1, isDeleted: true, deletedAt: '2026-09-11T00:00:00Z' }], pagination: { nextCursor: null, hasMore: false } });
     fixture.detectChanges();
 
     expect(component.pendingDeleteTransfer()).toEqual(transfer1);
     expect(component.deleteError()).toBe('Перевод уже удалён.');
+    expect(compiledText(fixture)).toContain('Удалить перевод?');
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.textContent).toContain('Перевод уже удалён');
@@ -356,6 +365,10 @@ describe('TransfersComponent', () => {
       { title: 'Conflict', status: 409, detail: 'Перевод уже удалён.' },
       { status: 409, statusText: 'Conflict' },
     );
+    // 409 means the list on screen is stale (changed in another tab) - it is reloaded.
+    httpMock
+      .expectOne((r) => r.url === `${environment.apiBaseUrl}/transfers`)
+      .flush({ data: [transfer1], pagination: { nextCursor: null, hasMore: false } });
     fixture.detectChanges();
 
     // The request's outcome (the 409) is still visible — nothing was silently closed.
@@ -458,12 +471,37 @@ describe('TransfersComponent', () => {
         { title: 'Conflict', status: 409, detail: 'Перевод не удалён.' },
         { status: 409, statusText: 'Conflict' },
       );
+    // 409 means the list on screen is stale (changed in another tab) - it is reloaded.
+    httpMock
+      .expectOne((r) => r.url === `${environment.apiBaseUrl}/transfers`)
+      .flush({ data: [transfer1], pagination: { nextCursor: null, hasMore: false } });
     fixture.detectChanges();
 
     expect(component.restoreError()).toBe('Перевод не удалён.');
     expect(component.successMessage()).toBeNull();
     expect(component.isRestoring()).toBe(false);
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Перевод не удалён.');
+    const toast = (fixture.nativeElement as HTMLElement).querySelector('app-toast .app-toast') as HTMLElement;
+    expect(toast.textContent).toContain('Перевод не удалён.');
+    expect(toast.getAttribute('role')).toBe('alert');
+  });
+
+  it('does not reload the list when a delete or restore fails with a non-conflict error', () => {
+    const deletedTransfer: Transfer = { ...transfer1, id: 't-deleted', isDeleted: true, deletedAt: '2026-09-11T00:00:00Z' };
+    const fixture = createComponent([transfer1, deletedTransfer]);
+    const component = fixture.componentInstance;
+
+    component.requestDeleteConfirm(transfer1);
+    component.confirmDeleteTransfer();
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/transfers/${transfer1.id}`)
+      .flush(null, { status: 500, statusText: 'Server Error' });
+
+    component.restoreFromRowActions(deletedTransfer);
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/transfers/${deletedTransfer.id}/restore`)
+      .flush(null, { status: 500, statusText: 'Server Error' });
+
+    httpMock.expectNone((r) => r.url === `${environment.apiBaseUrl}/transfers`);
   });
 
   it('falls back to a generic restoreError text when the server sends no problem details', () => {

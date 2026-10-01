@@ -3,7 +3,7 @@ using LupexWallet.SharedKernel;
 namespace LupexWallet.Wallets.Application;
 
 /// <summary>
-/// Read-only contract published by Wallets for ExchangeRates (W1.1) — the set of
+/// Read-only contract published by Wallets for ExchangeRates — the set of
 /// currencies actually used by wallets and the current primary currency. ExchangeRates
 /// uses the primary currency as the target; refresh source currencies come from the
 /// full ReferenceData catalog (ADR-0004 §4).

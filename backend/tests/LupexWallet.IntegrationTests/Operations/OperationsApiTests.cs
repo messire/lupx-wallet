@@ -226,7 +226,7 @@ public sealed class OperationsApiTests(ApiTestFixture fixture) : IntegrationTest
 
         var response = await Client.DeleteAsync($"/api/v1/operations/{operation.Id}");
 
-        response.StatusCode.Should().Be(HttpStatusCode.NoContent, "операция, датированная сегодняшним днем, всегда может быть удалена");
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent, "удаление допустимо с любой датой, в том числе сегодняшней (ADR-0002, §3)");
     }
 
     [Fact]
@@ -248,7 +248,7 @@ public sealed class OperationsApiTests(ApiTestFixture fixture) : IntegrationTest
         deleted.DeletedAt.Should().NotBeNull();
     }
 
-    // ---- Soft delete / restore (ADR-0002, §3; D3.1–D3.9) ----
+    // ---- Soft delete / restore (ADR-0002, §3) ----
 
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
 
@@ -462,7 +462,7 @@ public sealed class OperationsApiTests(ApiTestFixture fixture) : IntegrationTest
     [Fact]
     public async Task RestoreOperation_OperationTypeDeactivatedAndWalletArchivedMeanwhile_StillReturnsOk()
     {
-        // ADR-0002, §3 / R6: restoration is always possible — type activity and wallet archival are not re-checked.
+        // ADR-0002, §3, §6: restoration is always possible — type activity and wallet archival are not re-checked.
         await AuthenticateAsync();
         await Client.CreateWalletAsync(name: "Основной"); // first wallet is primary; the archived one below must not be
         var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m, name: "Будет в архиве");

@@ -61,8 +61,11 @@ public sealed class OperationConfiguration : IEntityTypeConfiguration<Operation>
         builder.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
 
         // Soft delete (ADR-0002, §3): NULL = active. No HasQueryFilter — deleted rows stay visible
-        // to lists and to history/usage ports; balance reads exclude them explicitly.
-        builder.Property(x => x.DeletedAt).HasColumnName("deleted_at");
+        // to lists and to history/usage ports; balance reads exclude them explicitly. It is also the
+        // concurrency token: UPDATE is guarded by `deleted_at IS NULL` / `= <loaded value>`, so of two
+        // concurrent delete/restore/edit requests only the first succeeds and the balance delta is
+        // applied once.
+        builder.Property(x => x.DeletedAt).HasColumnName("deleted_at").IsConcurrencyToken();
 
         builder.HasIndex(x => new { x.WalletId, x.OperationDate }).HasDatabaseName("ix_operations_wallet_date");
         builder.HasIndex(x => x.OperationTypeId).HasDatabaseName("ix_operations_operation_type");

@@ -218,12 +218,13 @@ public sealed class TransferTests
     }
 
     [Fact]
-    public void SoftDeleteThenRestoreThenSoftDelete_IsAllowedAndUsesFreshDeletedAt()
+    public void SoftDeleteThenRestoreThenSoftDelete_IsAllowedAndLegsShareDeletedAt()
     {
         var (transfer, source, target) = CreateTransfer();
 
         transfer.SoftDelete(source, target);
         transfer.Restore(source, target);
+        transfer.DeletedAt.Should().BeNull();
         var act = () => transfer.SoftDelete(source, target);
 
         act.Should().NotThrow();

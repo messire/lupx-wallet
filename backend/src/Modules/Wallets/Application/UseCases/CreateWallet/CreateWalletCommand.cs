@@ -19,7 +19,7 @@ public sealed record CreateWalletCommand(
     string? Icon) : IRequest<WalletDto>, ICommand<WalletDto>;
 
 /// <summary>
-/// W2.5, case d: walletTypeId/currencyId are validated for existence and active status via
+/// walletTypeId/currencyId are validated for existence and active status via
 /// ReferenceData.Application.IWalletTypeLookup/ICurrencyLookup. Top-down direction
 /// (Wallets.Application → ReferenceData.Application), no cycle — ADR-0001 does not apply
 /// (same approach as Operations.Application's IOperationTypeLookup, ADR-0001).
@@ -35,18 +35,18 @@ public sealed class CreateWalletCommandHandler(
     {
         var walletTypeId = new WalletTypeId(request.WalletTypeId);
         var walletType = await walletTypeLookup.GetAsync(walletTypeId, cancellationToken)
-            ?? throw new WalletTypeReferenceNotFoundException(request.WalletTypeId);
+            ?? throw new WalletTypeReferenceNotFoundException();
         if (!walletType.IsActive)
         {
-            throw new WalletTypeReferenceInactiveException(request.WalletTypeId);
+            throw new WalletTypeReferenceInactiveException();
         }
 
         var currencyId = new CurrencyId(request.CurrencyId);
         var currency = await currencyLookup.GetAsync(currencyId, cancellationToken)
-            ?? throw new CurrencyReferenceNotFoundException(request.CurrencyId);
+            ?? throw new CurrencyReferenceNotFoundException();
         if (!currency.IsActive)
         {
-            throw new CurrencyReferenceInactiveException(request.CurrencyId);
+            throw new CurrencyReferenceInactiveException();
         }
 
         var isFirstWallet = await primaryWalletPolicy.IsFirstWalletAsync(cancellationToken);

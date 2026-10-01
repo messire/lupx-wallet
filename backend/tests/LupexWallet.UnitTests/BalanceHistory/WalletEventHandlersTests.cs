@@ -13,7 +13,7 @@ using Xunit;
 namespace LupexWallet.UnitTests.BalanceHistory;
 
 /// <summary>
-/// WalletDeletedHandler / WalletCurrencyChangedHandler (ADR-0002, §2; R11, R12): snapshots are
+/// WalletDeletedHandler / WalletCurrencyChangedHandler (ADR-0002, §2): snapshots are
 /// derived data — removed with the wallet (BalanceSnapshotDeleted for audit, one SaveChanges under
 /// the wallet advisory lock) and, on a currency change, removed in a SEPARATE SaveChanges and then
 /// rebuilt from AccountingStartDate in the new currency. Faked ports; the recalculation service is real.
@@ -152,7 +152,7 @@ public sealed class WalletEventHandlersTests
             snapshot.DomainEvents.OfType<BalanceSnapshotDeleted>().Should().ContainSingle();
         }
 
-        // Deleting and inserting the same (WalletId, SnapshotDate) key must not share one change set (R12):
+        // Deleting and inserting the same (WalletId, SnapshotDate) key must not share one change set:
         // the first save (removals) precedes the first insert, the second save (inserts) follows it.
         callLog.Should().StartWith(["save"]);
         callLog.IndexOf("add").Should().BeGreaterThan(callLog.IndexOf("save"));

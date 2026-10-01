@@ -252,7 +252,7 @@ public sealed class OperationTests
         deletedEvent.OperationDate.Should().Be(new DateOnly(2026, 3, 1));
     }
 
-    // ---- Soft delete / restore (ADR-0002, §3; R3) ----
+    // ---- Soft delete / restore (ADR-0002, §3) ----
 
     [Fact]
     public void SoftDelete_StandaloneOperation_SetsDeletedAtAndRaisesEventWithOperationId()

@@ -8,6 +8,10 @@
     <app-toast class="page-toast" [message]="message" tone="success" (dismissed)="successMessage.set(null)" />
   }
 
+  @if (restoreError(); as message) {
+    <app-toast class="page-toast" [message]="message" tone="error" (dismissed)="restoreError.set(null)" />
+  }
+
   <app-card class="filters-card">
     <form class="filters" [formGroup]="filterForm" (ngSubmit)="applyFilters()">
       <app-field label="Кошелек" class="filters__field">
@@ -70,14 +74,6 @@
     }
   </app-dialog>
 
-  @if (deleteError()) {
-    <app-error-state [message]="deleteError()!" [showRetry]="false" />
-  }
-
-  @if (restoreError()) {
-    <app-error-state [message]="restoreError()!" [showRetry]="false" />
-  }
-
   @if (isLoading() && operations().length === 0) {
     <app-loading-state label="Загрузка…">
       <app-skeleton height="56px" />
@@ -111,7 +107,12 @@
           <tbody>
             @for (operation of operations(); track operation.id) {
               <tr [class.transfer-part]="operation.transferId" [class.is-deleted]="operation.isDeleted">
-                <td>{{ operation.operationDate }}</td>
+                <td class="date-col">
+                  {{ operation.operationDate }}
+                  @if (operation.isDeleted) {
+                    <app-badge tone="neutral" [title]="deletedBadgeTitle(operation)">Удалена</app-badge>
+                  }
+                </td>
                 <td>{{ walletName(operation.walletId) }}</td>
                 <td>
                   <app-badge [tone]="operationTone(operationBehaviorKindCode(operation.operationTypeId))">
@@ -134,11 +135,9 @@
                 </td>
                 <td>{{ operation.adjustmentMode ?? '' }}</td>
                 <td class="actions">
-                  @if (operation.isDeleted) {
-                    <app-badge tone="neutral" [title]="deletedBadgeTitle(operation)">Удалена</app-badge>
-                  }
                   @if (operation.transferId) {
-                    <app-badge tone="neutral" title="Часть перевода — управляется со экрана «Переводы»">часть перевода</app-badge>
+                    <app-badge tone="neutral" title="Часть перевода — управляется с экрана «Переводы»">часть перевода</app-badge>
+                    <a class="history-link" [routerLink]="['/transfers']">Открыть перевод</a>
                     <a
                       class="history-link"
                       [routerLink]="['/audit']"
@@ -150,7 +149,7 @@
                     <app-button
                       variant="ghost"
                       [iconOnly]="true"
-                      ariaLabel="Действия с операцией"
+                      [ariaLabel]="rowActionsLabel(operation)"
                       (click)="openRowActions(operation)"
                     >
                       ···
@@ -181,9 +180,9 @@
 
   <app-dialog
     [open]="pendingDeleteOperation() !== null"
-    titleText="Удалить операцию"
+    titleText="Удалить операцию?"
     size="sm"
-    (dismissRequested)="cancelDeleteConfirm()"
+    (dismissRequested)="onDeleteDismissRequested($event)"
     (closed)="cancelDeleteConfirm()"
   >
     @if (pendingDeleteOperation(); as pending) {
@@ -194,9 +193,14 @@
         пересчитан. Операцию можно восстановить.
       </p>
     }
+    @if (deleteError()) {
+      <p class="form-error" role="alert">{{ deleteError() }}</p>
+    }
     <div dialogActions>
-      <app-button variant="secondary" type="button" (click)="cancelDeleteConfirm()">Отмена</app-button>
-      <app-button variant="danger" type="button" (click)="confirmDeleteOperation()">Удалить</app-button>
+      <app-button variant="secondary" type="button" (click)="cancelDeleteConfirm()" [disabled]="isDeleting()">Отмена</app-button>
+      <app-button variant="danger" type="button" (click)="confirmDeleteOperation()" [loading]="isDeleting()" loadingText="Удаление…">
+        Удалить
+      </app-button>
     </div>
   </app-dialog>
 

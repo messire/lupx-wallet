@@ -6,7 +6,7 @@ using LupexWallet.Wallets.Application;
 namespace LupexWallet.BalanceHistory.Infrastructure;
 
 /// <summary>
-/// Implementation of IWalletBalanceOnDateLookup (Reporting, W2.1) — the same algorithm as
+/// Implementation of IWalletBalanceOnDateLookup (Reporting) — the same algorithm as
 /// GetWalletBalanceQueryHandler (BalanceHistoryQueries.cs) for the "date given" branch;
 /// duplicated rather than extracted into a shared method, to avoid coupling two different
 /// entry points (an HTTP request for a specific wallet vs. Reporting's aggregation across

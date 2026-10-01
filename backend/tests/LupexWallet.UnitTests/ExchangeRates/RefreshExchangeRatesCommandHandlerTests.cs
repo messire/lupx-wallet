@@ -6,6 +6,10 @@ using LupexWallet.ExchangeRates.Infrastructure;
 using LupexWallet.ReferenceData.Application;
 using LupexWallet.SharedKernel;
 using LupexWallet.Wallets.Application;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking.Internal;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Update;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Xunit;
@@ -121,5 +125,81 @@ public sealed class RefreshExchangeRatesCommandHandlerTests
             Arg.Any<CancellationToken>());
         await _frankfurterClient.DidNotReceive().GetLatestRateAsync("EUR", "EUR", Arg.Any<CancellationToken>());
         _refreshSignal.Received(isManualTrigger ? 1 : 0).NotifyManualRefreshCompleted();
+    }
+
+    [Fact]
+    public async Task Handle_CurrencyDeletedDuringRun_DropsPendingQuoteInsteadOfOrphaningIt()
+    {
+        SetupCurrencies();
+        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary]));
+        // The second catalog read (after the pair loop) no longer contains USD: it was deleted mid-run.
+        _currencyLookup.GetAllAsync(Arg.Any<CancellationToken>()).Returns(
+            (IReadOnlyList<CurrencyLookupResult>)[new(Primary, "EUR", true), new(Usd, "USD", true)],
+            (IReadOnlyList<CurrencyLookupResult>)[new(Primary, "EUR", true)]);
+        _repository.FindAsync(Usd, Primary, Arg.Any<CancellationToken>()).Returns((ExchangeRateQuote?)null);
+        _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlyList<ExchangeRateQuote>)[]);
+        _frankfurterClient.GetLatestRateAsync("USD", "EUR", Arg.Any<CancellationToken>()).Returns(0.91m);
+
+        var result = await CreateHandler().Handle(new RefreshExchangeRatesCommand(IsManualTrigger: false), CancellationToken.None);
+
+        _repository.Received(1).Remove(Arg.Is<ExchangeRateQuote>(q => q.FromCurrencyId == Usd && q.ToCurrencyId == Primary));
+        result.Rates.Should().BeEmpty();
+        await _eventDispatcher.DidNotReceiveWithAnyArgs().DispatchAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task Handle_StoredQuoteReferencesCurrencyAbsentFromCatalog_RemovesIt()
+    {
+        SetupCurrencies();
+        var deleted = new CurrencyId(Guid.NewGuid());
+        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary]));
+        var orphan = ExchangeRateQuote.Create(deleted, Primary, new ExchangeRateValue(2m), DateTimeOffset.UtcNow);
+        var healthy = ExchangeRateQuote.Create(Usd, Primary, new ExchangeRateValue(0.9m), DateTimeOffset.UtcNow);
+        _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlyList<ExchangeRateQuote>)[orphan, healthy]);
+        _frankfurterClient.GetLatestRateAsync("USD", "EUR", Arg.Any<CancellationToken>()).Returns(0.9m);
+
+        await CreateHandler().Handle(new RefreshExchangeRatesCommand(IsManualTrigger: false), CancellationToken.None);
+
+        _repository.Received(1).Remove(orphan);
+        _repository.DidNotReceive().Remove(healthy);
+    }
+
+    [Fact]
+    public async Task Handle_QuoteRemovedConcurrently_SkipsThatPairWithWarningAndSavesTheRest()
+    {
+        var gbp = new CurrencyId(Guid.NewGuid());
+        _currencyLookup.GetAllAsync(Arg.Any<CancellationToken>()).Returns(
+            (IReadOnlyList<CurrencyLookupResult>)[new(Primary, "EUR", true), new(Usd, "USD", true), new(gbp, "GBP", true)]);
+        _currencyLookup.GetAsync(Primary, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(Primary, "EUR", true));
+        _currencyLookup.GetAsync(Usd, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(Usd, "USD", true));
+        _currencyLookup.GetAsync(gbp, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(gbp, "GBP", true));
+        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary]));
+        _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlyList<ExchangeRateQuote>)[]);
+        _frankfurterClient.GetLatestRateAsync("USD", "EUR", Arg.Any<CancellationToken>()).Returns(0.9m);
+        _frankfurterClient.GetLatestRateAsync("GBP", "EUR", Arg.Any<CancellationToken>()).Returns(1.2m);
+        // UPDATE of the row deleted after it was loaded touches 0 rows: EF reports the USD quote as conflicting.
+        var conflicting = ExchangeRateQuote.Create(Usd, Primary, new ExchangeRateValue(0.9m), DateTimeOffset.UtcNow);
+        _unitOfWork.SaveChangesAsync(Arg.Any<CancellationToken>()).Returns(
+            Task.FromException(CreateConcurrencyException(conflicting)), Task.CompletedTask);
+
+        var result = await CreateHandler().Handle(new RefreshExchangeRatesCommand(IsManualTrigger: true), CancellationToken.None);
+
+        await _unitOfWork.Received(2).SaveChangesAsync(Arg.Any<CancellationToken>());
+        result.HadFailures.Should().BeFalse();
+        await _eventDispatcher.Received(1).DispatchAsync(
+            Arg.Is<IEnumerable<IDomainEvent>>(events => events.OfType<ExchangeRatesUpdated>().Single().UpdatedPairs.Count == 1
+                && events.OfType<ExchangeRatesUpdated>().Single().UpdatedPairs.Single().FromCurrencyId == gbp),
+            Arg.Any<CancellationToken>());
+    }
+
+    private static DbUpdateConcurrencyException CreateConcurrencyException(ExchangeRateQuote quote)
+    {
+        // A real (never connected) context only to obtain a genuine IUpdateEntry for the exception.
+        var context = new ExchangeRatesDbContext(
+            new DbContextOptionsBuilder<ExchangeRatesDbContext>().UseNpgsql("Host=localhost").Options);
+        var entry = context.LatestExchangeRates.Attach(quote);
+        entry.State = EntityState.Modified; // EF drops unchanged entries from DbUpdateException.Entries
+        var updateEntry = (IUpdateEntry)((IInfrastructure<InternalEntityEntry>)entry).Instance;
+        return new DbUpdateConcurrencyException("0 rows affected", [updateEntry]);
     }
 }

@@ -25,11 +25,10 @@
     justify-content: flex-end;
   }
 
-  /* inline-block — text-decoration of `tr.is-deleted` (strike-through) does not propagate
-     into it, so the "Удалён" badge stays legible (the strike-through is not announced
-     by screen readers, the badge is). */
+  /* The badge host is an atomic inline-level box (inline-flex), so the strike-through of
+     `tr.is-deleted` does not propagate into it and the "Удалён" badge stays legible (the
+     strike-through is not announced by screen readers, the badge is). */
   app-badge {
-    display: inline-block;
     margin-left: var(--lw-space-2);
   }
 }

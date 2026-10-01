@@ -238,7 +238,7 @@ public sealed class TransfersApiTests(ApiTestFixture fixture) : IntegrationTestB
         deleted.DeletedAt.Should().NotBeNull();
     }
 
-    // ---- Soft delete / restore of a transfer as a whole (ADR-0002, §3; D3.4) ----
+    // ---- Soft delete / restore of a transfer as a whole (ADR-0002, §3) ----
 
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
 
@@ -366,7 +366,7 @@ public sealed class TransfersApiTests(ApiTestFixture fixture) : IntegrationTestB
         var restoreTarget = await Client.PostAsync($"/api/v1/operations/{transfer.TargetOperationId}/restore", null);
         var deleteSource = await Client.DeleteAsync($"/api/v1/operations/{transfer.SourceOperationId}");
 
-        restoreSource.StatusCode.Should().Be(HttpStatusCode.Conflict, "a leg is restored only together with its transfer (D3.4)");
+        restoreSource.StatusCode.Should().Be(HttpStatusCode.Conflict, "a leg is restored only together with its transfer (ADR-0002, §3)");
         restoreTarget.StatusCode.Should().Be(HttpStatusCode.Conflict);
         deleteSource.StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await GetOperationAsync(transfer.SourceOperationId)).IsDeleted.Should().BeTrue();

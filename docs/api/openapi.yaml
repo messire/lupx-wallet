@@ -329,7 +329,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: >
-            Тип используется кошельком или операцией (включая удаленные) —
+            Тип используется кошельком (включая архивные) —
             используйте деактивацию.
           content:
             application/problem+json:
@@ -398,7 +398,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: >
-            Тип используется кошельком или операцией (включая удаленные) —
+            Тип используется операцией (включая удаленные) —
             используйте деактивацию.
           content:
             application/problem+json:
@@ -582,7 +582,8 @@ paths:
           description: >
             Операция — часть перевода; редактируется/удаляется только через перевод
             целиком (раздел 4 требований), либо операция удалена — сначала восстановите
-            (POST /operations/{operationId}/restore).
+            (POST /operations/{operationId}/restore), либо запись изменена параллельно
+            (например, удалена в другой вкладке) — обновите список.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -600,8 +601,8 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: >
-            Операция — часть перевода (удалите через DELETE /transfers/{id}) либо
-            уже удалена.
+            Операция — часть перевода (удалите через DELETE /transfers/{id}), уже удалена
+            либо запись изменена параллельно — обновите список.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -625,8 +626,8 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: >
-            Операция — часть перевода (восстановите через POST /transfers/{id}/restore)
-            либо не удалена.
+            Операция — часть перевода (восстановите через POST /transfers/{id}/restore),
+            не удалена либо запись изменена параллельно — обновите список.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -706,7 +707,8 @@ paths:
         "204": { description: Удален }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: Перевод уже удален.
+          description: >
+            Перевод уже удален либо запись изменена параллельно — обновите список.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -732,7 +734,8 @@ paths:
               schema: { $ref: "#/components/schemas/Transfer" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: Перевод не удален.
+          description: >
+            Перевод не удален либо запись изменена параллельно — обновите список.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }

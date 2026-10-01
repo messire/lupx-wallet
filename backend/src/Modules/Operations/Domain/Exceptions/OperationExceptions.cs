@@ -1,9 +1,9 @@
 namespace LupexWallet.Operations.Domain;
 
-public abstract class OperationsDomainException(string message) : Exception(message);
+public abstract class OperationsDomainException(string message, Exception? innerException = null) : Exception(message, innerException);
 
 public sealed class AdjustmentModeRequiredException()
-    : OperationsDomainException("Для операции с поведением Adjustment обязателен способ ввода (Absolute/Delta) — решено, Q3.");
+    : OperationsDomainException("Для операции с поведением Adjustment обязателен способ ввода (Absolute/Delta).");
 
 public sealed class AdjustmentModeNotAllowedException()
     : OperationsDomainException("Способ ввода корректировки (adjustmentMode) допустим только для операций с поведением Adjustment.");
@@ -14,37 +14,60 @@ public sealed class OperationAmountMustBePositiveException()
 public sealed class DirectOperationCreationNotAllowedForBehaviorException(string behaviorCode)
     : OperationsDomainException($"Операцию с поведением '{behaviorCode}' нельзя создать напрямую через /operations — используйте соответствующий эндпоинт (например, /transfers для Transfer).");
 
-public sealed class OperationPartOfTransferException(Guid operationId)
-    : OperationsDomainException($"Операция ({operationId}) — часть перевода; редактируется/удаляется только через перевод целиком (раздел 4 требований).");
-
 public sealed class OperationCurrencyImmutableException()
     : OperationsDomainException("Валюта операции неизменяема после создания (совпадает с валютой кошелька на момент создания).");
 
 public sealed class TransferSameWalletException()
-    : OperationsDomainException("Исходный и целевой кошельки перевода должны различаться (раздел 4 требований).");
+    : OperationsDomainException("Исходный и целевой кошельки перевода должны различаться.");
 
 public sealed class TransferCurrencyMismatchException()
-    : OperationsDomainException("Перевод разрешен только между кошельками одной валюты (раздел 4 требований).");
+    : OperationsDomainException("Перевод разрешен только между кошельками одной валюты.");
 
-// Soft-delete lifecycle conflicts (ADR-0002, §3) — all map to HTTP 409.
+// Soft-delete lifecycle conflicts (ADR-0002, §3) — all map to HTTP 409. The message goes to
+// Problem.detail and is shown to the user as is, so it carries no identifiers.
+
+public sealed class OperationPartOfTransferException(Guid operationId)
+    : OperationsDomainException("Операция входит в перевод: изменяйте, удаляйте и восстанавливайте перевод целиком.")
+{
+    public Guid OperationId { get; } = operationId;
+}
 
 public sealed class OperationAlreadyDeletedException(Guid operationId)
-    : OperationsDomainException($"Операция ({operationId}) уже удалена.");
+    : OperationsDomainException("Операция уже удалена.")
+{
+    public Guid OperationId { get; } = operationId;
+}
 
 public sealed class OperationNotDeletedException(Guid operationId)
-    : OperationsDomainException($"Операция ({operationId}) не удалена — восстанавливать нечего.");
+    : OperationsDomainException("Операция не удалена — восстанавливать нечего.")
+{
+    public Guid OperationId { get; } = operationId;
+}
 
 /// <summary>A soft-deleted operation cannot be edited or moved until restored.</summary>
 public sealed class OperationIsDeletedException(Guid operationId)
-    : OperationsDomainException($"Операция ({operationId}) удалена — сначала восстановите её.");
+    : OperationsDomainException("Операция удалена — сначала восстановите её.")
+{
+    public Guid OperationId { get; } = operationId;
+}
 
 public sealed class TransferAlreadyDeletedException(Guid transferId)
-    : OperationsDomainException($"Перевод ({transferId}) уже удалён.");
+    : OperationsDomainException("Перевод уже удалён.")
+{
+    public Guid TransferId { get; } = transferId;
+}
 
 public sealed class TransferNotDeletedException(Guid transferId)
-    : OperationsDomainException($"Перевод ({transferId}) не удалён — восстанавливать нечего.");
+    : OperationsDomainException("Перевод не удалён — восстанавливать нечего.")
+{
+    public Guid TransferId { get; } = transferId;
+}
 
-/// <summary>Defensive: the operations passed to Transfer.SoftDelete/Restore are not this transfer's legs.</summary>
+/// <summary>
+/// Internal invariant violation (corrupted data, not a client error): the operations passed to
+/// Transfer.SoftDelete/Restore are not this transfer's legs. Answered with 500; the message is
+/// for logs only.
+/// </summary>
 public sealed class TransferLegMismatchException(Guid transferId)
     : OperationsDomainException($"Переданные операции не являются «ногами» перевода ({transferId}).");
 
@@ -52,13 +75,22 @@ public sealed class NoActiveOperationTypeForTransferException()
     : OperationsDomainException("Нет ни одного активного типа операции с поведением Transfer — создайте его в справочнике типов операций перед переводом.");
 
 public sealed class OperationTypeReferenceNotFoundException(Guid operationTypeId)
-    : OperationsDomainException($"Тип операции ({operationTypeId}) не найден.");
+    : OperationsDomainException("Тип операции не найден.")
+{
+    public Guid OperationTypeId { get; } = operationTypeId;
+}
 
 public sealed class OperationTypeReferenceInactiveException(Guid operationTypeId)
-    : OperationsDomainException($"Тип операции ({operationTypeId}) деактивирован — нельзя ссылаться на него в новой операции.");
+    : OperationsDomainException("Тип операции деактивирован — нельзя ссылаться на него в новой операции.")
+{
+    public Guid OperationTypeId { get; } = operationTypeId;
+}
 
 public sealed class WalletReferenceNotFoundException(Guid walletId)
-    : OperationsDomainException($"Кошелек ({walletId}) не найден.");
+    : OperationsDomainException("Кошелек не найден.")
+{
+    public Guid WalletId { get; } = walletId;
+}
 
 /// <summary>
 /// Operation/transfer date must be within [Wallet.AccountingStartDate .. today] (UTC) — the

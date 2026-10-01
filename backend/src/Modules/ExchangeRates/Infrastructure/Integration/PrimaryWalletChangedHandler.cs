@@ -8,7 +8,7 @@ namespace LupexWallet.ExchangeRates.Infrastructure;
 /// <summary>
 /// Reacts to PrimaryWalletChanged (ADR-0004 p.5) — rates must be re-fetched against the new
 /// primary currency. Like the event's other subscribers (BalanceHistory etc.), runs in the
-/// same transaction as the command that raised the event (SetPrimaryWallet, W1.2) — so a
+/// same transaction as the command that raised the event (SetPrimaryWallet) — so a
 /// synchronous HTTP call is forbidden here (ADR-0004): the handler only signals the
 /// background service (RequestRefresh), which performs the actual rate refresh
 /// asynchronously, in its own DI scope, outside SetPrimaryWallet's transaction.

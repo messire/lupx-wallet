@@ -30,15 +30,15 @@ public sealed class UpdateWalletCommandHandler(
     public async Task<WalletDto> Handle(UpdateWalletCommand request, CancellationToken cancellationToken)
     {
         var wallet = await repository.GetByIdAsync(new WalletId(request.Id), cancellationToken)
-            ?? throw new WalletNotFoundException(request.Id);
+            ?? throw new WalletNotFoundException();
 
-        // W2.5, случай d: walletTypeId проверяется на существование и активность.
+        // walletTypeId проверяется на существование и активность.
         var walletTypeId = new WalletTypeId(request.WalletTypeId);
         var walletType = await walletTypeLookup.GetAsync(walletTypeId, cancellationToken)
-            ?? throw new WalletTypeReferenceNotFoundException(request.WalletTypeId);
+            ?? throw new WalletTypeReferenceNotFoundException();
         if (!walletType.IsActive)
         {
-            throw new WalletTypeReferenceInactiveException(request.WalletTypeId);
+            throw new WalletTypeReferenceInactiveException();
         }
 
         wallet.UpdateDetails(

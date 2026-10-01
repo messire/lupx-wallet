@@ -5,7 +5,10 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace LupexWallet.Operations.Infrastructure.Migrations
 {
-    /// <inheritdoc />
+    /// <summary>
+    /// Adds nullable deleted_at (soft delete, ADR-0002). Down makes soft-deleted rows count again while
+    /// wallets.current_balance has already excluded them — roll back on test data only.
+    /// </summary>
     public partial class AddRecordSoftDelete : Migration
     {
         /// <inheritdoc />

@@ -3,9 +3,8 @@ using LupexWallet.SharedKernel;
 namespace LupexWallet.ExchangeRates.Application;
 
 /// <summary>
-/// Public read-only contract of the ExchangeRates module for future consumers (Reporting,
-/// wave 2, W2.1) — declared ahead of time per W1.1 (docs/PROGRESS.md), so
-/// Reporting.Application can reference it without changes to ExchangeRates.
+/// Public read-only contract of the ExchangeRates module for future consumers (Reporting) —
+/// declared ahead of time, so Reporting.Application can reference it without changes to ExchangeRates.
 /// </summary>
 public interface IExchangeRateLookup
 {

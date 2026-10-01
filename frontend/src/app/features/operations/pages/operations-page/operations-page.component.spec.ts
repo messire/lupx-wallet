@@ -47,7 +47,7 @@ const deletedOperation: Operation = {
   ...operation1,
   id: 'op-deleted',
   isDeleted: true,
-  deletedAt: '2026-09-11T08:30:00Z',
+  deletedAt: '2026-09-11T12:00:00Z',
 };
 
 const emptyPage = { pagination: { nextCursor: null, hasMore: false } };
@@ -131,11 +131,46 @@ describe('OperationsComponent', () => {
     const fixture = createComponent([deletedOperation]);
     const component = fixture.componentInstance;
 
-    expect(component.deletedBadgeTitle(deletedOperation)).toBe('Удалена 2026-09-11');
+    expect(component.deletedBadgeTitle(deletedOperation)).toBe('Удалена 11.09.2026');
     expect(component.deletedBadgeTitle({ ...deletedOperation, deletedAt: null })).toBe('Удалена');
 
-    const badge = (fixture.nativeElement as HTMLElement).querySelector('tbody tr td.actions app-badge') as HTMLElement;
-    expect(badge.getAttribute('title')).toBe('Удалена 2026-09-11');
+    const badge = (fixture.nativeElement as HTMLElement).querySelector('tbody tr td.date-col app-badge') as HTMLElement;
+    expect(badge.getAttribute('title')).toBe('Удалена 11.09.2026');
+  });
+
+  it('puts the "Удалена" badge into the date cell (read before the row data) and not into the actions cell', () => {
+    const fixture = createComponent([deletedOperation]);
+    const row = (fixture.nativeElement as HTMLElement).querySelector('tbody tr') as HTMLElement;
+
+    expect(row.querySelector('td:first-child')?.textContent).toContain('Удалена');
+    expect(row.querySelector('td.actions')?.textContent).not.toContain('Удалена');
+  });
+
+  it('names the "···" button with the date, type and signed amount of its row', () => {
+    const fixture = createComponent([operation1]);
+    const trigger = (fixture.nativeElement as HTMLElement).querySelector('tbody tr td.actions button') as HTMLElement;
+
+    expect(trigger.getAttribute('aria-label')).toContain('Действия с операцией: 2026-09-10, Расход, −');
+    expect(trigger.getAttribute('aria-label')).toContain('12');
+  });
+
+  it('shows the visible "Открыть перевод" link to /transfers for a transfer leg, without the "···" menu', () => {
+    const fixture = createComponent([{ ...operation1, transferId: 't-1' }]);
+    const actions = (fixture.nativeElement as HTMLElement).querySelector('tbody tr td.actions') as HTMLElement;
+
+    const link = Array.from(actions.querySelectorAll('a')).find((a) => a.textContent?.includes('Открыть перевод'));
+    expect(link).toBeTruthy();
+    expect(link?.getAttribute('href')).toBe('/transfers');
+    expect(actions.querySelector('button')).toBeNull();
+  });
+
+  it('shows the same "Открыть перевод" link for a deleted transfer leg', () => {
+    const fixture = createComponent([{ ...deletedOperation, transferId: 't-1' }]);
+    const row = (fixture.nativeElement as HTMLElement).querySelector('tbody tr') as HTMLElement;
+
+    expect(row.classList.contains('is-deleted')).toBe(true);
+    expect(row.querySelector('td.actions a[href="/transfers"]')?.textContent).toContain('Открыть перевод');
+    expect(row.querySelector('td.actions button')).toBeNull();
   });
 
   it('keeps the "···" trigger available in the actions cell of a deleted row (the cell is not struck through)', () => {
@@ -216,9 +251,44 @@ describe('OperationsComponent', () => {
     );
     fixture.detectChanges();
 
+    // 409 means the list on screen is stale (changed in another tab) - it is reloaded.
+    httpMock
+      .expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`)
+      .flush({ data: [{ ...deletedOperation, isDeleted: false, deletedAt: null }], ...emptyPage });
+    fixture.detectChanges();
+
     expect(component.restoreError()).toBe('Операция не удалена.');
     expect(component.successMessage()).toBeNull();
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Операция не удалена.');
+    const toast = (fixture.nativeElement as HTMLElement).querySelector('app-toast .app-toast') as HTMLElement;
+    expect(toast.textContent).toContain('Операция не удалена.');
+    expect(toast.getAttribute('role')).toBe('alert');
+    expect((fixture.nativeElement as HTMLElement).querySelector('app-error-state')).toBeNull();
+    expect((fixture.nativeElement as HTMLElement).querySelector('tbody tr')?.classList.contains('is-deleted')).toBe(false);
+  });
+
+  it('does not reload the list when restoring fails with a non-conflict error', () => {
+    const fixture = createComponent([deletedOperation]);
+
+    fixture.componentInstance.restoreOperation(deletedOperation);
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/operations/${deletedOperation.id}/restore`)
+      .flush(null, { status: 500, statusText: 'Server Error' });
+
+    httpMock.expectNone((r) => r.url === `${environment.apiBaseUrl}/operations`);
+  });
+
+  it('ignores a repeated restore while the first request is in flight', () => {
+    const fixture = createComponent([deletedOperation]);
+    const component = fixture.componentInstance;
+
+    component.restoreOperation(deletedOperation);
+    component.restoreOperation(deletedOperation);
+
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/operations/${deletedOperation.id}/restore`);
+    expect(component.isRestoring()).toBe(true);
+    req.flush(deletedOperation);
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`).flush({ data: [], ...emptyPage });
+    expect(component.isRestoring()).toBe(false);
   });
 
   it('falls back to a generic restoreError text when the server sends no problem details', () => {
@@ -283,6 +353,15 @@ describe('OperationsComponent', () => {
     expect(dialogText).not.toContain('без возможности восстановления');
   });
 
+  it('titles the delete-confirm dialog as a question', () => {
+    const fixture = createComponent([operation1]);
+
+    fixture.componentInstance.requestDeleteConfirm(operation1);
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Удалить операцию?');
+  });
+
   it('deletes an operation with any (past) date: DELETE, reload, "Операция удалена" toast', () => {
     const fixture = createComponent([operation1]);
     const component = fixture.componentInstance;
@@ -314,6 +393,64 @@ describe('OperationsComponent', () => {
       .flush(null, { status: 500, statusText: 'Server Error' });
 
     expect(component.deleteError()).toBe('Не удалось удалить операцию.');
+  });
+
+  it('keeps the delete-confirm dialog open and shows the delete error inside it (no error-state above the list)', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+
+    component.requestDeleteConfirm(operation1);
+    component.confirmDeleteOperation();
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/operations/${operation1.id}`)
+      .flush({ title: 'Error', status: 500, detail: 'Сбой сервера.' }, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    expect(component.pendingDeleteOperation()).toEqual(operation1);
+    expect(component.isDeleting()).toBe(false);
+    const alert = (fixture.nativeElement as HTMLElement).querySelector('app-dialog p.form-error[role="alert"]');
+    expect(alert?.textContent).toContain('Сбой сервера.');
+    expect((fixture.nativeElement as HTMLElement).querySelector('app-error-state')).toBeNull();
+  });
+
+  it('reloads the list after a 409 on delete (already deleted in another tab) and keeps the error in the dialog', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+
+    component.requestDeleteConfirm(operation1);
+    component.confirmDeleteOperation();
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/operations/${operation1.id}`)
+      .flush({ title: 'Conflict', status: 409, detail: 'Операция уже удалена.' }, { status: 409, statusText: 'Conflict' });
+
+    httpMock
+      .expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`)
+      .flush({ data: [{ ...operation1, isDeleted: true, deletedAt: '2026-09-11T12:00:00Z' }], ...emptyPage });
+    fixture.detectChanges();
+
+    expect(component.deleteError()).toBe('Операция уже удалена.');
+    expect(component.pendingDeleteOperation()).toEqual(operation1);
+    expect((fixture.nativeElement as HTMLElement).querySelector('tbody tr')?.classList.contains('is-deleted')).toBe(true);
+  });
+
+  it('ignores a repeated delete confirmation while the first request is in flight and blocks closing meanwhile', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+
+    component.requestDeleteConfirm(operation1);
+    component.confirmDeleteOperation();
+    component.confirmDeleteOperation();
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/operations/${operation1.id}`);
+
+    const event = new Event('cancel', { cancelable: true });
+    component.onDeleteDismissRequested(event);
+    component.cancelDeleteConfirm();
+    expect(event.defaultPrevented).toBe(true);
+    expect(component.pendingDeleteOperation()).toEqual(operation1);
+
+    req.flush(null, { status: 204, statusText: 'No Content' });
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`).flush({ data: [], ...emptyPage });
+    expect(component.pendingDeleteOperation()).toBeNull();
   });
 
   // ---- Guards: a deleted operation can be neither edited nor deleted ----

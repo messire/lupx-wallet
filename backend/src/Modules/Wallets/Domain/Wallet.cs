@@ -123,7 +123,7 @@ public sealed class Wallet : AggregateRoot<WalletId>
     {
         if (IsPrimary)
         {
-            throw new CannotArchivePrimaryWalletException(Id.Value);
+            throw new CannotArchivePrimaryWalletException();
         }
 
         IsArchived = true;
@@ -136,7 +136,7 @@ public sealed class Wallet : AggregateRoot<WalletId>
     {
         if (IsArchived)
         {
-            throw new CannotSetArchivedWalletAsPrimaryException(Id.Value);
+            throw new CannotSetArchivedWalletAsPrimaryException();
         }
 
         IsPrimary = true;
@@ -156,7 +156,12 @@ public sealed class Wallet : AggregateRoot<WalletId>
     {
         if (hasHistory)
         {
-            throw new WalletCurrencyChangeNotAllowedException(Id.Value);
+            throw new WalletCurrencyChangeNotAllowedException();
+        }
+
+        if (newCurrencyId == CurrencyId)
+        {
+            return;
         }
 
         var oldCurrencyId = CurrencyId;
@@ -188,12 +193,12 @@ public sealed class Wallet : AggregateRoot<WalletId>
     {
         if (IsPrimary)
         {
-            throw new CannotDeletePrimaryWalletException(Id.Value);
+            throw new CannotDeletePrimaryWalletException();
         }
 
         if (hasHistory)
         {
-            throw new WalletDeletionNotAllowedException(Id.Value);
+            throw new WalletDeletionNotAllowedException();
         }
     }
 

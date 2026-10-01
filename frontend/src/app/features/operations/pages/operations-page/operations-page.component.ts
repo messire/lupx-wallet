@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, ValidatorFn } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -83,8 +84,12 @@ export class OperationsComponent implements OnInit {
   readonly successMessage = signal<string | null>(null);
   readonly editingOperation = signal<Operation | null>(null);
 
+  /** Error of the last delete attempt — shown inside the confirmation dialog. */
   readonly deleteError = signal<string | null>(null);
+  readonly isDeleting = signal(false);
+  /** Error of the last restore attempt — shown as an error toast (restore has no confirm dialog). */
   readonly restoreError = signal<string | null>(null);
+  readonly isRestoring = signal(false);
   /** UC-14: deletion is soft (the record stays in the list and can be restored), but it still changes
    *  balances — require confirmation (mirrors Wallets' archive/delete confirm). */
   readonly pendingDeleteOperation = signal<Operation | null>(null);
@@ -338,52 +343,88 @@ export class OperationsComponent implements OnInit {
   }
 
   cancelDeleteConfirm(): void {
-    this.pendingDeleteOperation.set(null);
-  }
-
-  confirmDeleteOperation(): void {
-    const operation = this.pendingDeleteOperation();
-    if (!operation) {
+    if (this.isDeleting()) {
       return;
     }
     this.pendingDeleteOperation.set(null);
     this.deleteError.set(null);
+  }
+
+  /** Escape/backdrop on the delete-confirm dialog (native `cancel` event): while a DELETE request is
+   *  in flight the native close must be prevented, otherwise an error would have no visible place to render. */
+  onDeleteDismissRequested(event: Event): void {
+    if (this.isDeleting()) {
+      event.preventDefault();
+      return;
+    }
+    this.pendingDeleteOperation.set(null);
+    this.deleteError.set(null);
+  }
+
+  confirmDeleteOperation(): void {
+    const operation = this.pendingDeleteOperation();
+    if (!operation || this.isDeleting()) {
+      return;
+    }
+    this.isDeleting.set(true);
+    this.deleteError.set(null);
 
     this.operationsService.delete(operation.id).subscribe({
       next: () => {
+        this.isDeleting.set(false);
+        this.pendingDeleteOperation.set(null);
         this.loadOperations();
         this.successMessage.set('Операция удалена');
       },
       error: (error: unknown) => {
-        this.deleteError.set(
-          extractErrorMessage(error, 'Не удалось удалить операцию.'),
-        );
+        this.isDeleting.set(false);
+        this.deleteError.set(extractErrorMessage(error, 'Не удалось удалить операцию.'));
+        this.reloadOnConflict(error);
       },
     });
   }
 
   /** ADR-0002 §3: restore is reversible, so it runs without a confirmation dialog. */
   restoreOperation(operation: Operation): void {
-    if (operation.transferId || !operation.isDeleted) {
+    if (operation.transferId || !operation.isDeleted || this.isRestoring()) {
       return;
     }
+    this.isRestoring.set(true);
     this.deleteError.set(null);
     this.restoreError.set(null);
 
     this.operationsService.restore(operation.id).subscribe({
       next: () => {
+        this.isRestoring.set(false);
         this.loadOperations();
         this.successMessage.set('Операция восстановлена');
       },
       error: (error: unknown) => {
+        this.isRestoring.set(false);
         this.restoreError.set(extractErrorMessage(error, 'Не удалось восстановить операцию.'));
+        this.reloadOnConflict(error);
       },
     });
   }
 
-  /** Tooltip for the "Удалена" badge: the deletion date (date part of `deletedAt`). */
+  /** The record was changed from another tab (409: already deleted / not deleted / modified
+   *  concurrently) — the list on screen is stale, so refresh it. */
+  private reloadOnConflict(error: unknown): void {
+    if (error instanceof HttpErrorResponse && error.status === 409) {
+      this.loadOperations();
+    }
+  }
+
+  /** Tooltip for the "Удалена" badge: the local deletion date. */
   deletedBadgeTitle(operation: Operation): string {
-    return operation.deletedAt ? `Удалена ${operation.deletedAt.slice(0, 10)}` : 'Удалена';
+    return operation.deletedAt ? `Удалена ${new Date(operation.deletedAt).toLocaleDateString('ru-RU')}` : 'Удалена';
+  }
+
+  /** Accessible name of the row-actions button: date, type and amount identify the row for screen readers. */
+  rowActionsLabel(operation: Operation): string {
+    const behaviorKindCode = this.operationBehaviorKindCode(operation.operationTypeId);
+    const amount = this.amountSign(behaviorKindCode) + formatMoney(operation.amount, this.walletCurrencyCode(operation.walletId));
+    return `Действия с операцией: ${operation.operationDate}, ${this.operationTypeName(operation.operationTypeId)}, ${amount}`;
   }
 
   walletName(walletId: string): string {

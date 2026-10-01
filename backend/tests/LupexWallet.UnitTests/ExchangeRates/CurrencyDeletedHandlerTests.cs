@@ -9,7 +9,7 @@ using Xunit;
 namespace LupexWallet.UnitTests.ExchangeRates;
 
 /// <summary>
-/// CurrencyDeletedHandler (ADR-0002, §4; R14): rates are not "usage" of a currency, so deleting a
+/// CurrencyDeletedHandler (ADR-0002, §4): rates are not "usage" of a currency, so deleting a
 /// currency removes its latest and historical rates (From or To) through the repositories.
 /// </summary>
 public sealed class CurrencyDeletedHandlerTests

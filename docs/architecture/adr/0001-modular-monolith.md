@@ -29,10 +29,10 @@
 | # | Способ | Где объявлен | Где реализован | Примеры |
 |---|---|---|---|---|
 | a | Типизированный Id | `SharedKernel` | — | `Operation.WalletId` |
-| b | Доменное событие | `Domain` издателя | подписчик — в `Infrastructure` другого модуля | `OperationCreated` → BalanceHistory, Audit |
+| b | Доменное событие | `Domain` издателя | подписчик — в `Infrastructure` другого модуля | `OperationCreated` → BalanceHistory, Audit; `WalletDeleted` → BalanceHistory; `CurrencyDeleted` → ExchangeRates |
 | c | Порт у владельца данных | `Application` владельца | `Infrastructure` владельца; вызывает `Application` потребителя | `IWalletBalanceGateway`, `IOperationTypeLookup`, `IWalletOperationsLookup`, `IWalletDirectory`, `ICurrencyLookup`, `IWalletBalanceOnDateLookup` |
 | d | Порт у потребителя | `Application` потребителя | `Infrastructure` владельца или нескольких владельцев | `IWalletHistorySource`, `IReferenceItemUsageProbe` |
-| e | Ссылка `Infrastructure` → чужой `Domain` | — | ради типов событий, не ради поведения | подписчики BalanceHistory и Audit |
+| e | Ссылка `Infrastructure` → чужой `Domain` | — | ради типов событий, не ради поведения | подписчики BalanceHistory (`Operations.Domain`, `Wallets.Domain`), ExchangeRates (`Wallets.Domain`, `ReferenceData.Domain`) и Audit |
 
 Способ (c) — основной. Порт может быть и записывающим (`IWalletBalanceGateway.ApplyDeltaAsync`); он работает через `DbContext` владельца и потому участвует в общей транзакции команды.
 

@@ -367,7 +367,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
         response.StatusCode.Should().Be(HttpStatusCode.Conflict, "у кошелька уже есть операции (Q15, ADR-0002, §2)");
     }
 
-    // ---- Snapshots are derived data, not history (ADR-0002, §2; R11, R12; D2.2–D2.4) ----
+    // ---- Snapshots are derived data, not history (ADR-0002, §2) ----
 
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
 
@@ -456,7 +456,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
 
         var response = await Client.PutAsJsonAsync($"/api/v1/wallets/{wallet.Id}/currency", new { CurrencyId = newCurrency.Id });
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK, "snapshots are not history (D2.4)");
+        response.StatusCode.Should().Be(HttpStatusCode.OK, "snapshots are not history (ADR-0002, §2)");
         var snapshots = await Client.GetSnapshotsAsync(wallet.Id, startDate, Today);
         snapshots.Should().HaveCount(4, "rebuilt from AccountingStartDate through today");
         snapshots.Select(s => s.Date).Should().BeEquivalentTo(Enumerable.Range(0, 4).Select(i => startDate.AddDays(i)));
@@ -472,7 +472,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
     [Fact]
     public async Task ChangeWalletCurrency_WithSnapshots_ThenCreateOperationReturnsCreatedAndSnapshotsFollowIt()
     {
-        // Regression R12: BalanceSnapshot.UpdateBalance rejects a currency change, so without the rebuild the
+        // Regression: BalanceSnapshot.UpdateBalance rejects a currency change, so without the rebuild the
         // first operation in such a wallet would fail inside the command transaction.
         await AuthenticateAsync();
         var startDate = Today.AddDays(-3);

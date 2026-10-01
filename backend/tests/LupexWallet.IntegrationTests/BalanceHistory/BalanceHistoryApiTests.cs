@@ -162,25 +162,6 @@ public sealed class BalanceHistoryApiTests(ApiTestFixture fixture) : Integration
         pageB.Data.Should().OnlyContain(s => decimal.Parse(s.Balance.Amount, CultureInfo.InvariantCulture) == 500m, "кошелек-получатель учитывает операцию с даты ее OperationDate");
     }
 
-    [Fact]
-    public async Task DeleteOperation_CascadesRecalculationFromDeletedOperationDate()
-    {
-        await AuthenticateAsync();
-        var accountingStartDate = Today.AddDays(-10);
-        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m, accountingStartDate: accountingStartDate);
-        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
-        // Прежнее правило до мягкого удаления (ADR-0002, §3, «Состояние реализации»): удалить можно только операцию,
-        // датированную сегодняшним днем — операция с более ранней датой уже считается отраженной
-        // в истории и удалению не подлежит (см. DeleteOperation_DatedBeforeToday_ReturnsConflict).
-        var operationId = await CreateOperationAsync(wallet.Id, incomeTypeId, 400m, Today);
-
-        var deleteResponse = await Client.DeleteAsync($"/api/v1/operations/{operationId}");
-        deleteResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
-
-        var page = await GetHistoryAsync(wallet.Id, accountingStartDate, Today, limit: 100);
-        page.Data.Should().OnlyContain(s => decimal.Parse(s.Balance.Amount, CultureInfo.InvariantCulture) == 1000m, "удаление операции откатывает её вклад в историю");
-    }
-
     // ---- Soft delete / restore recalculates history from the operation date (ADR-0002, §3; ADR-0003, §2) ----
 
     private static decimal Amount(BalanceSnapshotResponse snapshot) => decimal.Parse(snapshot.Balance.Amount, CultureInfo.InvariantCulture);
@@ -192,7 +173,7 @@ public sealed class BalanceHistoryApiTests(ApiTestFixture fixture) : Integration
         var accountingStartDate = Today.AddDays(-10);
         var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m, accountingStartDate: accountingStartDate);
         var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
-        var earlierId = await CreateOperationAsync(wallet.Id, incomeTypeId, 100m, Today.AddDays(-6));
+        await CreateOperationAsync(wallet.Id, incomeTypeId, 100m, Today.AddDays(-6));
         var laterId = await CreateOperationAsync(wallet.Id, incomeTypeId, 300m, Today.AddDays(-3));
         var before = (await Client.GetSnapshotsAsync(wallet.Id, accountingStartDate, Today)).ToDictionary(s => s.Date, Amount);
         before[Today.AddDays(-4)].Should().Be(1100m);
@@ -206,7 +187,6 @@ public sealed class BalanceHistoryApiTests(ApiTestFixture fixture) : Integration
         after[Today.AddDays(-4)].Should().Be(1100m, "the deleted operation was later than this date");
         after[Today.AddDays(-3)].Should().Be(1100m, "from the deleted operation's date the snapshots drop its effect");
         after[Today].Should().Be(1100m);
-        _ = earlierId;
     }
 
     [Fact]

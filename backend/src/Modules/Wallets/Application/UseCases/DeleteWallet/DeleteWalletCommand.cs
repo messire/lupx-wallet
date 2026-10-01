@@ -22,7 +22,7 @@ public sealed class DeleteWalletCommandHandler(
     {
         var walletId = new WalletId(request.Id);
         var wallet = await repository.GetByIdAsync(walletId, cancellationToken)
-            ?? throw new WalletNotFoundException(request.Id);
+            ?? throw new WalletNotFoundException();
 
         var hasHistory = await historySources.AnyHasHistoryAsync(walletId, cancellationToken);
 

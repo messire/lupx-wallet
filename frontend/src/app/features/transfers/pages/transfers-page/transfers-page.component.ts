@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -86,7 +87,7 @@ export class TransfersComponent implements OnInit {
   /** screen-spec.md "Переводы": действия строки находятся под «···» (тот же паттерн, что в Operations). */
   readonly pendingRowActionsTransfer = signal<Transfer | null>(null);
   private nextRowAction: { type: 'delete'; transfer: Transfer } | null = null;
-  /** Error of the last restore attempt (shown above the list; restore has no confirm dialog). */
+  /** Error of the last restore attempt — shown as an error toast (restore has no confirm dialog). */
   readonly restoreError = signal<string | null>(null);
   readonly isRestoring = signal(false);
 
@@ -276,6 +277,7 @@ export class TransfersComponent implements OnInit {
         this.isRestoring.set(false);
         // 404 (not found) / 409 (the transfer is not deleted) — contract openapi.yaml.
         this.restoreError.set(extractErrorMessage(error, 'Не удалось восстановить перевод.'));
+        this.reloadOnConflict(error);
       },
     });
   }
@@ -342,8 +344,17 @@ export class TransfersComponent implements OnInit {
         this.isDeleting.set(false);
         // 404 / 409 (the transfer is already deleted) — contract openapi.yaml; the date does not matter (ADR-0002 §2).
         this.deleteError.set(extractErrorMessage(error, 'Не удалось удалить перевод.'));
+        this.reloadOnConflict(error);
       },
     });
+  }
+
+  /** The record was changed from another tab (409: already deleted / not deleted / modified
+   *  concurrently) — the list on screen is stale, so refresh it. */
+  private reloadOnConflict(error: unknown): void {
+    if (error instanceof HttpErrorResponse && error.status === 409) {
+      this.loadTransfers();
+    }
   }
 
   walletName(walletId: string): string {

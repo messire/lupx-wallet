@@ -72,8 +72,8 @@ public static class OperationsEndpointsExtensions
             }
             catch (OperationsDomainException ex) when (IsLifecycleConflict(ex))
             {
-                // Part of a transfer or soft-deleted (restore first) — same 409 as DELETE/restore.
-                return ConflictProblem(ex);
+                // Part of a transfer, soft-deleted (restore first) or changed concurrently — same 409 as DELETE/restore.
+                return ConflictProblem(ex, $"/api/v1/operations/{operationId}");
             }
             catch (OperationsDomainException ex)
             {
@@ -94,7 +94,7 @@ public static class OperationsEndpointsExtensions
             }
             catch (OperationsDomainException ex) when (IsLifecycleConflict(ex))
             {
-                return ConflictProblem(ex);
+                return ConflictProblem(ex, $"/api/v1/operations/{operationId}");
             }
         }).WithName("deleteOperation");
 
@@ -111,7 +111,7 @@ public static class OperationsEndpointsExtensions
             }
             catch (OperationsDomainException ex) when (IsLifecycleConflict(ex))
             {
-                return ConflictProblem(ex);
+                return ConflictProblem(ex, $"/api/v1/operations/{operationId}");
             }
         }).WithName("restoreOperation");
     }
@@ -164,7 +164,7 @@ public static class OperationsEndpointsExtensions
             }
             catch (OperationsDomainException ex) when (IsLifecycleConflict(ex))
             {
-                return ConflictProblem(ex);
+                return ConflictProblem(ex, $"/api/v1/transfers/{transferId}");
             }
         }).WithName("deleteTransfer");
 
@@ -181,16 +181,19 @@ public static class OperationsEndpointsExtensions
             }
             catch (OperationsDomainException ex) when (IsLifecycleConflict(ex))
             {
-                return ConflictProblem(ex);
+                return ConflictProblem(ex, $"/api/v1/transfers/{transferId}");
             }
         }).WithName("restoreTransfer");
     }
 
-    /// <summary>Soft-delete lifecycle violations (ADR-0002, §3) — all answered with 409.</summary>
+    /// <summary>
+    /// Soft-delete lifecycle violations (ADR-0002, §3) and concurrent modification — all answered
+    /// with 409. TransferLegMismatchException is deliberately absent: it signals corrupted data (500).
+    /// </summary>
     private static bool IsLifecycleConflict(OperationsDomainException ex) => ex is
         OperationPartOfTransferException or OperationAlreadyDeletedException or OperationNotDeletedException
         or OperationIsDeletedException or TransferAlreadyDeletedException or TransferNotDeletedException
-        or TransferLegMismatchException;
+        or RecordModifiedConcurrentlyException;
 
     private static AdjustmentMode? ParseAdjustmentMode(string? value) =>
         string.IsNullOrEmpty(value) ? null : Enum.Parse<AdjustmentMode>(value, ignoreCase: true);
@@ -201,10 +204,11 @@ public static class OperationsEndpointsExtensions
         detail: ex.Message,
         type: "https://lupexwallet/errors/operation-validation-error");
 
-    private static IResult ConflictProblem(OperationsDomainException ex) => Results.Problem(
+    private static IResult ConflictProblem(OperationsDomainException ex, string? instance = null) => Results.Problem(
         statusCode: StatusCodes.Status409Conflict,
         title: "Operation conflict",
         detail: ex.Message,
+        instance: instance,
         type: "https://lupexwallet/errors/operation-conflict");
 
     private static OperationResponse ToResponse(OperationDto dto) => new(

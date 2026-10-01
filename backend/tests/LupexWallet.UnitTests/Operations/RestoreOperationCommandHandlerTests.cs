@@ -9,7 +9,7 @@ using Xunit;
 namespace LupexWallet.UnitTests.Operations;
 
 /// <summary>
-/// RestoreOperationCommandHandler (ADR-0002, §3; R6, R7) — revokes soft deletion and re-applies
+/// RestoreOperationCommandHandler (ADR-0002, §3, §6) — revokes soft deletion and re-applies
 /// the stored AppliedDelta with its own sign; restoration is always possible (date, operation type
 /// activity and wallet archival are not re-checked), and a transfer leg is restored only as a whole.
 /// </summary>

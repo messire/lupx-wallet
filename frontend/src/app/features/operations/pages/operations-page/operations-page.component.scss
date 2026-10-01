@@ -47,6 +47,12 @@
     gap: var(--lw-space-2);
   }
 
+  /* Badges are atomic inline boxes, so the strike-through of `tr.is-deleted` does not propagate into
+     them (see styles.scss) — the "Удалена" badge next to the date stays legible. */
+  .date-col app-badge {
+    margin-left: var(--lw-space-2);
+  }
+
   .history-link {
     font-size: var(--lw-type-small);
     color: var(--lw-accent);

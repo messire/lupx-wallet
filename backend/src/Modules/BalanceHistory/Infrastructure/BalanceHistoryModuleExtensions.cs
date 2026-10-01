@@ -36,7 +36,7 @@ public static class BalanceHistoryModuleExtensions
         services.AddScoped<IBalanceHistoryUnitOfWork, BalanceHistoryUnitOfWork>();
         services.AddScoped<BalanceRecalculationService>();
 
-        // Направление "сверху вниз" для Reporting (W2.1, порт у владельца — ADR-0001, §2, способ c) — см. IWalletBalanceOnDateLookup.
+        // Направление "сверху вниз" для Reporting (порт у владельца — ADR-0001, §2, способ c) — см. IWalletBalanceOnDateLookup.
         services.AddScoped<IWalletBalanceOnDateLookup, WalletBalanceOnDateLookup>();
 
         services.AddScoped<INotificationHandler<DomainEventNotification<OperationCreated>>, OperationCreatedHandler>();

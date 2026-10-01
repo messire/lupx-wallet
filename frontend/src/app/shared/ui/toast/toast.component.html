@@ -2,8 +2,8 @@
   class="app-toast"
   [class.app-toast--success]="tone() === 'success'"
   [class.app-toast--error]="tone() === 'error'"
-  role="status"
-  aria-live="polite"
+  [attr.role]="tone() === 'error' ? 'alert' : 'status'"
+  [attr.aria-live]="tone() === 'error' ? 'assertive' : 'polite'"
 >
   <span class="app-toast__message">{{ message() }}</span>
   <button type="button" class="app-toast__close" aria-label="Закрыть уведомление" (click)="onDismissClick()">

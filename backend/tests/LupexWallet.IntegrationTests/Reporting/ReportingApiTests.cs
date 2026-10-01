@@ -101,7 +101,7 @@ public sealed class ReportingApiTests(ApiTestFixture fixture) : IntegrationTestB
     [Fact]
     public async Task GetTotalAmount_CurrentAndHistorical_ExcludeDeletedOperationAndCountItAgainAfterRestore()
     {
-        // ADR-0002, §3 / D3.2: a soft-deleted operation is excluded from the current total (Wallet.CurrentBalance)
+        // ADR-0002, §3: a soft-deleted operation is excluded from the current total (Wallet.CurrentBalance)
         // and from the historical one (balance on date), and comes back on restore.
         await AuthenticateAsync();
         var currency = await Client.CreateCurrencyAsync("EUR", "Евро");

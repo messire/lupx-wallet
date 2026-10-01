@@ -44,7 +44,7 @@ internal static class WalletSnapshotRemoval
     }
 }
 
-/// <summary>R11 (ADR-0002, §2): deleting a wallet removes all its snapshots in the same transaction.</summary>
+/// <summary>ADR-0002, §2: deleting a wallet removes all its snapshots in the same transaction.</summary>
 public sealed class WalletDeletedHandler(IBalanceSnapshotRepository repository, IBalanceHistoryUnitOfWork unitOfWork)
     : INotificationHandler<DomainEventNotification<WalletDeleted>>
 {
@@ -53,7 +53,7 @@ public sealed class WalletDeletedHandler(IBalanceSnapshotRepository repository, 
 }
 
 /// <summary>
-/// R12 (ADR-0002, §2): a wallet without operations may change currency even if it has snapshots.
+/// ADR-0002, §2: a wallet without operations may change currency even if it has snapshots.
 /// BalanceSnapshot.UpdateBalance rejects a currency change, so old snapshots are removed
 /// (separate SaveChanges — same (WalletId, SnapshotDate) key must not be deleted and inserted in
 /// one change set) and then rebuilt in the new currency from the accounting start date.

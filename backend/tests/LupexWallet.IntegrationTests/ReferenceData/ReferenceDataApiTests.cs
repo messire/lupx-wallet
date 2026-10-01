@@ -99,7 +99,7 @@ public sealed class ReferenceDataApiTests(ApiTestFixture fixture) : IntegrationT
         response.StatusCode.Should().Be(HttpStatusCode.Conflict, "тип операции используется существующей операцией (ADR-0002, §4)");
     }
 
-    // ---- Soft-deleted operations count as usage; rates are not usage (ADR-0002, §4; D4.2, D4.3) ----
+    // ---- Soft-deleted operations count as usage; rates are not usage (ADR-0002, §4) ----
 
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
 
@@ -122,7 +122,7 @@ public sealed class ReferenceDataApiTests(ApiTestFixture fixture) : IntegrationT
         var deleteResponse = await Client.DeleteAsync($"/api/v1/operation-types/{incomeType.Id}");
         var deactivateResponse = await Client.PostAsync($"/api/v1/operation-types/{incomeType.Id}/deactivate", null);
 
-        deleteResponse.StatusCode.Should().Be(HttpStatusCode.Conflict, "a soft-deleted operation still references the type (D4.2)");
+        deleteResponse.StatusCode.Should().Be(HttpStatusCode.Conflict, "a soft-deleted operation still references the type (ADR-0002, §4)");
         deactivateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         (await deactivateResponse.Content.ReadFromJsonAsync<ReferenceItemResponse>())!.IsActive.Should().BeFalse();
     }
@@ -190,7 +190,7 @@ public sealed class ReferenceDataApiTests(ApiTestFixture fixture) : IntegrationT
 
         var response = await Client.DeleteAsync($"/api/v1/currencies/{doomed.Id}");
 
-        response.StatusCode.Should().Be(HttpStatusCode.NoContent, "rates are not usage of a currency (D4.3)");
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent, "rates are not usage of a currency (ADR-0002, §4)");
         (await CountRatesAsync(doomed.Id)).Should().Be(new RateCounts(0, 0), "both From and To pairs are removed, latest and historical");
         (await CountRatesAsync(partner.Id)).Should().Be(new RateCounts(2, 2), "only the partner <-> bystander pair remains");
         (await CountRatesAsync(bystander.Id)).Should().Be(new RateCounts(2, 2));

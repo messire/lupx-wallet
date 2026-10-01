@@ -55,7 +55,7 @@ public sealed class BalanceSnapshotUpdatedAuditHandler(AuditRecorder recorder)
 }
 
 /// <summary>
-/// One record per deleted snapshot (ADR-0002 §2, R13): raised when a wallet is deleted or its
+/// One record per deleted snapshot (ADR-0002 §2): raised when a wallet is deleted or its
 /// currency changes and the history is rebuilt.
 /// </summary>
 public sealed class BalanceSnapshotDeletedAuditHandler(AuditRecorder recorder)

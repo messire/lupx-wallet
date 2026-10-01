@@ -5,7 +5,7 @@ namespace LupexWallet.BalanceHistory.Application;
 /// <summary>
 /// A narrow read-only contract published by the BalanceHistory module for Reporting
 /// (historical total, UC-21). "Top-down" direction (see IWalletTotalsSource in
-/// Wallets.Application, the same W2.1 pattern) — owner-declared port, ADR-0001, §2, way c. Wallet balance on a
+/// Wallets.Application) — owner-declared port, ADR-0001, §2, way c. Wallet balance on a
 /// date in the wallet's own currency (Reporting handles conversion to the primary currency).
 /// </summary>
 public interface IWalletBalanceOnDateLookup

@@ -52,7 +52,7 @@ public sealed class UpdateOperationCommandHandlerTests
         await act.Should().ThrowAsync<KeyNotFoundException>();
     }
 
-    // ---- Deleted operation is not editable (ADR-0002, §3; R3) ----
+    // ---- Deleted operation is not editable (ADR-0002, §3) ----
 
     [Fact]
     public async Task Handle_DeletedOperation_SameWallet_ThrowsOperationIsDeletedExceptionBeforeAnyGatewayCall()
@@ -91,6 +91,23 @@ public sealed class UpdateOperationCommandHandlerTests
         await _walletBalanceGateway.DidNotReceive().GetAsync(Arg.Any<WalletId>(), Arg.Any<CancellationToken>());
         await _walletBalanceGateway.DidNotReceive().ApplyDeltaAsync(Arg.Any<WalletId>(), Arg.Any<Money>(), Arg.Any<CancellationToken>());
         operation.WalletId.Should().NotBe(newWalletId);
+    }
+
+    [Fact]
+    public async Task Handle_DeletedTransferLeg_ThrowsOperationPartOfTransferExceptionNotOperationIsDeleted()
+    {
+        // A leg cannot be restored via /operations, so "restore it first" would be a dead-end hint.
+        var (transfer, sourceOperation, targetOperation) = Transfer.Create(
+            TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(10m), DateOnly.FromDateTime(DateTime.UtcNow));
+        transfer.SoftDelete(sourceOperation, targetOperation);
+        _operationRepository.GetByIdAsync(sourceOperation.Id, Arg.Any<CancellationToken>()).Returns(sourceOperation);
+        var command = new UpdateOperationCommand(
+            sourceOperation.Id.Value, sourceOperation.WalletId.Value, Guid.NewGuid(), 999m, sourceOperation.OperationDate, null);
+
+        var act = () => CreateHandler().Handle(command, CancellationToken.None);
+
+        await act.Should().ThrowAsync<OperationPartOfTransferException>();
+        await _walletBalanceGateway.DidNotReceive().ApplyDeltaAsync(Arg.Any<WalletId>(), Arg.Any<Money>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

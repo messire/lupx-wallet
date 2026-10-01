@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 namespace LupexWallet.Wallets.Infrastructure;
 
 /// <summary>
-/// Implementation of IWalletTotalsSource (Reporting, W2.1) — CurrentBalance/Money is a
+/// Implementation of IWalletTotalsSource (Reporting) — CurrentBalance/Money is a
 /// computed aggregate property that EF Core cannot translate into a SQL projection, so
 /// wallets are materialized in full (the set is small; unlike ListWalletsQuery/GET
 /// /wallets, no pagination is needed).

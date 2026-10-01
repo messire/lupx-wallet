@@ -244,6 +244,35 @@ describe('WalletsComponent', () => {
     expect(component.actionError()).toBe('Кошелек имеет историю операций/слепков.');
   });
 
+  it('names the consequences in the wallet delete confirmation: irreversible, balance snapshots removed, historical total may change', () => {
+    const fixture = createComponent();
+    const component = fixture.componentInstance;
+
+    // jsdom does not implement `HTMLDialogElement.showModal`/`close` (see shared/ui/dialog spec).
+    const proto = HTMLDialogElement.prototype as unknown as Record<string, unknown>;
+    const originalShowModal = proto['showModal'];
+    const originalClose = proto['close'];
+    proto['showModal'] = function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    };
+    proto['close'] = function (this: HTMLDialogElement) {
+      this.removeAttribute('open');
+    };
+    try {
+      component.requestConfirm(secondaryWallet.id, 'delete');
+      fixture.detectChanges();
+
+      const text = ((fixture.nativeElement as HTMLElement).textContent ?? '').replace(/\s+/g, ' ');
+      expect(text).toContain(`Кошелек «${secondaryWallet.name}» будет удален без возможности восстановления`);
+      expect(text).toContain('вместе со слепками его истории баланса');
+      expect(text).toContain('историческая общая сумма за прошлые даты может измениться');
+    } finally {
+      fixture.destroy();
+      proto['showModal'] = originalShowModal;
+      proto['close'] = originalClose;
+    }
+  });
+
   it('deletes a wallet successfully and reloads the list', () => {
     const fixture = createComponent();
     const component = fixture.componentInstance;

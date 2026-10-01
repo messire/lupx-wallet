@@ -60,8 +60,10 @@ public sealed class TransferConfiguration : IEntityTypeConfiguration<Transfer>
         builder.Property(x => x.TransferDate).HasColumnName("transfer_date").IsRequired();
         builder.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
 
-        // Soft delete (ADR-0002, §3): NULL = active; shared with both legs.
-        builder.Property(x => x.DeletedAt).HasColumnName("deleted_at");
+        // Soft delete (ADR-0002, §3): NULL = active; shared with both legs. Concurrency token, as on
+        // operations: a concurrent second delete/restore of the same transfer fails instead of
+        // applying the balance deltas twice.
+        builder.Property(x => x.DeletedAt).HasColumnName("deleted_at").IsConcurrencyToken();
 
         builder.HasIndex(x => x.SourceWalletId).HasDatabaseName("ix_transfers_source_wallet");
         builder.HasIndex(x => x.TargetWalletId).HasDatabaseName("ix_transfers_target_wallet");

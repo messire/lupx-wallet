@@ -5,6 +5,7 @@ using LupexWallet.ReferenceData.Application;
 using LupexWallet.SharedKernel;
 using LupexWallet.Wallets.Application;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace LupexWallet.ExchangeRates.Infrastructure;
@@ -50,20 +51,33 @@ public sealed class RefreshExchangeRatesCommandHandler(
                 await RefreshPairAsync(fromCurrencyId, primaryCurrencyId, now, updatedPairs, failedPairs, cancellationToken);
             }
 
-            // M5: после смены основного кошелька старые пары "валюта -> прежняя основная"
-            // становятся неактуальными — GET /exchange-rates/latest должен отдавать курсы
-            // только к текущей основной валюте (openapi.yaml). Читающий фильтр в
-            // GetLatestExchangeRatesQueryHandler — страховка; здесь же чистим сами данные,
-            // чтобы устаревшие пары не копились бесконечно.
+            // A currency can be deleted while the run is in flight (ADR-0002): re-read the catalog and
+            // drop quotes about to be inserted for vanished currencies before they become orphans.
+            var knownCurrencyIds = (await currencyLookup.GetAllAsync(cancellationToken))
+                .Select(currency => currency.Id)
+                .ToHashSet();
+            foreach (var pair in updatedPairs.Where(p => !knownCurrencyIds.Contains(p.FromCurrencyId)).ToList())
+            {
+                // Remove resolves the tracked instance (pending insert or update) of the same pair by key.
+                repository.Remove(ExchangeRateQuote.Create(
+                    pair.FromCurrencyId, pair.ToCurrencyId, new ExchangeRateValue(pair.Rate), now));
+                updatedPairs.Remove(pair);
+            }
+
+            // Quotes that GET /exchange-rates/latest must not serve: not targeting the current primary
+            // currency (openapi.yaml) or referencing a currency absent from the catalog. The read-side
+            // filter is a safety net; here the stale data itself is cleaned up.
             var staleQuotes = (await repository.GetAllAsync(cancellationToken))
-                .Where(q => q.ToCurrencyId != primaryCurrencyId)
+                .Where(q => q.ToCurrencyId != primaryCurrencyId
+                    || !knownCurrencyIds.Contains(q.FromCurrencyId)
+                    || !knownCurrencyIds.Contains(q.ToCurrencyId))
                 .ToList();
             foreach (var staleQuote in staleQuotes)
             {
                 repository.Remove(staleQuote);
             }
 
-            await unitOfWork.SaveChangesAsync(cancellationToken);
+            await SaveSkippingConflictsAsync(updatedPairs, cancellationToken);
 
             if (updatedPairs.Count > 0)
             {
@@ -90,6 +104,35 @@ public sealed class RefreshExchangeRatesCommandHandler(
             lastSuccessfulUpdate,
             allLatest.Select(ToDto).ToList(),
             HadFailures: failedPairs.Count > 0);
+    }
+
+    /// <summary>
+    /// Saves the run; a row that vanished concurrently (currency deletion) makes UPDATE/DELETE touch 0 rows
+    /// and raises DbUpdateConcurrencyException. Such quotes are detached and skipped, the rest is saved.
+    /// </summary>
+    private async Task SaveSkippingConflictsAsync(List<ExchangeRatePairResult> updatedPairs, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            try
+            {
+                await unitOfWork.SaveChangesAsync(cancellationToken);
+                return;
+            }
+            catch (DbUpdateConcurrencyException ex) when (ex.Entries.Any(e => e.Entity is ExchangeRateQuote))
+            {
+                foreach (var entry in ex.Entries)
+                {
+                    entry.State = EntityState.Detached;
+                    if (entry.Entity is ExchangeRateQuote quote)
+                    {
+                        logger.LogWarning(
+                            ex, "Quote {From}->{To} was removed concurrently and is skipped", quote.FromCurrencyId, quote.ToCurrencyId);
+                        updatedPairs.RemoveAll(p => p.FromCurrencyId == quote.FromCurrencyId && p.ToCurrencyId == quote.ToCurrencyId);
+                    }
+                }
+            }
+        }
     }
 
     private async Task RefreshPairAsync(
@@ -128,9 +171,8 @@ public sealed class RefreshExchangeRatesCommandHandler(
         }
         catch (FrankfurterUnsupportedCurrencyException ex)
         {
-            // Постоянное свойство валюты — не временный сбой источника, пропускаем молча,
-            // не эскалируем до 502/ExchangeRateUpdateFailed (ADR-0004, "Последствия";
-            // docs/PROGRESS.md, W1.1 DoD п.6).
+            // Permanent property of the currency, not a transient source failure: skip silently,
+            // do not escalate to 502/ExchangeRateUpdateFailed (ADR-0004, "Consequences").
             logger.LogInformation(
                 ex, "Валюта не поддерживается Frankfurter — пара {From}->{To} пропущена", fromCurrency.Code, toCurrency.Code);
         }

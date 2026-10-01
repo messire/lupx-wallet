@@ -20,7 +20,7 @@ public sealed class SetPrimaryWalletCommandHandler(
     public async Task<WalletDto> Handle(SetPrimaryWalletCommand request, CancellationToken cancellationToken)
     {
         var wallet = await repository.GetByIdAsync(new WalletId(request.Id), cancellationToken)
-            ?? throw new WalletNotFoundException(request.Id);
+            ?? throw new WalletNotFoundException();
 
         await primaryWalletPolicy.SetPrimaryAsync(wallet, cancellationToken);
 

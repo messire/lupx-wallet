@@ -49,8 +49,7 @@ public sealed class WalletCurrencyChangedAuditHandler(AuditRecorder recorder) : 
 }
 
 /// <summary>
-/// Not in the plan's literal list (docs/PROGRESS.md, W2.2 "Task"), but covered by "ALL domain
-/// events" of the Wallets module, as the plan itself requires (W2.2 scope) and ddd-model.md §5
+/// Covered by "ALL domain events" of the Wallets module and ddd-model.md §5
 /// ("any mutating action ... must produce an AuditEntry") — the effect on wallet balance
 /// (Operations → IWalletBalanceGateway, ADR-0001) is itself a mutation of the Wallet record,
 /// separate from OperationCreated (a different aggregate).

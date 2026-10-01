@@ -8,9 +8,9 @@ namespace LupexWallet.ExchangeRates.Infrastructure;
 
 /// <summary>
 /// Implementation of the public IExchangeRateLookup contract (for a future consumer —
-/// Reporting, W2.1). GetOrFetchHistoricalRateAsync writes to the DB (append-only
-/// historical_exchange_rates cache) outside the consumer command's own transaction — see the
-/// risk note in docs/PROGRESS.md, W2.1.
+/// Reporting). GetOrFetchHistoricalRateAsync writes to the DB (append-only
+/// historical_exchange_rates cache) outside the consumer command's own transaction (see the
+/// risk notes in docs/PROGRESS.md).
 /// </summary>
 public sealed class ExchangeRateLookup(
     ILatestExchangeRateRepository latestRepository,

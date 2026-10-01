@@ -7,7 +7,7 @@ using Xunit;
 namespace LupexWallet.UnitTests.ReferenceData;
 
 /// <summary>
-/// CreateCurrencyCommandHandler — код валюты уникален глобально, включая неактивные записи
+/// CreateCurrencyCommandHandler — код валюты уникален глобально
 /// (schema.md, см. CurrencyCodeAlreadyExistsException).
 /// </summary>
 public sealed class CreateCurrencyCommandHandlerTests

@@ -23,6 +23,29 @@ namespace LupexWallet.ReferenceData.Infrastructure.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("LupexWallet.ReferenceData.Domain.AvailableCurrency", b =>
+                {
+                    b.Property<string>("Code")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("code");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTimeOffset>("RefreshedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("refreshed_at");
+
+                    b.HasKey("Code")
+                        .HasName("pk_available_currencies");
+
+                    b.ToTable("available_currencies", "reference_data");
+                });
+
             modelBuilder.Entity("LupexWallet.ReferenceData.Domain.Currency", b =>
                 {
                     b.Property<Guid>("Id")
@@ -38,10 +61,6 @@ namespace LupexWallet.ReferenceData.Infrastructure.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_active");
 
                     b.Property<string>("Name")
                         .IsRequired()

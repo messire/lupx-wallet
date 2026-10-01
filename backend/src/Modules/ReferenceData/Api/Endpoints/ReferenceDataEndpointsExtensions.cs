@@ -144,9 +144,9 @@ public static class ReferenceDataEndpointsExtensions
 
         group.MapGet("/", async (
             ISender sender, CancellationToken ct,
-            [FromQuery] bool includeInactive = false, [FromQuery] string? cursor = null, [FromQuery] int limit = 20) =>
+            [FromQuery] string? cursor = null, [FromQuery] int limit = 20) =>
         {
-            var page = await sender.Send(new ListCurrenciesQuery(includeInactive, cursor, limit), ct);
+            var page = await sender.Send(new ListCurrenciesQuery(cursor, limit), ct);
             return Results.Ok(ToResponse(page));
         }).WithName("listCurrencies");
 
@@ -167,19 +167,6 @@ public static class ReferenceDataEndpointsExtensions
                 return ValidationProblem(ex);
             }
         }).WithName("createCurrency");
-
-        group.MapPost("/{id:guid}/deactivate", async (Guid id, ISender sender, CancellationToken ct) =>
-        {
-            try
-            {
-                var dto = await sender.Send(new DeactivateCurrencyCommand(id), ct);
-                return Results.Ok(ToResponse(dto));
-            }
-            catch (KeyNotFoundException)
-            {
-                return Results.NotFound();
-            }
-        }).WithName("deactivateCurrency");
 
         group.MapDelete("/{id:guid}", async (Guid id, ISender sender, CancellationToken ct) =>
         {
@@ -230,7 +217,7 @@ public static class ReferenceDataEndpointsExtensions
     private static OperationTypePageResponse ToResponse(OperationTypePageDto page) => new(
         page.Data.Select(ToResponse).ToList(), new CursorPageMeta(page.NextCursor, page.HasMore));
 
-    private static CurrencyResponse ToResponse(CurrencyDto dto) => new(dto.Id, dto.Code, dto.Name, dto.IsActive);
+    private static CurrencyResponse ToResponse(CurrencyDto dto) => new(dto.Id, dto.Code, dto.Name);
 
     private static CurrencyPageResponse ToResponse(CurrencyPageDto page) => new(
         page.Data.Select(ToResponse).ToList(), new CursorPageMeta(page.NextCursor, page.HasMore));

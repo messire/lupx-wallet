@@ -26,7 +26,9 @@ tags:
   - name: OperationBehaviorKinds
     description: Системный справочник видов поведения операции (только чтение).
   - name: Currencies
-    description: Расширяемый справочник валют, включая криптовалюты.
+    description: >
+      Доступные валюты (список сервиса курсов, только чтение) и активные валюты
+      пользователя (ADR-0004, §7).
   - name: Operations
     description: Доходы, расходы и ручные корректировки баланса.
   - name: Transfers
@@ -85,6 +87,11 @@ paths:
       tags: [Wallets]
       summary: Создать кошелек (UC-01)
       operationId: createWallet
+      description: >
+        Валюта задается кодом. Если код есть среди доступных валют, но валюта еще не активна,
+        она становится активной в той же транзакции, что и создание кошелька; если уже активна —
+        используется существующая. При отклонении создания кошелька активация откатывается
+        (ADR-0004, §7).
       requestBody:
         required: true
         content:
@@ -96,7 +103,13 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Wallet" }
-        "400": { $ref: "#/components/responses/BadRequest" }
+        "400":
+          description: >
+            Ошибка валидации либо валюта недоступна: код не активен и не входит в список
+            доступных валют. Валюта в этом случае не создается.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
   /wallets/{walletId}:
@@ -200,6 +213,7 @@ paths:
         История кошелька — только операции, включая мягко удаленные (ADR-0002, §2).
         Слепки баланса историей не считаются: при смене валюты они перестраиваются
         в новой валюте (старые удаляются, новые создаются от даты начала учета).
+        Новая валюта должна быть активной (входить в GET /currencies).
       requestBody:
         required: true
         content:
@@ -211,6 +225,11 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Wallet" }
+        "400":
+          description: Валюта с таким идентификатором не активна (не найдена среди активных).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: У кошелька уже есть операции (включая удаленные).
@@ -422,17 +441,34 @@ paths:
                 items: { $ref: "#/components/schemas/OperationBehaviorKind" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /currencies/available:
+    get:
+      tags: [Currencies]
+      summary: Доступные валюты — список сервиса курсов
+      operationId: listAvailableCurrencies
+      description: >
+        Весь список доступных валют из БД, отсортированный по code, без пагинации; к сервису
+        курсов не обращается. Список обновляется при каждом обновлении курсов (ADR-0004, §7);
+        до первой загрузки — пустой массив. Названия английские, из сервиса.
+        isActive — валюта уже добавлена в активные.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AvailableCurrency" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /currencies:
     get:
       tags: [Currencies]
-      summary: Список валют
+      summary: Список активных валют
       operationId: listCurrencies
       parameters:
         - $ref: "#/components/parameters/CursorParam"
         - $ref: "#/components/parameters/LimitParam"
-        - name: includeInactive
-          in: query
-          schema: { type: boolean, default: false }
       responses:
         "200":
           description: OK
@@ -442,8 +478,12 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
     post:
       tags: [Currencies]
-      summary: Добавить валюту (в т.ч. криптовалюту, решено при проектировании домена)
+      summary: Добавить валюту в активные из доступных
       operationId: createCurrency
+      description: >
+        Код должен быть в списке доступных валют (GET /currencies/available); название
+        берется из него. Произвольные коды и криптовалюты вне списка сервиса не принимаются
+        (ADR-0004, §7).
       requestBody:
         required: true
         content:
@@ -451,48 +491,39 @@ paths:
             schema: { $ref: "#/components/schemas/CurrencyCreateRequest" }
       responses:
         "201":
-          description: Создана
+          description: Валюта добавлена в активные
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Currency" }
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "409":
-          description: Код валюты уже занят.
+        "400":
+          description: Ошибка валидации либо кода нет среди доступных валют.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
-
-  /currencies/{id}/deactivate:
-    parameters: [{ $ref: "#/components/parameters/IdParam" }]
-    post:
-      tags: [Currencies]
-      summary: Деактивировать валюту
-      operationId: deactivateCurrency
-      responses:
-        "200":
-          description: Деактивирована
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: Валюта с таким кодом уже активна.
           content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Currency" }
-        "404": { $ref: "#/components/responses/NotFound" }
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
 
   /currencies/{id}:
     parameters: [{ $ref: "#/components/parameters/IdParam" }]
     delete:
       tags: [Currencies]
-      summary: Удалить неиспользуемую валюту
+      summary: Убрать валюту из активных
       operationId: deleteCurrency
       description: >
         Использование — ссылки от кошельков (включая архивные) и операций (включая мягко
-        удаленные). Курсы использованием не считаются и удаляются вместе с валютой
-        (ADR-0002, §4).
+        удаленные). Курсы (последние и исторические) и данные о покрытии истории
+        использованием не считаются и удаляются вместе с валютой (ADR-0002, §4;
+        ADR-0004, §7). Валюта остается в списке доступных.
       responses:
-        "204": { description: Удалена вместе с ее курсами }
+        "204": { description: Убрана из активных вместе с ее курсами }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: >
-            Валюта используется кошельком или операцией (включая удаленные) —
-            используйте деактивацию.
+            Валюта используется кошельком или операцией (включая удаленные).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -746,6 +777,7 @@ paths:
       tags: [ExchangeRates]
       summary: Последние известные курсы к текущей основной валюте (UC-08, UC-10)
       operationId: getLatestExchangeRates
+      description: Читает только БД, к Frankfurter не обращается (ADR-0004, §8).
       responses:
         "200":
           description: OK
@@ -758,7 +790,12 @@ paths:
     post:
       tags: [ExchangeRates]
       summary: Ручное обновление курсов (UC-09) — сбрасывает суточный таймер
-      description: Обновляет курсы всех валют справочника, включая деактивированные, к валюте основного кошелька независимо от наличия кошельков в этих валютах. Пара валюты с самой собой пропускается; без основного кошелька обновление не выполняется.
+      description: >
+        Обновляет курсы только активных валют к валюте основного кошелька независимо от
+        наличия кошельков в этих валютах. Пара валюты с самой собой пропускается; без
+        основного кошелька курсы не обновляются. Также обновляет список доступных валют
+        (GET /currencies/available), в том числе без основного кошелька. Историю курсов не
+        дозагружает — это делает фоновый процесс (ADR-0004, §9).
       operationId: refreshExchangeRates
       responses:
         "200":
@@ -768,7 +805,9 @@ paths:
               schema: { $ref: "#/components/schemas/LatestExchangeRates" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "502":
-          description: Frankfurter недоступен; возвращены последние известные курсы.
+          description: >
+            Frankfurter недоступен или не удалось обновить курсы пар либо список доступных
+            валют; возвращены последние известные курсы.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/LatestExchangeRates" }
@@ -779,6 +818,12 @@ paths:
       tags: [Reporting]
       summary: Общая сумма — текущая или на дату (UC-19, UC-21)
       operationId: getTotalAmount
+      description: >
+        Курсы берутся только из БД, к Frankfurter запрос не обращается (ADR-0004, §8).
+        Для даты используется курс на эту дату или ближайший более ранний; ratesAsOfDate —
+        фактически примененная дата. Если подходящего курса нет (в том числе пока история
+        курсов не дозагружена), кошелек исключается из суммы с указанием причины в
+        excludedWallets.
       parameters:
         - name: date
           in: query
@@ -929,12 +974,18 @@ components:
         updatedAt: { type: string, format: date-time, readOnly: true }
     WalletCreateRequest:
       type: object
-      required: [name, walletTypeId, currencyId, initialBalanceAmount, accountingStartDate]
+      required: [name, walletTypeId, currencyCode, initialBalanceAmount, accountingStartDate]
       properties:
         name: { type: string, maxLength: 200 }
         walletTypeId: { type: string, format: uuid }
         purposeDescription: { type: [string, "null"] }
-        currencyId: { type: string, format: uuid }
+        currencyCode:
+          type: string
+          maxLength: 16
+          example: "USD"
+          description: >
+            Код активной или доступной валюты; доступная неактивная валюта становится
+            активной при создании кошелька (ADR-0004, §7).
         initialBalanceAmount: { type: string, format: decimal }
         accountingStartDate: { type: string, format: date }
         includeInTotal: { type: boolean, default: true }
@@ -1019,18 +1070,29 @@ components:
 
     Currency:
       type: object
-      required: [id, code, name, isActive]
+      description: Активная валюта пользователя.
+      required: [id, code, name]
       properties:
         id: { type: string, format: uuid, readOnly: true }
-        code: { type: string, maxLength: 16, example: "BTC" }
-        name: { type: string, maxLength: 200, example: "Bitcoin" }
-        isActive: { type: boolean, readOnly: true }
+        code: { type: string, maxLength: 16, example: "USD" }
+        name: { type: string, maxLength: 200, example: "United States Dollar" }
     CurrencyCreateRequest:
       type: object
-      required: [code, name]
+      required: [code]
       properties:
-        code: { type: string, maxLength: 16 }
-        name: { type: string, maxLength: 200 }
+        code:
+          type: string
+          maxLength: 16
+          example: "USD"
+          description: Код из списка доступных валют (GET /currencies/available).
+    AvailableCurrency:
+      type: object
+      description: Валюта из списка сервиса курсов.
+      required: [code, name, isActive]
+      properties:
+        code: { type: string, maxLength: 16, example: "EUR" }
+        name: { type: string, maxLength: 200, example: "Euro" }
+        isActive: { type: boolean, description: "Валюта уже добавлена в активные." }
     CurrencyPage:
       type: object
       required: [data, pagination]

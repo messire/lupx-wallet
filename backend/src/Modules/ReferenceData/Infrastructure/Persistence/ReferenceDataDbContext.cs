@@ -9,6 +9,7 @@ public sealed class ReferenceDataDbContext(DbContextOptions<ReferenceDataDbConte
     public DbSet<WalletType> WalletTypes => Set<WalletType>();
     public DbSet<OperationType> OperationTypes => Set<OperationType>();
     public DbSet<Currency> Currencies => Set<Currency>();
+    public DbSet<AvailableCurrency> AvailableCurrencies => Set<AvailableCurrency>();
     public DbSet<OperationBehaviorKind> OperationBehaviorKinds => Set<OperationBehaviorKind>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -17,6 +18,7 @@ public sealed class ReferenceDataDbContext(DbContextOptions<ReferenceDataDbConte
         modelBuilder.ApplyConfiguration(new WalletTypeConfiguration());
         modelBuilder.ApplyConfiguration(new OperationTypeConfiguration());
         modelBuilder.ApplyConfiguration(new CurrencyConfiguration());
+        modelBuilder.ApplyConfiguration(new AvailableCurrencyConfiguration());
         modelBuilder.ApplyConfiguration(new OperationBehaviorKindConfiguration());
     }
 }

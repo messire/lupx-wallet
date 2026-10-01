@@ -9,3 +9,7 @@ public sealed class InvalidExchangeRateException(decimal rate)
 
 public sealed class SameCurrencyExchangeRateException(Guid currencyId)
     : ExchangeRatesDomainException($"Курс между одинаковыми валютами не имеет смысла ({currencyId}).");
+
+public sealed class InvalidCoverageRangeException(DateOnly coveredFrom, DateOnly coveredTo)
+    : ExchangeRatesDomainException(
+        $"Начало покрытия истории курсов ({coveredFrom:yyyy-MM-dd}) позже его конца ({coveredTo:yyyy-MM-dd}).");

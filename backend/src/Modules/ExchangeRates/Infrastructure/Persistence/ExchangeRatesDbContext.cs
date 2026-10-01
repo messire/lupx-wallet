@@ -8,11 +8,13 @@ public sealed class ExchangeRatesDbContext(DbContextOptions<ExchangeRatesDbConte
 {
     public DbSet<ExchangeRateQuote> LatestExchangeRates => Set<ExchangeRateQuote>();
     public DbSet<HistoricalExchangeRate> HistoricalExchangeRates => Set<HistoricalExchangeRate>();
+    public DbSet<HistoricalRateCoverage> HistoricalRateCoverages => Set<HistoricalRateCoverage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("exchange_rates");
         modelBuilder.ApplyConfiguration(new ExchangeRateQuoteConfiguration());
         modelBuilder.ApplyConfiguration(new HistoricalExchangeRateConfiguration());
+        modelBuilder.ApplyConfiguration(new HistoricalRateCoverageConfiguration());
     }
 }

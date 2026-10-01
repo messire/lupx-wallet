@@ -194,7 +194,7 @@ public sealed class ReferenceDataApiTests(ApiTestFixture fixture) : IntegrationT
         (await CountRatesAsync(doomed.Id)).Should().Be(new RateCounts(0, 0), "both From and To pairs are removed, latest and historical");
         (await CountRatesAsync(partner.Id)).Should().Be(new RateCounts(2, 2), "only the partner <-> bystander pair remains");
         (await CountRatesAsync(bystander.Id)).Should().Be(new RateCounts(2, 2));
-        var list = await Client.GetAsync("/api/v1/currencies?includeInactive=true");
+        var list = await Client.GetAsync("/api/v1/currencies");
         (await list.Content.ReadAsStringAsync()).Should().NotContain(doomed.Id.ToString());
     }
 

@@ -21,14 +21,9 @@ public sealed class CurrencyRepository(ReferenceDataDbContext dbContext) : ICurr
     }
 
     public async Task<CurrencyPageResult> ListAsync(
-        bool includeInactive, NameCursor? afterCursor, int limit, CancellationToken cancellationToken)
+        NameCursor? afterCursor, int limit, CancellationToken cancellationToken)
     {
         var query = dbContext.Currencies.AsQueryable();
-
-        if (!includeInactive)
-        {
-            query = query.Where(x => x.IsActive);
-        }
 
         if (afterCursor is not null)
         {

@@ -173,6 +173,409 @@ Preview-сборки, со слов пользователя, открывают
 - Тесты планировщика могут быть нестабильны около полуночи UTC (`Today` в тесте vs `UtcNow` в сервисе); `TimeProvider` в проекте не внедрён — общий долг.
 - Оставшиеся предупреждения CS9107 в `AuditApiTests`/`CrossModuleContractsRegistrationTests` снимаются переходом на `IntegrationTestBase.Fixture`.
 
+## ПЛАН: внедрение ADR-0004 §7–§9 — доступные и активные валюты, чтение из БД, история курсов (2026-10-01)
+
+**Статус: запланирован, к выполнению.** Блок B.
+
+Источник правды: [ADR-0004](architecture/adr/0004-currencies-and-exchange-rates.md) (§4–§9, «Последствия», «Состояние реализации»). Смежные документы: [ADR-0002](architecture/adr/0002-record-lifecycle.md) §4 (валюта либо активна, либо нет; использование — кошельки и операции, включая удалённые; курсы удаляются вместе с валютой — уже реализовано в блоке A), [ADR-0001](architecture/adr/0001-modular-monolith.md) §2 (порты), §4 (транзакции), §5 (события), §6 (фоновые задачи), §7 (сигнал через `Channel`), [ADR-0005](architecture/adr/0005-money-precision.md) (точность), [ADR-0006](architecture/adr/0006-audit.md) (аудит прогонов курсов). Также решения по вопросам 3 и 5 выше и уточнение 3 итога от 2026-09-30: деактивированных валют нет, все данные тестовые. План составлен по коду ветки `release-candidates/v0.3.0` (коммит `b3ae2e3`). Scope — **XL**: ExchangeRates (новый процесс дозагрузки, клиент, фоновый сервис), ReferenceData (новая модель данных, миграция с удалением колонки), Wallets, Reporting, Audit, два экрана UI, e2e-фикстуры, контракт API. Поэтому план разбит на пункты, которые не пересекаются по файлам.
+
+### П.0. Вне объёма (сознательно)
+
+- **Корректирующая сумма и заявленный баланс** (ADR-0003 §6) — блок C.
+- **Индикатор «история курсов загружается» в UI и отдельная причина исключения кошелька для этого случая.** ADR-0004 §9 требует только исключить кошелёк из суммы с указанием причины — это уже работает. Тексты причин в `GetTotalAmountQuery` (сейчас в них `CurrencyId`, а не код валюты) не меняются; при необходимости — отдельный пункт.
+- **Запрос нескольких валют одним вызовом (`quotes=A,B`) через инверсию курса «основная → валюта».** ADR-0004 §4 требует прямую пару без кросс-курсов, а инверсия вносит округление (противоречит ADR-0005). Один запрос — на одну валюту.
+- **Фильтрация валют, выведенных из обращения** (`end_date` в ответе `/v2/currencies`). Доступные — это всё, что отдаёт сервис (§7). Колонки `start_date`/`end_date` не хранятся (YAGNI).
+- **Удаление существующих валют, кодов которых нет в сервисе** (тестовые коды `T…`, `XYZ`, криптовалюты). Остаются активными, см. R3.
+- **Персистентная очередь заданий или outbox для дозагрузки.** ADR-0004 отклоняет outbox. Потерю сигнала покрывают таблица покрытия (R12) и плановый прогон.
+- HTML/JS-макеты `docs/design/*.html|*.js` не переделываются; текстовые спецификации экранов обновляются.
+- `TimeProvider` не внедряется (общий долг, см. шаг 1).
+
+### П.1. Definition of Done (по пунктам ADR-0004)
+
+**§7 Доступные и активные валюты**
+- D7.1 `GET /currencies/available` → 200, массив `AvailableCurrency {code, name, isActive}` из `reference_data.available_currencies`, отсортирован по `code`, без пагинации. Названия английские, из сервиса. До первой загрузки — `[]`. К сервису не обращается.
+- D7.2 Список доступных обновляется в каждом прогоне `RefreshExchangeRatesCommand` (старт, плановый, ручной, по сигналу), **в том числе без основного кошелька**. Обновление полное: новые коды добавляются, у существующих меняются названия, отсутствующие в ответе удаляются. Пустой ответ, ошибка или неразборчивое тело оставляют список как есть. При ручном обновлении это `HadFailures` → 502.
+- D7.3 `POST /currencies` с телом `{code}`: код есть среди доступных и ещё не активен → 201 `Currency`, название берётся из доступных. Кода нет среди доступных (произвольный код, криптовалюта) → 400. Уже активна → 409.
+- D7.4 Деактивации нет. `POST /currencies/{id}/deactivate`, `DeactivateCurrencyCommand`, `CurrencyDeactivated` и его обработчик аудита удалены. Колонки `reference_data.currencies.is_active` нет. В схеме `Currency` нет `isActive`. У `GET /currencies` нет параметра `includeInactive`.
+- D7.5 `DELETE /currencies/{id}` = «убрать из активных». Используется (кошелёк или операция, включая удалённые) → 409, текст без слова «деактивация». Иначе → 204; удаляются последние и исторические курсы и строки покрытия истории (R18).
+- D7.6 `POST /wallets` принимает `currencyCode` вместо `currencyId`:
+  - код доступен, но не активен → валюта становится активной в той же транзакции (событие `CurrencyCreated`, запись аудита `Currency`/`Created`), кошелёк создан → 201;
+  - код уже активен → используется существующая валюта, дубля нет;
+  - код ни активен, ни доступен → 400, валюта не создана;
+  - создание кошелька отклонено проверкой → активация откатывается.
+- D7.7 `PUT /wallets/{id}/currency` принимает только активную валюту; неизвестный `currencyId` → 400. Сейчас валидации нет вовсе.
+- D7.8 Курсы обновляются только по активным валютам (строки `reference_data.currencies`). У `ICurrencyLookup` нет `IsActive` и `GetActiveAsync`.
+- D7.9 При обновлении списка названия активных валют, коды которых есть в сервисе, приводятся к английским названиям сервиса. Каждая смена — событие `CurrencyRenamed` и запись аудита `Currency`/`Updated` (diff `Name`) с актором прогона.
+- D7.10 Frontend:
+  - `shared/currencies/iso-currencies.ts` удалён;
+  - форма создания кошелька выбирает валюту из доступных через `app-currency-select`, без быстрого добавления валюты;
+  - экран справочников, вкладка «Валюты»: добавление из доступных (только `isActive=false`), список активных, действие «Убрать из активных» с подтверждением, без «Деактивировать»;
+  - при пустом списке доступных — подсказка.
+
+**§8 Чтение только из БД**
+- D8.1 Ни один `GET` не обращается к Frankfurter. Интеграционный тест со счётчиком вызовов фейка проверяет `GET /reporting/total-amount` (текущая сумма и сумма за прошлую дату, в том числе без истории), `GET /exchange-rates/latest`, `GET /currencies`, `GET /currencies/available` — 0 вызовов.
+- D8.2 `IExchangeRateLookup.GetOrFetchHistoricalRateAsync` удалён, вместо него `GetHistoricalRateAsync`, который только читает. `ExchangeRateLookup` не зависит от `IFrankfurterClient`, `IExchangeRatesUnitOfWork`, `ICurrencyLookup`.
+- D8.3 Историческая общая сумма берёт курс из `historical_exchange_rates` на дату или ближайшую более раннюю; `ratesAsOfDate` — фактически применённая дата. Курса нет → кошелёк исключён с причиной.
+
+**§9 Исторические курсы**
+- D9.1 `BackfillExchangeRateHistoryCommand` загружает для каждой активной валюты, кроме основной, курсы к основной валюте за период `[самая ранняя AccountingStartDate среди всех кошельков, включая архивные, − 7 дней; сегодня (UTC)]`. Загрузка идёт порциями не длиннее `ExchangeRates:HistoryChunkDays` (по умолчанию 366), от новых дат к старым. Строки записываются upsert'ом по `(from, to, rate_date)`, ход загрузки фиксируется в таблице покрытия (R11, R12).
+- D9.2 Дозагрузку запускают:
+  - активация валюты (`CurrencyCreated`, в том числе автоматическая при создании кошелька);
+  - создание кошелька (`WalletCreated`: дата начала учёта может оказаться раньше текущей самой ранней);
+  - смена валюты кошелька (`WalletCurrencyChanged`: у основного кошелька меняется основная валюта);
+  - смена основного кошелька (`PrimaryWalletChanged`);
+  - старт приложения и плановый прогон.
+
+  Сигнал уходит фоновому сервису **только после фиксации** транзакции команды; при откате сигнала нет.
+- D9.3 После смены основного кошелька пары к новой основной валюте загружаются за весь период; история и покрытие пар к прежней основной валюте удаляются в конце прохода.
+- D9.4 Идемпотентность. Повторный проход без новых данных делает не больше одного запроса на пару (правый край: `covered_to − 7 … сегодня`) и не создаёт дублей.
+- D9.5 Отказоустойчивость:
+  - `FrankfurterUnavailableException` прерывает проход, уже сохранённые порции и покрытие остаются, следующий проход продолжает с места остановки;
+  - `200 []` в порции левой части означает, что более ранних данных у сервиса нет: левая граница считается достигнутой;
+  - 422 — пара пропускается.
+- D9.6 Аудит: одна запись `ExchangeRateHistoryLoaded` на проход, в котором что-либо загружено или произошёл сбой. Действие `HistoryLoaded`, `entity_id = Guid.Empty`, в `changes` — загруженные диапазоны и сбойные пары (по образцу `ExchangeRatesUpdated`, ADR-0006).
+- D9.7 Без основного кошелька дозагрузка не выполняется (§4).
+
+**§5 (дополнение, выведено из §5 и §9):** `WalletCurrencyChanged` основного кошелька запускает обновление курсов. Сейчас курсы к старой основной валюте живут до следующего планового прогона (до 24 ч), а `GET /exchange-rates/latest` в это время пуст.
+
+**Качество (все пункты):**
+- `dotnet build` — без новых предупреждений;
+- `dotnet test` (unit + integration) — зелёный;
+- `node backend/scripts/check-architecture.mjs` — OK, новых ссылок между проектами нет;
+- `ng build`, `ng test`, `npm run check:boundaries` — OK;
+- e2e-смоук П.5 — зелёный локально;
+- `docs/api/openapi.yaml` совпадает с реализацией (проверка `code-quality-reviewer` через `dotnet-api-compatibility`).
+
+### П.2. Проектные решения уровня реализации (приняты планировщиком, бизнес-правил не меняют)
+
+| # | Решение | Обоснование |
+|---|---|---|
+| R1 | **Список доступных хранится в `reference_data.available_currencies`, владелец — ReferenceData.** Таблица: `code varchar(16) PK`, `name varchar(200) NOT NULL`, `refreshed_at timestamptz NOT NULL`. Сущность `AvailableCurrency` (ReferenceData.Domain) без событий. ExchangeRates загружает список и пишет его через порт способа (c) `IAvailableCurrencyCatalog.ReplaceAsync(IReadOnlyList<AvailableCurrencyItem>)`. Порт объявлен в `ReferenceData.Application/Abstractions/Integration`, реализован в `ReferenceData.Infrastructure/Integration/AvailableCurrencyCatalog.cs` и работает через `ReferenceDataDbContext` со своим `SaveChanges`. | Понятие «валюта» (доступная и активная) принадлежит справочнику. Проверка «код есть среди доступных» при активации остаётся внутри одного `DbContext`, без межмодульного вызова. Направление ExchangeRates → `ReferenceData.Application` уже существует (`ICurrencyLookup`), обратный порт (d) не нужен. Отклонено: таблица в `exchange_rates` — тогда ReferenceData пришлось бы читать её через обратный порт (d), а проверка активации стала бы межмодульной. «Последствия» ADR-0004 оставляют это решение этапу реализации. |
+| R2 | **Активные валюты — это строки `reference_data.currencies`.** Колонка `is_active` удаляется, у `Currency` нет `IsActive` и `Deactivate()`. Добавляется `Rename(string name)` — поднимает `CurrencyRenamed`, если название изменилось. Имена событий `CurrencyCreated`/`CurrencyDeleted` и действия аудита `Created`/`Deleted` сохраняются; их смысл — «добавлена в активные» и «убрана из активных» (фиксируется в `ddd-model.md` и глоссарии). Миграция `AvailableCurrenciesAndNoDeactivation`: `CREATE TABLE available_currencies`; затем guard `DO $ … IF EXISTS (SELECT 1 FROM reference_data.currencies WHERE NOT is_active) THEN RAISE EXCEPTION … $`; затем `DROP COLUMN is_active`. `Down` возвращает колонку с `DEFAULT true` и удаляет таблицу. | Состояние «деактивирована» отменено (§7, ADR-0002 §4). Деактивированных валют в данных нет (уточнение 3 от 2026-09-30). Guard делает миграцию безопасной: если такая валюта всё же есть, миграция падает, а не теряет данные молча. Удаляется колонка, все значения которой `true`, — это не потеря данных, поэтому «Критичный стоп» п.2 не срабатывает. Переименование событий дало бы лишнее изменение в Audit без пользы. |
+| R3 | **Существующие валюты, кодов которых нет в сервисе** (тестовые `T…`, `XYZ`, возможные криптовалюты), остаются активными с прежними названиями. Их курсы пропускаются молча (422 или `[]`, §6). Пользователь может убрать неиспользуемые вручную. | Аналог правила §6 «сервис убрал валюту — она остаётся активной». Миграция ничего не удаляет. Данные тестовые, отдельное решение не нужно. |
+| R4 | **Синхронизация названий.** `AvailableCurrencyCatalog.ReplaceAsync` в той же единице работы вызывает `Currency.Rename(englishName)` для активных валют, код которых есть в ответе сервиса. `CurrencyRenamed(CurrencyId)` → аудит `Updated` через diff из `ChangeTracker`. Актор — тот, кто запустил прогон: `System` для фона, `User` для ручного обновления. | §7: «названия — английские, из сервиса». Старые русские названия (из `iso-currencies.ts`) заменятся при первом прогоне без отдельной миграции данных. ADR-0006: изменение записи справочника фиксируется. |
+| R5 | **Правила замены списка.** Upsert по `code`, удаление отсутствующих. Пустой массив считается сбоем: список не меняется. `ExchangeRateUpdateFailed` не поднимается, так как событие описывает пары. Сбой загрузки списка (`FrankfurterUnavailableException`) логируется и ставит `HadFailures = true`. Сам список доступных не аудитируется: это каталог сервиса, не запись пользователя. Аудитируются изменения активных валют (R4). | Защита от стирания списка при сбое сервиса. Ручное обновление при недоступном источнике должно отвечать 502 даже без пар (только основная валюта). |
+| R6 | **Активация.** Логика — в `ReferenceData.Application` (`CurrencyActivation`, использует `ICurrencyRepository` и новый `IAvailableCurrencyRepository`). Две точки входа: (1) `ActivateCurrencyCommand(Code)` (бывший `CreateCurrencyCommand`) для `POST /currencies`: уже активна → `CurrencyCodeAlreadyExistsException` (409), нет среди доступных → `CurrencyNotAvailableException` (`ReferenceDataDomainException`, 400); (2) порт способа (c) `ICurrencyActivation.EnsureActiveAsync(code)` → `CurrencyLookupResult?` для Wallets: возвращает существующую активную или создаёт новую из доступной; если код ни активен, ни доступен — `null`. Реализация порта — в `ReferenceData.Infrastructure`, сохраняет `ReferenceDataDbContext` внутри `TransactionScope` команды `CreateWallet` (как `IWalletBalanceGateway`). Нарушение `ux_currencies_code` при гонке (`23505`) → 409. | ADR-0001 §3: активация обязательна для корректности создания кошелька, поэтому это синхронный порт, а не событие. Атомарность «кошелёк + активация» соответствует §7 «автоматически становится активной». Активная валюта, которую сервис убрал, остаётся пригодной для кошелька (§6). |
+| R7 | **Контракт API** (`docs/api/openapi.yaml`, W0.1):<br>• `Currency {id, code, name}` — `isActive` удалён;<br>• `CurrencyCreateRequest {code}` — `name` удалён;<br>• новая схема `AvailableCurrency {code, name, isActive}` и новый `GET /currencies/available` (`operationId: listAvailableCurrencies`);<br>• `GET /currencies` — без `includeInactive`, описание «активные валюты»;<br>• `POST /currencies` — «добавить в активные из доступных», ответы 201/400/409;<br>• `/currencies/{id}/deactivate` удалён;<br>• `DELETE /currencies/{id}` — «убрать из активных», 409 без слова «деактивация»;<br>• `WalletCreateRequest.currencyCode` (string, maxLength 16) вместо `currencyId`, 400 — «валюта недоступна»;<br>• `PUT /wallets/{id}/currency` — 400, если валюта не активна;<br>• `POST /exchange-rates/refresh` — «только активные валюты; обновляет и список доступных; 502 при сбое пар или списка»;<br>• `TotalAmount` — курсы только из БД, ближайший более ранний, причины исключения. | Проводной формат меняется несовместимо (`POST /wallets`, `POST /currencies`). Это принятый риск preview-сборок против backend из `master` (вопрос 6). Маршрут `/currencies/available` не конфликтует с `/currencies/{id:guid}`. |
+| R8 | **Изменения портов.** `CurrencyLookupResult(CurrencyId Id, string Code)`; `GetActiveAsync` удалён; `GetAllAsync` — «все активные валюты». `WalletCurrencySetResult` получает `DateOnly? EarliestAccountingStartDate` (минимум по всем кошелькам, включая архивные). | §9: «от самой ранней даты начала учёта». Архивные кошельки входят, так как их история показывается. |
+| R9 | **`IFrankfurterClient`.** Новые методы: `GetCurrenciesAsync()` (`GET currencies`, из элементов берутся `iso_code` и `name`; форма не та или код пустой → `FrankfurterUnavailableException`) и `GetRatesForPeriodAsync(from, to, DateOnly fromDate, DateOnly toDate)` (`rates?base=&quotes=&from=&to=`, возвращает `IReadOnlyList<(DateOnly Date, decimal Rate)>`). Метод `GetHistoricalRateAsync` на одну дату удалён. Классификация ответов и ретраи — как сейчас (422 и `[]` → Unsupported, 404 и не-JSON → Unavailable без ретраев). | Один запрос на валюту за период (§9, «Контекст»). Ограничение длины периода не проверялось, поэтому разбиение на порции (R11). |
+| R10 | **`RefreshExchangeRatesCommandHandler`.** Первый шаг — загрузка списка доступных через `IAvailableCurrencyCatalog`, **до** проверки основного кошелька. Дальше — без изменений: пары активная → основная, очистка устаревших, один `SaveChanges`. Ручное обновление дозагрузку не запускает. | Первый кошелёк нельзя создать, пока список не загружен. Ручное обновление — синхронный HTTP-запрос, а многолетняя дозагрузка в него не помещается. |
+| R11 | **`BackfillExchangeRateHistoryCommand`** (`IRequest<BackfillResult>`, **не** `ICommand` — внутри HTTP-вызовы, ADR-0001 §4). Команда в `ExchangeRates.Application/UseCases/BackfillExchangeRateHistory/`, обработчик — в `ExchangeRates.Infrastructure`, регистрируется вручную, как Refresh. Алгоритм прохода:<br>(1) нет основного кошелька → выход;<br>(2) `requiredFrom = min(EarliestAccountingStartDate, today) − 7 дней`;<br>(3) для каждой активной валюты, кроме основной, по строке покрытия: строки нет → левая часть `[requiredFrom; today]`; есть → правая часть `[covered_to − 7; today]`, если `covered_to < today`, и левая `[requiredFrom; covered_from − 1]`, если `requiredFrom < covered_from`;<br>(4) порции не длиннее `HistoryChunkDays`: правая часть, затем левая от новых дат к старым;<br>(5) порция = один запрос → upsert (загрузить существующие строки пары в диапазоне, `UpdateRate` или `Add`) и сдвиг покрытия → один `SaveChanges`;<br>(6) `[]` в левой порции → `covered_from = requiredFrom`, стоп по паре; 422 → пропуск пары; Unavailable → прерывание прохода; `DbUpdateConcurrencyException` (валюту удалили параллельно) → пропуск пары;<br>(7) очистка через `ExecuteDelete`: история и покрытие, где `to ≠ основная` или валюта не активна;<br>(8) событие `ExchangeRateHistoryLoaded`. | Покрытие непрерывно, поэтому прерванный проход продолжается с места остановки. Запас в 7 дней даёт «ближайший более ранний» курс для выходных и праздников на левой границе. Правый край продлевается ежедневно: иначе через месяц после дозагрузки историческая сумма молча брала бы устаревший курс как «ближайший более ранний». Новые даты — первыми, так как они полезнее. При недоступности источника проход не тратит пары × порции × 3 попытки. |
+| R12 | **Таблица покрытия** `exchange_rates.historical_rate_coverage`: `from_currency_id uuid`, `to_currency_id uuid` (PK вместе), `covered_from date`, `covered_to date`, `updated_at timestamptz`; `CHECK (from <> to)`, `CHECK (covered_from <= covered_to)`. Сущность `HistoricalRateCoverage` (ExchangeRates.Domain) с методами `ExtendLeft(date)`, `ExtendRight(date)`. Миграция `AddHistoricalRateCoverage` только добавляет таблицу. | Детерминированная идемпотентность без эвристик по `MIN/MAX(rate_date)`: не нужно угадывать выходные и не нужно каждый день перезапрашивать заведомо пустой ранний период. Дозагрузка становится наблюдаемой. Строки кэша, оставшиеся от `GetOrFetch`, валидны и перезапишутся upsert'ом. |
+| R13 | **Сигнал после фиксации транзакции.** Внутри `ExchangeRateRefreshSignal.RequestRefresh()`: если `Transaction.Current != null`, запись в канал откладывается до `TransactionCompleted` со статусом `Committed`, при откате сигнала нет; без внешней транзакции сигнал пишется сразу. Фоновый проход: `Refresh` в одном scope, затем `Backfill` в другом, актор `System`. После чтения сигнала из канала накопленные сигналы вычитываются (`TryRead`), чтобы серия событий одной команды дала один проход. | Сейчас `PrimaryWalletChangedHandler` сигналит внутри `TransactionScope` команды `SetPrimaryWallet` (публикация в `SavedChangesAsync`, ADR-0001 §5). Фон может прочитать БД **до** фиксации и обновить курсы к старой основной валюте — тогда исправление придёт только через сутки. Это скрытая гонка, найденная при планировании; исправление соответствует замыслу ADR-0001 §7 («вне транзакции издателя»). |
+| R14 | **Подписчики в `ExchangeRates.Infrastructure/Integration`:** новые `CurrencyCreatedHandler` и `WalletEventHandlers.cs` (`WalletCreated`, `WalletCurrencyChanged`); существующий `PrimaryWalletChangedHandler`. Все вызывают `RequestRefresh()`. Ссылки на `Wallets.Domain` и `ReferenceData.Domain` уже есть (способ e). | Один вид сигнала: состояние, которое надо догнать, проход вычисляет сам, а активированной валюте нужен и последний курс, не только история. |
+| R15 | **Путь чтения.** `IExchangeRateLookup.GetHistoricalRateAsync(from, to, date)` → `(Rate, RatesAsOfDate)?`: та же валюта → `(1, date)`, иначе `FindClosestBeforeAsync`. `GetTotalAmountQuery` вызывает этот метод, логика исключения и `ratesAsOfDate` не меняются. | §8. |
+| R16 | `HistoricalExchangeRate` перестаёт быть append-only: появляется `UpdateRate(ExchangeRateValue, DateTimeOffset)`, комментарий класса — «загружаемая история, ADR-0004 §9». | Upsert при повторной загрузке правого края: курс сегодняшнего дня может уточниться после публикации ЕЦБ. |
+| R17 | **Аудит.**<br>• `ExchangeRateHistoryLoaded(DateTimeOffset At, IReadOnlyList<HistoryRangeLoaded> Loaded, IReadOnlyList<ExchangeRatePairFailure> Failed)` → одна запись `HistoryLoaded` на проход (по образцу `ExchangeRatesUpdatedAuditHandler`);<br>• `CurrencyRenamed` → `Updated`;<br>• обработчик `CurrencyDeactivated` удалён. | ADR-0006: «результат каждого прогона обновления курсов» фиксируется батчевой записью, а не построчно. |
+| R18 | `CurrencyDeletedHandler` дополнительно удаляет строки покрытия валюты (`ExecuteDelete`). | Иначе остаются осиротевшие строки. Они безвредны, так как у новой активации тот же код получает новый `CurrencyId`, но это мусор. |
+| R19 | **Frontend.**<br>• `app-currency-select` остаётся, но типизируется своим `CurrencyOption {code, name}` (`shared/currencies/currency-option.ts`); `iso-currencies.ts` удаляется.<br>• `data-access/reference-data`: модель `AvailableCurrency`, `listAvailableCurrencies()`, `createCurrency(code)`; `deactivateCurrency` удалён; `listCurrencies({limit})` без `includeInactive`; у `Currency` нет `isActive`.<br>• `data-access/wallets`: `CreateWalletRequest.currencyCode`.<br>• Форма кошелька: контрол `currencyCode`, источник — доступные; быстрое добавление валюты удалено; при пустом списке — подсказка «Список валют ещё не загружен из сервиса курсов. Обновите курсы на экране „Курсы валют“ или повторите позже».<br>• Смена валюты кошелька — как сейчас, из активных.<br>• Справочники, вкладка «Валюты»: форма «Добавить в активные» (доступные с `isActive=false`), таблица активных (код, название), действие «Убрать из активных» через существующий диалог подтверждения; текст 409 — «валюта используется кошельком или операцией (включая удалённые)». | §7. Форма смены валюты не меняется (П.8, прочтение 1). |
+| R20 | **Тестовая инфраструктура** (у каждого общего файла — один владелец):<br>• **W1.1** создаёт `IntegrationTests/Infrastructure/FrankfurterFake.cs` — маршрутизация по пути: `currencies` → настраиваемый каталог; `rates` с `from/to` → дневной ряд без выходных; `rates` без периода → последний курс; счётчик вызовов; режимы сбоя 5xx, 422, `[]`. Там же `ExchangeRatesTestHelpers.cs` — `RunExchangeRatesBackgroundPassAsync()`: scope, актор `System`, `Refresh` + `Backfill` через `ISender`. Нужен, потому что в тестовом хосте фоновые сервисы отключены (`RemoveAll<IHostedService>`).<br>• **W1.2** владеет `TestDataBuilder.cs`, `IntegrationTestBase.cs`, `ApiTestFixture.cs`. `CreateCurrencyAsync(code)` сначала засевает код в `reference_data.available_currencies` прямым SQL (`ON CONFLICT DO NOTHING`, строка подключения есть в фикстуре), затем вызывает `POST /currencies {code}`. Случайные коды `T…` продолжают работать. `CreateWalletAsync(currencyId:)` сохраняет сигнатуру и сам находит код по id через `GET /currencies`, поэтому места вызова в чужих тестах не меняются.<br>• **W2.2** владеет `frontend/e2e/fixtures.ts`. | Без маршрутизации существующие фейки (по `base`/`quotes`) упали бы на новом запросе `currencies` внутри refresh, и тесты получили бы 502. Прямой засев в БД не связывает тесты Wallets и Operations с ExchangeRates. Тестового кода в production нет. |
+| R21 | `ChangeWalletCurrencyCommand` проверяет валюту через `ICurrencyLookup.GetAsync` → `CurrencyReferenceNotFoundException` (400). `CurrencyReferenceInactiveException` удаляется. | Сейчас `PUT /wallets/{id}/currency` принимает любой Guid, то есть кошелёк может сослаться на несуществующую валюту. |
+
+### П.3. Волны выполнения
+
+Параллельность определяется границами модулей и непересечением файлов. В W1 каждый backend-вызов собирает только свои проекты; полный `dotnet test` — в W2.
+
+| Волна | Вызовы | Запуск |
+|---|---|---|
+| **W0** | 2 × `backend-services-engineer` | **одним сообщением**, блокирует W1 |
+| **W1** | 2 × `backend-services-engineer` + 2 × `ui-builder` + 1 × `architecture-documenter` | **5 вызовов одним сообщением** |
+| **W2** | 2 × `tdd-test-engineer` (backend; frontend + e2e) | одним сообщением |
+| **W3** | `code-quality-reviewer` + `ux-parity-reviewer` | одним сообщением |
+| W3.1 | исправления по ревью — владельцам файлов из W1, параллельно по модулям | только при находках |
+| **W4** | 1 × `architecture-documenter` (итоговая сверка ADR) | один |
+
+Итого 12 вызовов (+ условные исправления W3.1).
+
+#### W0 — схема, контракт и объявления (2 параллельных вызова)
+
+**W0.1. Контракт API + схема ExchangeRates — `backend-services-engineer`** (`api-designer`, `dotnet-api-compatibility`, `dotnet-efcore-data`)
+- `docs/api/openapi.yaml` — всё по R7.
+- `ExchangeRates/Domain/HistoricalRateCoverage.cs` (новый: `Create`, `ExtendLeft`, `ExtendRight`); `Domain/Events/ExchangeRatesEvents.cs` (+ `ExchangeRateHistoryLoaded`, `HistoryRangeLoaded`, R17).
+- `ExchangeRates/Infrastructure/Persistence/Configurations/HistoricalRateCoverageConfiguration.cs` (новый), `ExchangeRatesDbContext.cs` (`DbSet`), миграция `AddHistoricalRateCoverage` + `ExchangeRatesDbContextModelSnapshot.cs` (генерируется `dotnet ef`, R12).
+- Проверка: `dotnet build` проектов ExchangeRates.Domain и ExchangeRates.Infrastructure; YAML валиден.
+- Не трогать: всё, что вне ExchangeRates.Domain, `Persistence/` и `openapi.yaml`.
+
+**W0.2. Модель ReferenceData без деактивации + объявления портов — `backend-services-engineer`** (`dotnet-ddd-clean-architecture`, `dotnet-efcore-data`)
+- ReferenceData.Domain:
+  - `Currency.cs` — без `IsActive` и `Deactivate`, с `Rename` (R2);
+  - `AvailableCurrency.cs` — новый: `Create(code, name, refreshedAt)`, `Update(name, refreshedAt)`;
+  - `Events/ReferenceDataEvents.cs` — `CurrencyDeactivated` → удалить, + `CurrencyRenamed`;
+  - `Exceptions/ReferenceDataExceptions.cs` — + `CurrencyNotAvailableException`.
+- ReferenceData.Application:
+  - `UseCases/Currencies/Currencies.cs`: удалить `DeactivateCurrencyCommand`, `includeInactive`, `CurrencyDto.IsActive`; `CreateCurrencyCommand` пока не менять;
+  - `Abstractions/Integration/ICurrencyLookup.cs` (R8);
+  - новые объявления `IAvailableCurrencyCatalog.cs` (+ `AvailableCurrencyItem(Code, Name)`) и `ICurrencyActivation.cs` — без реализации.
+- ReferenceData.Infrastructure:
+  - `Integration/CurrencyLookup.cs`;
+  - `Persistence/Configurations/{CurrencyConfiguration.cs, AvailableCurrencyConfiguration.cs}`;
+  - `ReferenceDataDbContext.cs`;
+  - `Repositories/CurrencyRepository.cs` (`ListAsync` без `includeInactive`);
+  - миграция `AvailableCurrenciesAndNoDeactivation` + snapshot, с guard (R2).
+- ReferenceData.Api: `Endpoints/ReferenceDataEndpointsExtensions.cs` (удалить `deactivateCurrency`, убрать `includeInactive` у валют), `Contracts/ReferenceDataContracts.cs` (`CurrencyResponse` без `IsActive`).
+- Wallets:
+  - `Application/Abstractions/Integration/IWalletCurrencySet.cs` и `Infrastructure/Integration/WalletCurrencySet.cs` — + `EarliestAccountingStartDate` (R8, с реализацией);
+  - `Application/UseCases/CreateWallet/CreateWalletCommand.cs` — только снять проверку `IsActive`.
+- Audit: `Infrastructure/Integration/ReferenceDataAuditHandlers.cs` (`CurrencyDeactivatedAuditHandler` → `CurrencyRenamedAuditHandler`, действие `Updated`), `AuditModuleExtensions.cs` (регистрация).
+- Тесты — только восстановление компиляции и удаление тестов деактивации валюты: `UnitTests/ReferenceData/{CurrencyTests, CreateCurrencyCommandHandlerTests}.cs`, `UnitTests/Wallets/WalletCommandHandlersTests.cs`, `UnitTests/ExchangeRates/RefreshExchangeRatesCommandHandlerTests.cs` (только вызовы конструктора `CurrencyLookupResult`), `IntegrationTests/ReferenceData/ReferenceDataApiTests.cs`.
+- Проверка: `dotnet build` всего решения (после W0.1 и W0.2 решение должно собираться целиком); интеграционные тесты ReferenceData и Wallets зелёные.
+- Не трогать: `openapi.yaml`, всё в `ExchangeRates/` кроме названного тестового файла.
+- Риск: guard миграции на Railway (П.7).
+
+#### W1 — пять параллельных вызовов (одним сообщением)
+
+**W1.1. ExchangeRates + Reporting (+ аудит курсов) — `backend-services-engineer`** (`dotnet-core-expert`, `dotnet-efcore-data`, `dotnet-concurrency`)
+- ExchangeRates.Application:
+  - `Abstractions/IFrankfurterClient.cs` (R9);
+  - `Abstractions/IExchangeRateRefreshSignal.cs` (документация R13);
+  - `Abstractions/Integration/IExchangeRateLookup.cs` (R15);
+  - `Abstractions/Persistence/{IHistoricalExchangeRateRepository.cs, IHistoricalRateCoverageRepository.cs (новый)}`;
+  - `UseCases/RefreshExchangeRates/RefreshExchangeRatesCommand.cs` (документация);
+  - новый `UseCases/BackfillExchangeRateHistory/BackfillExchangeRateHistoryCommand.cs`.
+- ExchangeRates.Domain: `HistoricalExchangeRate.cs` (R16), поведение `HistoricalRateCoverage.cs`.
+- ExchangeRates.Infrastructure:
+  - `ExternalServices/FrankfurterClient.cs`;
+  - `RefreshExchangeRatesCommandHandler.cs` (R10);
+  - новый `BackfillExchangeRateHistoryCommandHandler.cs` (R11; опция `ExchangeRates:HistoryChunkDays`);
+  - `Persistence/Repositories/{HistoricalExchangeRateRepository.cs, HistoricalRateCoverageRepository.cs}`;
+  - `Integration/ExchangeRateLookup.cs` (R15);
+  - `Integration/{CurrencyDeletedHandler.cs (R18), PrimaryWalletChangedHandler.cs, CurrencyCreatedHandler.cs (новый), WalletEventHandlers.cs (новый)}` (R14);
+  - `BackgroundJobs/{ExchangeRateRefreshSignal.cs, ExchangeRateRefreshBackgroundService.cs}` (R13);
+  - `ExchangeRatesModuleExtensions.cs`.
+- Reporting: `Application/GetTotalAmountQuery.cs` (R15).
+- Audit: `Infrastructure/Integration/ExchangeRatesAuditHandlers.cs`, `AuditModuleExtensions.cs` (+ `ExchangeRateHistoryLoaded`, R17).
+- Если сеть доступна, один раз проверить живым запросом длину периода (например, `rates?base=USD&quotes=EUR&from=2015-01-01&to=<сегодня>`) и формат `GET /v2/currencies` (есть ли `end_date`). Результат записать в отчёт для W4 (ADR-0004 «Контекст»).
+- Тесты — восстановление и новые общие файлы:
+  - `UnitTests/ExchangeRates/{FrankfurterClientTests, RefreshExchangeRatesCommandHandlerTests, CurrencyDeletedHandlerTests}.cs`;
+  - `UnitTests/Reporting/GetTotalAmountQueryHandlerTests.cs`;
+  - `IntegrationTests/ExchangeRates/ExchangeRatesApiTests.cs`, `IntegrationTests/Reporting/ReportingApiTests.cs` — переход на `FrankfurterFake`;
+  - **новые, владелец W1.1:** `IntegrationTests/Infrastructure/FrankfurterFake.cs`, `IntegrationTests/Infrastructure/ExchangeRatesTestHelpers.cs` (R20).
+- Не трогать: ReferenceData, Wallets, `TestDataBuilder.cs`, `IntegrationTestBase.cs`, `ApiTestFixture.cs`.
+- Зависимости: W0. Реализацию `IAvailableCurrencyCatalog` пишет W1.2 параллельно; в unit-тестах использовать подставку.
+- Риски: П.6 №1, 3, 4, 9.
+
+**W1.2. ReferenceData + Wallets — `backend-services-engineer`** (`dotnet-core-expert`, `dotnet-ddd-clean-architecture`, `dotnet-efcore-data`)
+- ReferenceData.Application:
+  - `UseCases/Currencies/Currencies.cs` — `ActivateCurrencyCommand` вместо `CreateCurrencyCommand`, `ListAvailableCurrenciesQuery` → `AvailableCurrencyDto(Code, Name, IsActive)`;
+  - новые `Policies/CurrencyActivation.cs` (R6) и `Abstractions/Persistence/IAvailableCurrencyRepository.cs`.
+- ReferenceData.Infrastructure:
+  - `Integration/{AvailableCurrencyCatalog.cs (R1, R4, R5), CurrencyActivation.cs (порт, R6)}`;
+  - `Persistence/Repositories/{AvailableCurrencyRepository.cs (новый), CurrencyRepository.cs}`;
+  - `ReferenceDataModuleExtensions.cs`.
+- ReferenceData.Api: `Endpoints/ReferenceDataEndpointsExtensions.cs` (`GET /currencies/available`; `POST {code}` → 201/400/409, `23505` → 409; тексты `DELETE`), `Contracts/ReferenceDataContracts.cs`.
+- Wallets:
+  - `Application/UseCases/CreateWallet/CreateWalletCommand.cs` (`CurrencyCode` → `ICurrencyActivation`);
+  - `UseCases/ChangeWalletCurrency/ChangeWalletCurrencyCommand.cs` (R21);
+  - `Domain/Exceptions/WalletExceptions.cs`;
+  - `Api/{Contracts/WalletContracts.cs, Endpoints/WalletsEndpointsExtensions.cs}`.
+- Тесты — восстановление:
+  - `UnitTests/ReferenceData/*`, `UnitTests/Wallets/WalletCommandHandlersTests.cs`;
+  - `IntegrationTests/ReferenceData/ReferenceDataApiTests.cs`, `IntegrationTests/Wallets/WalletsApiTests.cs`;
+  - **владелец W1.2:** `IntegrationTests/Infrastructure/{TestDataBuilder.cs, IntegrationTestBase.cs, ApiTestFixture.cs}` (R20).
+- Не трогать: ExchangeRates, Audit, Reporting.
+- Зависимости: W0.
+- Риски: П.6 №5, 6.
+
+**W1.3. UI: справочник валют + форма кошелька — `ui-builder`** (`angular-architect`)
+- Файлы:
+  - `shared/currencies/iso-currencies.ts` — удалить;
+  - `shared/currencies/currency-option.ts` — новый;
+  - `shared/currencies/currency-select/*` — типизация;
+  - `data-access/reference-data/reference-data-api.{models,service}.ts`;
+  - `data-access/wallets/wallets-api.models.ts`;
+  - `features/reference-data/pages/reference-data-page/*` — вкладка «Валюты» (R19);
+  - `features/wallets/pages/wallets-page/wallets-page.component.{ts,html,scss}` — форма создания, удаление быстрого добавления валюты, тексты.
+- Документы: `docs/design/screen-spec.md` («Полная форма кошелька»: валюта из доступных, без быстрого добавления), `docs/design/verification.md` (строка «Справочники»), `docs/design/ui-kit.md` (только если затронут компонент выбора валюты).
+- Тесты: восстановление компиляции `*.spec.ts` своих файлов.
+- Не трогать: `features/exchange-rates/**`, `features/reporting/**`, `frontend/e2e/**`.
+- Зависимости: W0.1 (контракт).
+- Риски: доступность комбобокса (метка, `aria-activedescendant`), пустой список.
+
+**W1.4. UI: курсы и места вызова `listCurrencies` — `ui-builder`** (`angular-architect`)
+- Файлы:
+  - `features/exchange-rates/pages/exchange-rates-page/*` — `listCurrencies({limit})` без `includeInactive`; текст пустого состояния: обновление загружает и список доступных валют; кнопка «Обновить сейчас» остаётся доступной без основного кошелька;
+  - `features/reporting/pages/reporting-page/reporting-page.component.ts` — `includeInactive` убрать;
+  - `data-access/exchange-rates/*` — только если меняется модель;
+  - `docs/design/extended-screen-spec.md` (раздел «Курсы валют»: курсы только активных валют).
+- Не трогать: `data-access/reference-data/**` (владелец — W1.3; новую сигнатуру сервиса взять из R19).
+- Зависимости: W0.1. Сборка `ng build` зелёная только после W1.3.
+
+**W1.5. Требования и модель — `architecture-documenter`**
+- `docs/requirements/user-scenarios.md`:
+  - UC-01 — валюта из доступных, автоактивация;
+  - UC-02 — смена валюты только на активную;
+  - UC-08 и UC-09 — только активные валюты, вместе с курсами обновляется список доступных;
+  - UC-21 — только БД, дозагрузка в фоне, неполная сумма до её завершения;
+  - UC-28 — валюта: добавление из доступных, убрать из активных, деактивации нет;
+  - таблица решений — строки Q6 и Q11; Q14 — пометка, что обоснование про криптовалюты утратило силу (ADR-0005).
+- `docs/requirements/glossary.md`: Available Currency, Active Currency, Historical Rate Backfill; Exchange Rate — история.
+- `docs/architecture/ddd-model.md`:
+  - §2.2 — `Currency` без признака активности, `AvailableCurrency`;
+  - §2.7 — история курсов загружается, покрытие;
+  - §5 — инварианты справочника валют;
+  - §6 — `ActivateCurrency`, `CurrencyRenamed`, `ExchangeRateHistoryLoaded`, реакции ExchangeRates на `CurrencyCreated`, `WalletCreated`, `WalletCurrencyChanged`; удалить `DeactivateCurrency`;
+  - «Решения при формализации», п.1.
+- `docs/api/api-design.md` (валюты, доступные, `POST /wallets`).
+- `docs/database/schema.md`: `currencies` без `is_active`, `available_currencies`, `historical_rate_coverage`, новая семантика `historical_exchange_rates`, таблица схем.
+- `docs/architecture/high-level-architecture.md` — порты `IAvailableCurrencyCatalog` и `ICurrencyActivation`, если там есть перечень.
+- Не трогать: ADR (сверка — W4), `docs/PROGRESS.md`.
+- Зависимости: W0.
+
+#### W2 — тесты (одним сообщением, 2 вызова `tdd-test-engineer`)
+
+- **W2.1 backend** → `backend/tests/LupexWallet.UnitTests/`, `backend/tests/LupexWallet.IntegrationTests/` по существующей структуре (П.5). `FrankfurterFake.cs` дорабатывается здесь же, так как W1.1 уже завершён и параллельного владельца нет. Прогон: полный `dotnet test`, `check-architecture.mjs`.
+- **W2.2 frontend + e2e** → `frontend/src/app/**/*.spec.ts`, **`frontend/e2e/fixtures.ts` (единственный владелец)**, `frontend/e2e/{wallets,transfers}.spec.ts` (П.5). Прогон: `ng test`, `ng build`, `check:boundaries`, e2e локально.
+- Зависимости: вся W1.
+
+#### W3 — ревью (одним сообщением)
+
+- `code-quality-reviewer`: + `dotnet-api-compatibility` против `openapi.yaml`, `postgres-pro`/`database-optimizer` для двух миграций (guard, `DROP COLUMN`, новая таблица), `dotnet-concurrency` для R13 (сигнал после фиксации, вычитка канала).
+- `ux-parity-reviewer`: эталон — обновлённые в W1.5 `user-scenarios.md` и `api-design.md`, плюс ADR-0004 §7–§9.
+- Находки: тривиальные — W3.1, одной записью в «Баги, найденные и исправленные»; требующие решения пользователя — отдельный пункт следующего цикла.
+
+#### W4 — итоговая сверка документации — `architecture-documenter`
+
+- `0004-currencies-and-exchange-rates.md`:
+  - «Состояние реализации» — реализовано;
+  - «Контекст» — факты живой проверки W1.1 (длина периода, `end_date`);
+  - §9 — порции по `HistoryChunkDays`, запас 7 дней, ежедневное продление правого края, таблица покрытия, триггер `WalletCreated` и `WalletCurrencyChanged` (с пометкой «выведено при реализации»);
+  - «Последствия» — решение R1 (где хранится список и каким портом связаны модули);
+  - прочтения П.8 с пометкой «выведено, отдельно не обсуждалось».
+- `0001-modular-monolith.md`: §2 — `IAvailableCurrencyCatalog` и `ICurrencyActivation` в строке (c); §7 — сигнал отправляется после фиксации транзакции (R13).
+- `0002-record-lifecycle.md`: «Состояние реализации» — деактивация валюты убрана, остаётся только корректирующая сумма.
+- `0006-audit.md`: `HistoryLoaded`, `CurrencyRenamed` → `Updated`, `CurrencyDeactivated` больше нет.
+- `0005-money-precision.md`: проверить ссылку на криптовалюты.
+- `adr/README.md`: статусы.
+- Основной агент после W4 записывает итог блока в `docs/PROGRESS.md` и закрывает план.
+
+### П.4. Граф зависимостей
+
+```mermaid
+graph LR
+  W01["W0.1 контракт + схема ExchangeRates"] --> W11["W1.1 ExchangeRates+Reporting+аудит курсов"]
+  W02["W0.2 ReferenceData без деактивации + порты"] --> W11
+  W01 --> W12["W1.2 ReferenceData+Wallets"]
+  W02 --> W12
+  W01 --> W13["W1.3 UI справочник + форма кошелька"]
+  W01 --> W14["W1.4 UI курсы/отчёты"]
+  W01 --> W15["W1.5 документы требований"]
+  W02 --> W15
+  W11 & W12 --> W21["W2.1 тесты backend"]
+  W13 & W14 --> W22["W2.2 тесты frontend + e2e"]
+  W12 --> W22
+  W21 & W22 & W15 --> W3["W3 ревью x2"]
+  W3 --> W4["W4 сверка ADR"]
+```
+
+### П.5. План тестов
+
+**Unit (`LupexWallet.UnitTests`)**
+- `ExchangeRates/FrankfurterClientTests`:
+  - `GetCurrenciesAsync` — разбор `iso_code` и `name`; не массив или пустой код → Unavailable;
+  - `GetRatesForPeriodAsync` — URL `rates?base=&quotes=&from=&to=`, несколько элементов, `[]` и 422 → Unsupported, 5xx — ретраи.
+- `ExchangeRates/BackfillExchangeRateHistoryCommandHandlerTests` (новый, на подставках):
+  - новая пара → порции ≤ `HistoryChunkDays` от новых к старым, левая граница с запасом 7 дней;
+  - сдвиг самой ранней даты влево → догружается только левая часть;
+  - правый край → один запрос `covered_to − 7 … сегодня`;
+  - повторный проход без изменений → не больше 1 запроса на пару;
+  - `[]` в левой порции → покрытие закрыто;
+  - 422 → пара пропущена;
+  - Unavailable → проход прерван, покрытие сохраняет прогресс;
+  - нет основного кошелька → 0 вызовов;
+  - основная валюта не запрашивается;
+  - очистка пар к прежней основной;
+  - событие `ExchangeRateHistoryLoaded`.
+- `ExchangeRates/RefreshExchangeRatesCommandHandlerTests`: список загружается без основного кошелька; пустой список → `ReplaceAsync` не вызван и `HadFailures`; сбой списка → `HadFailures`.
+- `ExchangeRates/ExchangeRateRefreshSignalTests` (новый): внутри `TransactionScope` с `Complete()` сигнал приходит после фиксации; без `Complete()` — сигнала нет; без внешней транзакции — сразу.
+- `ExchangeRates/ExchangeRateLookupTests` (новый): ближайший более ранний; та же валюта → 1; нет данных → `null`.
+- `ExchangeRates/CurrencyDeletedHandlerTests`: удаление покрытия.
+- `Reporting/GetTotalAmountQueryHandlerTests`: историческая сумма через `GetHistoricalRateAsync`.
+- `ReferenceData/CurrencyTests`: `Rename` поднимает `CurrencyRenamed` только при изменении.
+- `ReferenceData/ActivateCurrencyCommandHandlerTests` (вместо Create): название из доступных; кода нет → `CurrencyNotAvailableException`; уже активна → 409.
+- `ReferenceData/CurrencyActivationTests`: существующая возвращается без создания; доступная создаётся; иначе `null`.
+- `Wallets/WalletCommandHandlersTests`: `EnsureActiveAsync` вернул `null` → `CurrencyReferenceNotFoundException`; смена валюты на неизвестную → то же.
+- `Audit`: `CurrencyRenamed` → `Updated` с diff `Name`; `ExchangeRateHistoryLoaded` → `HistoryLoaded`, `entity_id = Guid.Empty`.
+
+**Integration (`LupexWallet.IntegrationTests`, реальный Postgres)**
+- `ReferenceData/ReferenceDataApiTests`:
+  - `GET /currencies/available` — сортировка, `isActive`;
+  - `POST {code}` → 201 с английским названием;
+  - произвольный код или `BTC` → 400;
+  - повтор → 409;
+  - `DELETE` используемой → 409, текст без «деактивации»;
+  - `POST /currencies/{id}/deactivate` → 404/405;
+  - в `GET /currencies` нет `isActive`.
+- `Wallets/WalletsApiTests`:
+  - `POST /wallets {currencyCode}` с доступным неактивным кодом → 201, валюта в `GET /currencies`, аудит `Currency`/`Created`;
+  - с активным кодом → без дубля;
+  - с неизвестным → 400, валюта не создана;
+  - с доступным кодом, но пустым именем кошелька → 400 и валюта **не** активирована (откат);
+  - `PUT /currency` на неизвестный id → 400.
+- `ExchangeRates/ExchangeRatesApiTests`:
+  - refresh загружает список из фейка; русское название активной валюты становится английским, аудит `Updated`;
+  - refresh без основного кошелька загружает список;
+  - сбой `currencies` → 502, список прежний;
+  - `[]` → список прежний.
+- `ExchangeRates/HistoryBackfillTests` (новый):
+  - основной EUR (дата учёта — сегодня − 400 дней) + USD → `RunExchangeRatesBackgroundPassAsync` → строки истории покрывают период, покрытие записано;
+  - `GET /reporting/total-amount?date=<суббота>` → курс пятницы, `ratesAsOfDate` = пятница;
+  - второй проход — не больше 1 запроса на пару (счётчик фейка);
+  - смена основного кошелька + проход → пар к EUR нет, пары к новой основной загружены;
+  - удаление валюты удаляет покрытие.
+- `ExchangeRates/ReadPathDoesNotCallSourceTests` (новый): после подготовки счётчик фейка обнуляется; `GET` из D8.1, в том числе сумма за дату без истории (кошелёк исключён с причиной) → 0 вызовов.
+- `Reporting/ReportingApiTests`: историческая сумма только из засеянной истории.
+- `ReferenceData/CurrencyDeletionAtomicityTests`: покрытие удаляется в той же транзакции.
+- `Infrastructure/CrossModuleContractsRegistrationTests`: числа для портов (d) не меняются; добавить разрешение `ICurrencyActivation` и `IAvailableCurrencyCatalog` из DI.
+
+**Frontend unit (`ng test`)**
+- `data-access/reference-data/reference-data-api.service.spec.ts`: `listAvailableCurrencies` → `GET /currencies/available`; `createCurrency` → тело `{code}`; `deactivateCurrency` отсутствует.
+- `features/reference-data/.../reference-data-page.component.spec.ts`: в списке добавления только `isActive=false`; «Убрать из активных» с подтверждением; текст 409; нет «Деактивировать»; подсказка при пустом списке.
+- `features/wallets/.../wallets-page.component.spec.ts`: в запросе `currencyCode`; источник — доступные; нет быстрого добавления валюты; смена валюты — из активных; подсказка при пустом списке.
+- `shared/currencies/currency-select` — фильтрация по `CurrencyOption` (создать spec, если его нет).
+- `exchange-rates-page`, `reporting-page`: без `includeInactive`.
+
+**E2E-смоук (Playwright, локально против dev-backend с доступом к Frankfurter; не против боевого backend)**
+- `fixtures.ts` (`createWallet`): EUR выбирается в комбобоксе доступных (ввести «EUR», выбрать вариант), без быстрого добавления.
+- `wallets.spec.ts`: выбор валюты по коду через комбобокс вместо `select[formcontrolname="currencyId"]`.
+- `transfers.spec.ts`: обе «ноги» в EUR через фикстуру.
+- Новый сценарий (в `wallets.spec.ts` или отдельном `reference-data.spec.ts`): добавить валюту из доступных на экране справочников → убрать её из активных.
+
+### П.6. Риски
+
+1. **Длина периода в Frankfurter v2 не проверена.** Порции по 366 дней (настраиваемо) и живая проверка W1.1. Если сервис режет период молча (вернул меньше дат, чем ожидалось), покрытие всё равно сдвигается на запрошенный диапазон, и в истории остаются дыры. Смягчение: W1.1 сверяет фактическую первую дату ответа и при подозрении уменьшает порцию.
+2. **Первая дозагрузка после деплоя.** Объём — активные валюты × годы запросов, тысячи строк. Выполняется в фоне, прерывается и продолжается. До завершения историческая сумма неполная, это принято ADR-0004 §9.
+3. **Гонка дозагрузки с удалением валюты.** Осиротевшие строки истории и покрытия удаляются очисткой следующего прохода; конфликт upsert'а — пропуск пары. Остаточное окно то же, что в §6.
+4. **Сигнал после фиксации (R13).** Если событие публикуется вне внешней транзакции (`Transaction.Current == null`), сигнал уходит сразу — поведение как сейчас. Покрыто unit-тестом.
+5. **Несовместимость проводного формата** (`POST /wallets`, `POST /currencies`, удалённый `deactivate`). Preview-frontend против backend из `master` не сможет создать кошелёк до слияния. Принято пользователем (вопрос 6).
+6. **Пустой список доступных на свежей установке или при недоступном сервисе** → первый кошелёк создать нельзя. Смягчение: загрузка при старте без основного кошелька (R10), кнопка ручного обновления, подсказка в форме (R19).
+7. **Guard миграции на Railway.** Если в боевой базе есть деактивированная валюта (по словам пользователя, нет), хост не стартует при применении миграции. Проверить заранее (П.7).
+8. **Прежние валюты не из сервиса** остаются активными со старыми названиями (R3). Экран справочников покажет их вперемешку с английскими. Пользователь может убрать неиспользуемые.
+9. **Удаление истории прежней основной валюты** при смене основного кошелька даёт окно неполной исторической суммы до догрузки новой пары. Принято §9; при быстром переключении туда-обратно история загружается заново.
+10. **E2E зависят от реального Frankfurter** в локальном dev-backend (список доступных). Без сети `createWallet` падает. Отметить в `frontend/e2e/README.md` (W2.2).
+11. **Объём аудита переименований:** одноразово по записи на каждую активную валюту при первом прогоне — приемлемо.
+
+### П.7. Ручная проверка (непроверяемо автотестами в текущей среде)
+
+- **До слияния в `master`:** выполнить на боевой базе `SELECT count(*) FROM reference_data.currencies WHERE NOT is_active` — ожидается 0. Иначе guard миграции остановит старт.
+- **Первый старт на Railway:**
+  - миграции применены;
+  - в логе загружен список доступных (≈166 валют);
+  - названия активных валют стали английскими (записи аудита `Updated`);
+  - лог дозагрузки показывает загруженные диапазоны;
+  - историческая сумма за дату год назад считается без исключённых кошельков после завершения дозагрузки.
+- **Живой Frankfurter:** длина периода и наличие `end_date` (если W1.1 не смог проверить без сети).
+- **UI:** комбобокс валют в форме кошелька и на экране справочников — 360, 768, 1440 px, масштаб 200 %, клавиатура, скринридер (NVDA/Narrator) объявляет «код — название».
+
+### П.8. Открытые вопросы
+
+Бизнес-неоднозначностей, не закрытых ADR-0004, ADR-0002 и решениями по вопросам 3 и 5, не найдено. `CLARIFICATION_NEEDED` нет. Критичного стопа по `CLAUDE.md` нет: миграция защищена guard'ом и не теряет данных (R2), конфликта ADR нет.
+
+Прочтения, принятые без отдельного вопроса. W4 фиксирует их в ADR-0004 с пометкой «выведено, отдельно не обсуждалось»; если пользователь не согласен — это отдельный мелкий пункт:
+1. **Смена валюты кошелька — только на активную валюту.** Основание: §7 «доступные нужны только для списков выбора: при создании кошелька и при добавлении валюты в активные». Текущий UI уже предлагает активные; добавляется только серверная проверка (R21).
+2. **Период дозагрузки** считается от самой ранней даты начала учёта среди **всех** кошельков, включая архивные. Поэтому создание кошелька с более ранней датой расширяет историю всех активных валют (триггер `WalletCreated`).
+3. **История ежедневно продлевается до сегодняшнего дня.** Без этого правило §9 «ближайший более ранний» молча подставляло бы устаревший курс.
+4. **Валюты, которых нет в сервисе, остаются активными** (R3). Аналог §6, данные тестовые.
+
 ## Блок A — ADR-0002 внедрён: мягкое удаление, история кошелька, использование справочников (2026-10-01)
 
 План «ПЛАН: внедрение ADR-0002 — жизненный цикл записей» ниже выполнен целиком: W0 → W1 (7 параллельных вызовов) → W2 (2) → W3 (2 ревьюера) → W3.1 (3 исправителя) → W4. Коммиты: `e93ab4a` (контракт и события), `7f9c5d9` (реализация), `8ca1403` (тесты), итоговый — исправления по ревью и сверка документации. Бизнес-неоднозначностей не возникло, пользователь не привлекался.

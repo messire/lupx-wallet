@@ -44,10 +44,6 @@ public sealed class CreateWalletCommandHandler(
         var currencyId = new CurrencyId(request.CurrencyId);
         var currency = await currencyLookup.GetAsync(currencyId, cancellationToken)
             ?? throw new CurrencyReferenceNotFoundException();
-        if (!currency.IsActive)
-        {
-            throw new CurrencyReferenceInactiveException();
-        }
 
         var isFirstWallet = await primaryWalletPolicy.IsFirstWalletAsync(cancellationToken);
 

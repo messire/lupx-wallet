@@ -4,9 +4,9 @@ using MediatR;
 
 namespace LupexWallet.ReferenceData.Application;
 
-public sealed record CurrencyDto(Guid Id, string Code, string Name, bool IsActive)
+public sealed record CurrencyDto(Guid Id, string Code, string Name)
 {
-    public static CurrencyDto FromDomain(Currency entity) => new(entity.Id.Value, entity.Code, entity.Name, entity.IsActive);
+    public static CurrencyDto FromDomain(Currency entity) => new(entity.Id.Value, entity.Code, entity.Name);
 }
 
 public sealed record CurrencyPageDto(IReadOnlyList<CurrencyDto> Data, string? NextCursor, bool HasMore);
@@ -19,7 +19,7 @@ public interface ICurrencyRepository
     void Remove(Currency currency);
     Task<Currency?> GetByIdAsync(CurrencyId id, CancellationToken cancellationToken);
     Task<bool> CodeExistsAsync(string code, CancellationToken cancellationToken);
-    Task<CurrencyPageResult> ListAsync(bool includeInactive, NameCursor? afterCursor, int limit, CancellationToken cancellationToken);
+    Task<CurrencyPageResult> ListAsync(NameCursor? afterCursor, int limit, CancellationToken cancellationToken);
 }
 
 // ---- Добавление валюты, включая криптовалюту (решено при проектировании домена) ----
@@ -37,22 +37,6 @@ public sealed class CreateCurrencyCommandHandler(ICurrencyRepository repository,
 
         var currency = Currency.Create(CurrencyId.New(), request.Code, request.Name);
         repository.Add(currency);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
-        return CurrencyDto.FromDomain(currency);
-    }
-}
-
-public sealed record DeactivateCurrencyCommand(Guid Id) : IRequest<CurrencyDto>, ICommand<CurrencyDto>;
-
-public sealed class DeactivateCurrencyCommandHandler(ICurrencyRepository repository, IReferenceDataUnitOfWork unitOfWork)
-    : IRequestHandler<DeactivateCurrencyCommand, CurrencyDto>
-{
-    public async Task<CurrencyDto> Handle(DeactivateCurrencyCommand request, CancellationToken cancellationToken)
-    {
-        var currency = await repository.GetByIdAsync(new CurrencyId(request.Id), cancellationToken)
-            ?? throw new KeyNotFoundException($"Currency {request.Id} не найдена.");
-
-        currency.Deactivate();
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return CurrencyDto.FromDomain(currency);
     }
@@ -83,7 +67,7 @@ public sealed class DeleteCurrencyCommandHandler(
 }
 
 // ---- UC-... список валют ----
-public sealed record ListCurrenciesQuery(bool IncludeInactive, string? Cursor, int Limit)
+public sealed record ListCurrenciesQuery(string? Cursor, int Limit)
     : IRequest<CurrencyPageDto>, IQuery<CurrencyPageDto>;
 
 public sealed class ListCurrenciesQueryHandler(ICurrencyRepository repository)
@@ -94,7 +78,7 @@ public sealed class ListCurrenciesQueryHandler(ICurrencyRepository repository)
         var cursor = NameCursor.TryDecode(request.Cursor);
         var limit = Math.Clamp(request.Limit <= 0 ? 20 : request.Limit, 1, 100);
 
-        var page = await repository.ListAsync(request.IncludeInactive, cursor, limit, cancellationToken);
+        var page = await repository.ListAsync(cursor, limit, cancellationToken);
 
         var items = page.Items.Select(CurrencyDto.FromDomain).ToList();
         var nextCursor = page.Items.Count > 0

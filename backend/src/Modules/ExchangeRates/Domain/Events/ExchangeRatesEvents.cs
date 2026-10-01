@@ -18,3 +18,16 @@ public sealed record ExchangeRatePairFailure(CurrencyId FromCurrencyId, Currency
 public sealed record ExchangeRatesUpdated(DateTimeOffset FetchedAt, IReadOnlyList<ExchangeRatePairResult> UpdatedPairs) : DomainEvent;
 
 public sealed record ExchangeRateUpdateFailed(DateTimeOffset AttemptedAt, IReadOnlyList<ExchangeRatePairFailure> FailedPairs) : DomainEvent;
+
+/// <summary>Date range of historical rates loaded for one pair during a history load pass (ADR-0004, §9).</summary>
+public sealed record HistoryRangeLoaded(CurrencyId FromCurrencyId, CurrencyId ToCurrencyId, DateOnly RangeFrom, DateOnly RangeTo);
+
+/// <summary>
+/// Result of one history load pass (ADR-0004, §9): ranges loaded and pairs that failed. Raised
+/// once per pass, only if something was loaded or failed — like ExchangeRatesUpdated, it
+/// describes a whole run, not one aggregate.
+/// </summary>
+public sealed record ExchangeRateHistoryLoaded(
+    DateTimeOffset At,
+    IReadOnlyList<HistoryRangeLoaded> Loaded,
+    IReadOnlyList<ExchangeRatePairFailure> Failed) : DomainEvent;

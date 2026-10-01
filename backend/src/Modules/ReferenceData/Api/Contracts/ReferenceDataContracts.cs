@@ -13,7 +13,7 @@ public sealed record OperationTypeResponse(Guid Id, string Name, Guid BehaviorKi
 public sealed record OperationTypeCreateRequest(string Name, Guid BehaviorKindId);
 public sealed record OperationTypePageResponse(IReadOnlyList<OperationTypeResponse> Data, CursorPageMeta Pagination);
 
-public sealed record CurrencyResponse(Guid Id, string Code, string Name, bool IsActive);
+public sealed record CurrencyResponse(Guid Id, string Code, string Name);
 public sealed record CurrencyCreateRequest(string Code, string Name);
 public sealed record CurrencyPageResponse(IReadOnlyList<CurrencyResponse> Data, CursorPageMeta Pagination);
 

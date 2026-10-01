@@ -4,7 +4,7 @@ using MediatR;
 
 namespace LupexWallet.Audit.Infrastructure;
 
-/// <summary>Subscribers to 9 ReferenceData events (3 catalog types x create/deactivate/delete), ADR-0006.</summary>
+/// <summary>Subscribers to ReferenceData events (create/deactivate/delete of wallet and operation types; create/rename/delete of currencies), ADR-0006.</summary>
 public sealed class WalletTypeCreatedAuditHandler(AuditRecorder recorder) : INotificationHandler<DomainEventNotification<WalletTypeCreated>>
 {
     public Task Handle(DomainEventNotification<WalletTypeCreated> notification, CancellationToken cancellationToken) =>
@@ -48,10 +48,10 @@ public sealed class CurrencyCreatedAuditHandler(AuditRecorder recorder) : INotif
         recorder.RecordFromChangeTrackerAsync(notification.DomainEvent, "Currency", notification.DomainEvent.CurrencyId.Value, "Created", cancellationToken);
 }
 
-public sealed class CurrencyDeactivatedAuditHandler(AuditRecorder recorder) : INotificationHandler<DomainEventNotification<CurrencyDeactivated>>
+public sealed class CurrencyRenamedAuditHandler(AuditRecorder recorder) : INotificationHandler<DomainEventNotification<CurrencyRenamed>>
 {
-    public Task Handle(DomainEventNotification<CurrencyDeactivated> notification, CancellationToken cancellationToken) =>
-        recorder.RecordFromChangeTrackerAsync(notification.DomainEvent, "Currency", notification.DomainEvent.CurrencyId.Value, "Deactivated", cancellationToken);
+    public Task Handle(DomainEventNotification<CurrencyRenamed> notification, CancellationToken cancellationToken) =>
+        recorder.RecordFromChangeTrackerAsync(notification.DomainEvent, "Currency", notification.DomainEvent.CurrencyId.Value, "Updated", cancellationToken);
 }
 
 public sealed class CurrencyDeletedAuditHandler(AuditRecorder recorder) : INotificationHandler<DomainEventNotification<CurrencyDeleted>>

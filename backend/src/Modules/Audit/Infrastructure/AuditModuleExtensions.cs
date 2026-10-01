@@ -64,7 +64,7 @@ public static class AuditModuleExtensions
         services.AddScoped<INotificationHandler<DomainEventNotification<OperationTypeDeactivated>>, OperationTypeDeactivatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<OperationTypeDeleted>>, OperationTypeDeletedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<CurrencyCreated>>, CurrencyCreatedAuditHandler>();
-        services.AddScoped<INotificationHandler<DomainEventNotification<CurrencyDeactivated>>, CurrencyDeactivatedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<CurrencyRenamed>>, CurrencyRenamedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<CurrencyDeleted>>, CurrencyDeletedAuditHandler>();
 
         // Operations (OperationCreated/Updated/Deleted/Restored, TransferCreated/Deleted/Restored).

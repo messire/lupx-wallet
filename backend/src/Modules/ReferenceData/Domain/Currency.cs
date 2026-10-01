@@ -3,14 +3,14 @@ using LupexWallet.SharedKernel;
 namespace LupexWallet.ReferenceData.Domain;
 
 /// <summary>
-/// User-extensible currency reference (ddd-model.md, §2.2) — not restricted to ISO 4217,
-/// to also support cryptocurrencies (decision Q14).
+/// Active currency (ADR-0004 §7): a row exists = the currency is active; removing it from the
+/// active set is a delete (there is no deactivated state). Not restricted to ISO 4217 —
+/// codes that the rate service does not know stay usable (decision Q14).
 /// </summary>
 public sealed class Currency : AggregateRoot<CurrencyId>
 {
     public string Code { get; private set; } = null!;
     public string Name { get; private set; } = null!;
-    public bool IsActive { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
 
@@ -37,7 +37,6 @@ public sealed class Currency : AggregateRoot<CurrencyId>
             Id = id,
             Code = code.Trim().ToUpperInvariant(),
             Name = name.Trim(),
-            IsActive = true,
             CreatedAt = now,
             UpdatedAt = now,
         };
@@ -46,11 +45,23 @@ public sealed class Currency : AggregateRoot<CurrencyId>
         return currency;
     }
 
-    public void Deactivate()
+    /// <summary>Applies the service name (ADR-0004 §7); a no-op if the name is unchanged.</summary>
+    public void Rename(string name)
     {
-        IsActive = false;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ReferenceItemNameRequiredException();
+        }
+
+        var trimmed = name.Trim();
+        if (trimmed == Name)
+        {
+            return;
+        }
+
+        Name = trimmed;
         UpdatedAt = DateTimeOffset.UtcNow;
-        Raise(new CurrencyDeactivated(Id));
+        Raise(new CurrencyRenamed(Id));
     }
 
     public void EnsureCanBeDeleted(bool isUsed)

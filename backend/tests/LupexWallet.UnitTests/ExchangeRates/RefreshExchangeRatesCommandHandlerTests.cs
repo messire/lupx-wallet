@@ -43,18 +43,18 @@ public sealed class RefreshExchangeRatesCommandHandlerTests
     {
         _currencyLookup.GetAllAsync(Arg.Any<CancellationToken>()).Returns(
             (IReadOnlyList<CurrencyLookupResult>)[
-                new(Primary, "EUR", true),
-                useBtc ? new(Btc, "BTC", true) : new(Usd, "USD", true),
+                new(Primary, "EUR"),
+                useBtc ? new(Btc, "BTC") : new(Usd, "USD"),
             ]);
-        _currencyLookup.GetAsync(Primary, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(Primary, "EUR", true));
-        _currencyLookup.GetAsync(Usd, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(Usd, "USD", true));
-        _currencyLookup.GetAsync(Btc, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(Btc, "BTC", true));
+        _currencyLookup.GetAsync(Primary, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(Primary, "EUR"));
+        _currencyLookup.GetAsync(Usd, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(Usd, "USD"));
+        _currencyLookup.GetAsync(Btc, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(Btc, "BTC"));
     }
 
     [Fact]
     public async Task Handle_NoPrimaryWallet_SkipsRefreshEntirely()
     {
-        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(null, []));
+        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(null, [], null));
         _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlyList<ExchangeRateQuote>)[]);
 
         var result = await CreateHandler().Handle(new RefreshExchangeRatesCommand(IsManualTrigger: false), CancellationToken.None);
@@ -68,7 +68,7 @@ public sealed class RefreshExchangeRatesCommandHandlerTests
     public async Task Handle_FrankfurterUnavailable_KeepsOldRateAndReportsFailure()
     {
         SetupCurrencies();
-        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary, Usd]));
+        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary, Usd], null));
 
         var existingQuote = ExchangeRateQuote.Create(Usd, Primary, new ExchangeRateValue(0.9m), DateTimeOffset.UtcNow.AddDays(-1));
         _repository.FindAsync(Usd, Primary, Arg.Any<CancellationToken>()).Returns(existingQuote);
@@ -91,7 +91,7 @@ public sealed class RefreshExchangeRatesCommandHandlerTests
     public async Task Handle_UnsupportedCurrency_SkipsPairWithoutReportingFailure()
     {
         SetupCurrencies(useBtc: true);
-        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary, Btc]));
+        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary, Btc], null));
         _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlyList<ExchangeRateQuote>)[]);
 
         _frankfurterClient.GetLatestRateAsync("BTC", "EUR", Arg.Any<CancellationToken>())
@@ -109,7 +109,7 @@ public sealed class RefreshExchangeRatesCommandHandlerTests
     public async Task Handle_CatalogCurrencyWithoutWallet_PersistsNewQuoteAndRaisesExchangeRatesUpdated(bool isManualTrigger)
     {
         SetupCurrencies();
-        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary]));
+        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary], null));
         _repository.FindAsync(Usd, Primary, Arg.Any<CancellationToken>()).Returns((ExchangeRateQuote?)null);
         _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns(
             callInfo => (IReadOnlyList<ExchangeRateQuote>)[ExchangeRateQuote.Create(Usd, Primary, new ExchangeRateValue(0.91m), DateTimeOffset.UtcNow)]);
@@ -131,11 +131,11 @@ public sealed class RefreshExchangeRatesCommandHandlerTests
     public async Task Handle_CurrencyDeletedDuringRun_DropsPendingQuoteInsteadOfOrphaningIt()
     {
         SetupCurrencies();
-        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary]));
+        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary], null));
         // The second catalog read (after the pair loop) no longer contains USD: it was deleted mid-run.
         _currencyLookup.GetAllAsync(Arg.Any<CancellationToken>()).Returns(
-            (IReadOnlyList<CurrencyLookupResult>)[new(Primary, "EUR", true), new(Usd, "USD", true)],
-            (IReadOnlyList<CurrencyLookupResult>)[new(Primary, "EUR", true)]);
+            (IReadOnlyList<CurrencyLookupResult>)[new(Primary, "EUR"), new(Usd, "USD")],
+            (IReadOnlyList<CurrencyLookupResult>)[new(Primary, "EUR")]);
         _repository.FindAsync(Usd, Primary, Arg.Any<CancellationToken>()).Returns((ExchangeRateQuote?)null);
         _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlyList<ExchangeRateQuote>)[]);
         _frankfurterClient.GetLatestRateAsync("USD", "EUR", Arg.Any<CancellationToken>()).Returns(0.91m);
@@ -152,7 +152,7 @@ public sealed class RefreshExchangeRatesCommandHandlerTests
     {
         SetupCurrencies();
         var deleted = new CurrencyId(Guid.NewGuid());
-        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary]));
+        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary], null));
         var orphan = ExchangeRateQuote.Create(deleted, Primary, new ExchangeRateValue(2m), DateTimeOffset.UtcNow);
         var healthy = ExchangeRateQuote.Create(Usd, Primary, new ExchangeRateValue(0.9m), DateTimeOffset.UtcNow);
         _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlyList<ExchangeRateQuote>)[orphan, healthy]);
@@ -169,11 +169,11 @@ public sealed class RefreshExchangeRatesCommandHandlerTests
     {
         var gbp = new CurrencyId(Guid.NewGuid());
         _currencyLookup.GetAllAsync(Arg.Any<CancellationToken>()).Returns(
-            (IReadOnlyList<CurrencyLookupResult>)[new(Primary, "EUR", true), new(Usd, "USD", true), new(gbp, "GBP", true)]);
-        _currencyLookup.GetAsync(Primary, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(Primary, "EUR", true));
-        _currencyLookup.GetAsync(Usd, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(Usd, "USD", true));
-        _currencyLookup.GetAsync(gbp, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(gbp, "GBP", true));
-        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary]));
+            (IReadOnlyList<CurrencyLookupResult>)[new(Primary, "EUR"), new(Usd, "USD"), new(gbp, "GBP")]);
+        _currencyLookup.GetAsync(Primary, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(Primary, "EUR"));
+        _currencyLookup.GetAsync(Usd, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(Usd, "USD"));
+        _currencyLookup.GetAsync(gbp, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(gbp, "GBP"));
+        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary], null));
         _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlyList<ExchangeRateQuote>)[]);
         _frankfurterClient.GetLatestRateAsync("USD", "EUR", Arg.Any<CancellationToken>()).Returns(0.9m);
         _frankfurterClient.GetLatestRateAsync("GBP", "EUR", Arg.Any<CancellationToken>()).Returns(1.2m);

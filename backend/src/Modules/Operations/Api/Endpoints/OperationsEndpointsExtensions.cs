@@ -195,8 +195,24 @@ public static class OperationsEndpointsExtensions
         or OperationIsDeletedException or TransferAlreadyDeletedException or TransferNotDeletedException
         or RecordModifiedConcurrentlyException;
 
-    private static AdjustmentMode? ParseAdjustmentMode(string? value) =>
-        string.IsNullOrEmpty(value) ? null : Enum.Parse<AdjustmentMode>(value, ignoreCase: true);
+    /// <summary>
+    /// Absolute is recognized before enum binding and answered with 400: the balance for a date is
+    /// stated through a separate action (ADR-0003, §6).
+    /// </summary>
+    private static AdjustmentMode? ParseAdjustmentMode(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return null;
+        }
+
+        if (string.Equals(value, "Absolute", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new AbsoluteAdjustmentNotSupportedException();
+        }
+
+        return Enum.Parse<AdjustmentMode>(value, ignoreCase: true);
+    }
 
     private static IResult ValidationProblem(OperationsDomainException ex) => Results.Problem(
         statusCode: StatusCodes.Status400BadRequest,
@@ -213,7 +229,9 @@ public static class OperationsEndpointsExtensions
 
     private static OperationResponse ToResponse(OperationDto dto) => new(
         dto.Id, dto.WalletId, dto.OperationTypeId, new MoneyResponse(dto.Amount.ToString(CultureInfo.InvariantCulture), dto.CurrencyId),
-        dto.OperationDate, dto.AdjustmentMode, dto.TransferId, dto.CreatedAt, dto.UpdatedAt, dto.IsDeleted, dto.DeletedAt);
+        dto.OperationDate, dto.AdjustmentMode, dto.IsCorrection,
+        dto.StatedBalanceAmount is { } stated ? new MoneyResponse(stated.ToString(CultureInfo.InvariantCulture), dto.CurrencyId) : null,
+        dto.TransferId, dto.CreatedAt, dto.UpdatedAt, dto.IsDeleted, dto.DeletedAt);
 
     private static OperationPageResponse ToResponse(OperationPageDto page) => new(
         page.Data.Select(ToResponse).ToList(), new CursorPageMeta(page.NextCursor, page.HasMore));

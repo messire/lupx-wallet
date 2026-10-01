@@ -14,9 +14,11 @@ public enum OperationEffectKind
     Adjustment,
 }
 
-/// <summary>Manual adjustment input mode (decided, Q3).</summary>
+/// <summary>
+/// Manual adjustment input mode. Only a change by an amount: stating the new balance for a date
+/// is a separate action that creates a balance correction (ADR-0003, §6).
+/// </summary>
 public enum AdjustmentMode
 {
-    Absolute,
     Delta,
 }

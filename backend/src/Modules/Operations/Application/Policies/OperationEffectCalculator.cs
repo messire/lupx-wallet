@@ -4,19 +4,15 @@ using LupexWallet.SharedKernel;
 namespace LupexWallet.Operations.Application;
 
 /// <summary>
-/// Computes the intended signed delta an operation should contribute to the wallet balance,
-/// and the incremental delta that must actually be applied via IWalletBalanceGateway given
-/// what the same operation already applied before (Operation.AppliedDelta) — one formula that
-/// works for create, update, and delete (see the comment on Operations.Domain.Operation).
-///
-/// Known limitation (see ADR-0003): for Adjustment/Absolute, "baseline" is the wallet's
-/// current CurrentBalance rather than the fully recomputed history — correct for the current
-/// balance, but not a substitute for the full history recalculation added with BalanceHistory.
+/// Computes the signed delta an operation should contribute to the wallet balance, and the
+/// incremental delta that must actually be applied via IWalletBalanceGateway given what the same
+/// operation already applied before (Operation.AppliedDelta) — one formula that works for create,
+/// update, and delete (see the comment on Operations.Domain.Operation). A manual adjustment is
+/// always a delta; the balance stated for a date is a separate balance correction (ADR-0003, §6).
 /// </summary>
 public static class OperationEffectCalculator
 {
-    public static Money ComputeIntendedDelta(
-        OperationEffectKind effectKind, Money amount, AdjustmentMode? mode, Money baselineBalance)
+    public static Money ComputeIntendedDelta(OperationEffectKind effectKind, Money amount, AdjustmentMode? mode)
     {
         // Валидация здесь (а не только в Operation.Create/Update) — калькулятор вызывается
         // ДО конструирования/мутации агрегата в обработчиках команд (нужно знать intendedDelta
@@ -43,15 +39,10 @@ public static class OperationEffectCalculator
         {
             OperationEffectKind.Income => amount,
             OperationEffectKind.Expense => amount.Negate(),
-            OperationEffectKind.Adjustment when mode == AdjustmentMode.Delta => amount,
-            OperationEffectKind.Adjustment when mode == AdjustmentMode.Absolute => amount.Subtract(baselineBalance),
+            OperationEffectKind.Adjustment => amount,
             _ => throw new InvalidOperationException($"Недостижимая ветка: {effectKind}/{mode}."),
         };
     }
-
-    /// <summary>baseline = current balance minus what this same operation already contributed before (0 on creation).</summary>
-    public static Money ComputeBaseline(Money currentBalance, Money previouslyAppliedDelta) =>
-        currentBalance.Subtract(previouslyAppliedDelta);
 
     public static Money ComputeIncrementalDelta(Money intendedDelta, Money previouslyAppliedDelta) =>
         intendedDelta.Subtract(previouslyAppliedDelta);

@@ -127,21 +127,6 @@ public sealed class CreateOperationCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_AdjustmentAbsolute_AppliesDeltaComputedFromCurrentBalance()
-    {
-        _operationTypeLookup.GetAsync(Arg.Any<OperationTypeId>(), Arg.Any<CancellationToken>()).Returns(ActiveType("Adjustment"));
-        var wallet = Wallet(currentBalance: 100m);
-        _walletBalanceGateway.GetAsync(Arg.Any<WalletId>(), Arg.Any<CancellationToken>()).Returns(wallet);
-        // Хочет получить баланс 250 при текущем 100 -> дельта 150.
-        var command = new CreateOperationCommand(wallet.Id.Value, Guid.NewGuid(), 250m, DateOnly.FromDateTime(DateTime.UtcNow), AdjustmentMode.Absolute);
-
-        await CreateHandler().Handle(command, CancellationToken.None);
-
-        await _walletBalanceGateway.Received(1).ApplyDeltaAsync(
-            wallet.Id, Arg.Is<Money>(m => m.Amount == 150m), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
     public async Task Handle_AdjustmentDelta_AppliesRequestedAmountAsIs()
     {
         _operationTypeLookup.GetAsync(Arg.Any<OperationTypeId>(), Arg.Any<CancellationToken>()).Returns(ActiveType("Adjustment"));

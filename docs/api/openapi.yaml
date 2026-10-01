@@ -30,7 +30,9 @@ tags:
       Доступные валюты (список сервиса курсов, только чтение) и активные валюты
       пользователя (ADR-0004, §7).
   - name: Operations
-    description: Доходы, расходы и ручные корректировки баланса.
+    description: >
+      Доходы, расходы, корректировки баланса дельтой и заявленный баланс на дату
+      с рассчитываемой системой корректирующей суммой (ADR-0003, §6).
   - name: Transfers
     description: Переводы между кошельками одной валюты.
   - name: BalanceHistory
@@ -150,14 +152,16 @@ paths:
       operationId: deleteWallet
       description: >
         История кошелька — только операции, включая мягко удаленные (ADR-0002, §2);
-        слепки баланса историей не считаются.
+        слепки баланса историей не считаются. Заявленные балансы и их корректирующие суммы
+        (isCorrection = true, ADR-0003, §6) тоже историей не считаются и удаляются вместе
+        с кошельком: кошелек, у которого есть только они, удаляется (204).
       responses:
-        "204": { description: Удален; слепки баланса удаляются вместе с кошельком }
+        "204": { description: Удален; слепки баланса и корректирующие суммы заявленных балансов удаляются вместе с кошельком }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: >
-            У кошелька есть операции (включая удаленные) — используйте /archive —
-            или он основной.
+            У кошелька есть операции (включая удаленные; корректирующие суммы заявленных
+            балансов операциями не считаются) — используйте /archive — или он основной.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -214,6 +218,9 @@ paths:
         Слепки баланса историей не считаются: при смене валюты они перестраиваются
         в новой валюте (старые удаляются, новые создаются от даты начала учета).
         Новая валюта должна быть активной (входить в GET /currencies).
+        Заявленные балансы смену валюты не блокируют: их корректирующие суммы
+        (ADR-0003, §6) историей не считаются, переходят в новую валюту с кошельком,
+        числа не меняются.
       requestBody:
         required: true
         content:
@@ -232,7 +239,9 @@ paths:
               schema: { $ref: "#/components/schemas/Problem" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: У кошелька уже есть операции (включая удаленные).
+          description: >
+            У кошелька уже есть операции (включая удаленные; корректирующие суммы
+            заявленных балансов операциями не считаются).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -247,7 +256,9 @@ paths:
       description: >
         Без параметра date возвращает текущий баланс. Для даты раньше
         accounting_start_date возвращает сумму 0 (решено, Q13). Мягко удаленные
-        операции в расчете не учитываются (ADR-0002, §3).
+        операции в расчете не учитываются (ADR-0002, §3). Корректирующие суммы заявленных
+        балансов (ADR-0003, §6) в расчет входят: баланс на дату заявленного баланса равен
+        заявленному значению.
       parameters:
         - name: date
           in: query
@@ -267,7 +278,10 @@ paths:
       tags: [BalanceHistory]
       summary: История слепков баланса кошелька за период
       operationId: listWalletBalanceHistory
-      description: Мягко удаленные операции в слепках не учитываются (ADR-0002, §3).
+      description: >
+        Мягко удаленные операции в слепках не учитываются (ADR-0002, §3). Корректирующие
+        суммы заявленных балансов (ADR-0003, §6) в слепки входят: слепок на дату заявленного
+        баланса равен заявленному значению.
       parameters:
         - name: from
           in: query
@@ -537,12 +551,22 @@ paths:
       description: >
         Мягко удаленные операции включаются всегда (ADR-0002, §3, §5); признак —
         isDeleted = true. Параметра скрытия удаленных нет.
+
+        Корректирующие суммы заявленных балансов (isCorrection = true, ADR-0003, §6)
+        включаются в список наравне с обычными операциями, кроме сумм, равных нулю: нулевая
+        корректирующая сумма не показывается (§6, п.7). Порядок записей — по дате
+        операции по возрастанию; внутри одного дня корректирующая сумма идет после всех
+        остальных операций этого дня (§6, п.4). Курсорная пагинация учитывает этот порядок:
+        без дублей и пропусков. Фильтр operationTypeId корректирующие суммы не включает —
+        у них нет типа операции. Фильтры walletId, dateFrom и dateTo применяются к ним как
+        к обычным операциям.
       parameters:
         - name: walletId
           in: query
           schema: { type: string, format: uuid }
         - name: operationTypeId
           in: query
+          description: Только операции этого типа; корректирующие суммы (без типа) в выборку не попадают.
           schema: { type: string, format: uuid }
         - name: dateFrom
           in: query
@@ -561,9 +585,14 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
     post:
       tags: [Operations]
-      summary: Создать операцию дохода/расхода/корректировки (UC-11, UC-12, UC-24)
+      summary: Создать операцию дохода/расхода/корректировки дельтой (UC-11, UC-12, UC-24)
       operationId: createOperation
-      description: Для перевода используйте POST /transfers, а не этот эндпоинт (раздел 4).
+      description: >
+        Для перевода используйте POST /transfers, а не этот эндпоинт (раздел 4).
+        Корректировка — только дельтой (adjustmentMode = Delta); новое значение баланса
+        на дату задается через PUT /wallets/{walletId}/stated-balances/{date}.
+        Если на дату операции или позже у кошелька есть заявленный баланс, корректирующие
+        суммы пересчитываются в той же транзакции (ADR-0003, §6, п.3).
       requestBody:
         required: true
         content:
@@ -575,7 +604,14 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Operation" }
-        "400": { $ref: "#/components/responses/BadRequest" }
+        "400":
+          description: >
+            Ошибка валидации, либо adjustmentMode = Absolute: значение не поддерживается,
+            новое значение баланса задается действием «Указать баланс на дату»
+            (PUT /wallets/{walletId}/stated-balances/{date}).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /operations/{operationId}:
@@ -585,6 +621,9 @@ paths:
       tags: [Operations]
       summary: Получить операцию
       operationId: getOperation
+      description: >
+        Возвращает и корректирующую сумму, равную нулю: в списке она скрыта, но запись
+        существует (ADR-0003, §6, п.7).
       responses:
         "200":
           description: OK
@@ -596,6 +635,11 @@ paths:
       tags: [Operations]
       summary: Редактировать операцию (UC-13) — каскадный пересчет истории (Q4)
       operationId: updateOperation
+      description: >
+        Если изменение влияет на баланс на дату заявленного баланса кошелька (в том числе
+        при переносе на другой кошелек — на оба), корректирующие суммы пересчитываются
+        в той же транзакции (ADR-0003, §6, п.3). Корректирующую сумму редактировать нельзя
+        (§6, п.6) — 409; эта проверка выполняется раньше остальных.
       requestBody:
         required: true
         content:
@@ -607,13 +651,23 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Operation" }
-        "400": { $ref: "#/components/responses/BadRequest" }
+        "400":
+          description: >
+            Ошибка валидации, либо adjustmentMode = Absolute: значение не поддерживается,
+            новое значение баланса задается действием «Указать баланс на дату»
+            (PUT /wallets/{walletId}/stated-balances/{date}).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: >
-            Операция — часть перевода; редактируется/удаляется только через перевод
-            целиком (раздел 4 требований), либо операция удалена — сначала восстановите
-            (POST /operations/{operationId}/restore), либо запись изменена параллельно
+            Операция — корректирующая сумма: ее рассчитывает система, редактировать нельзя
+            (чтобы изменить сумму, добавьте недостающую операцию или исправьте существующую;
+            чтобы заменить заявленный баланс — повторите PUT на ту же дату); либо операция —
+            часть перевода и редактируется/удаляется только через перевод целиком
+            (раздел 4 требований); либо операция удалена — сначала восстановите
+            (POST /operations/{operationId}/restore); либо запись изменена параллельно
             (например, удалена в другой вкладке) — обновите список.
           content:
             application/problem+json:
@@ -626,14 +680,18 @@ paths:
         Мягкое удаление (ADR-0002, §3) с любой датой, включая сегодняшнюю: запись остается
         в БД и в списках с isDeleted = true, исключается из расчетов (баланс кошелька,
         слепки, общая сумма), запускается каскадный пересчет истории от даты операции.
-        Восстановление — POST /operations/{operationId}/restore.
+        Восстановление — POST /operations/{operationId}/restore. Корректирующие суммы
+        заявленных балансов после удаления пересчитываются в той же транзакции
+        (ADR-0003, §6, п.3). Корректирующая сумма мягкому удалению не подлежит
+        (ADR-0002, §3; ADR-0003, §6, п.6).
       responses:
         "204": { description: Удалена }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: >
-            Операция — часть перевода (удалите через DELETE /transfers/{id}), уже удалена
-            либо запись изменена параллельно — обновите список.
+            Операция — корректирующая сумма: ее рассчитывает система, удалить нельзя;
+            либо операция — часть перевода (удалите через DELETE /transfers/{id}); либо уже
+            удалена; либо запись изменена параллельно — обновите список.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -647,7 +705,9 @@ paths:
       operationId: restoreOperation
       description: >
         Снимает мягкое удаление: операция снова участвует в расчетах, история баланса
-        пересчитывается от даты операции.
+        пересчитывается от даты операции. Корректирующие суммы заявленных балансов
+        пересчитываются в той же транзакции (ADR-0003, §6, п.3). Корректирующая сумма
+        не удаляется, поэтому восстанавливать ее нечего (ADR-0002, §3).
       responses:
         "200":
           description: Восстановлена
@@ -657,8 +717,74 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: >
-            Операция — часть перевода (восстановите через POST /transfers/{id}/restore),
-            не удалена либо запись изменена параллельно — обновите список.
+            Операция — корректирующая сумма: ее рассчитывает система, восстанавливать
+            нельзя; либо операция — часть перевода (восстановите через
+            POST /transfers/{id}/restore); либо не удалена; либо запись изменена
+            параллельно — обновите список.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /wallets/{walletId}/stated-balances/{date}:
+    parameters:
+      - $ref: "#/components/parameters/WalletIdParam"
+      - name: date
+        in: path
+        required: true
+        description: >
+          Дата, на конец дня которой заявляется баланс. Допустимый диапазон —
+          от даты начала учета кошелька (accountingStartDate) до сегодняшней даты включительно.
+        schema: { type: string, format: date }
+    put:
+      tags: [Operations]
+      summary: Указать баланс кошелька на конец дня (UC-24, ADR-0003, §6)
+      operationId: setStatedBalance
+      description: >
+        Заявляет баланс X кошелька на конец дня из пути. Заявленный баланс — факт от
+        пользователя, система его не меняет; расхождение с операциями записывается как
+        корректирующая сумма на эту дату (§6, п.1–2): X минус баланс на конец дня без нее.
+        В ответе — эта корректирующая сумма (Operation с isCorrection = true,
+        statedBalance = X, amount — сумма со знаком, operationTypeId = null,
+        adjustmentMode = null); она может быть нулевой.
+
+        Повторный ввод на ту же дату заменяет прежнее значение (§6, п.8): запись та же, id не
+        меняется; ввод того же значения — 200 без изменений. Отдельной записи для управления
+        заявленным балансом нет: отменить его нельзя, только заменить.
+
+        Все операции с датой на день заявления и раньше входят в баланс на конец дня и
+        поглощаются корректирующей суммой, в том числе внесенные позже (§6, п.4). Несколько
+        заявленных балансов обрабатываются по порядку дат (§6, п.5). Корректирующие суммы
+        кошелька, баланс кошелька, слепки истории и аудит обновляются в одной транзакции;
+        каскадный пересчет слепков идет от даты заявления до сегодня (ADR-0003, §2).
+        Пример: операции +500 (1 сентября) и −200 (10 сентября), заявлено 350 на
+        10 сентября → корректирующая сумма +50 («Неизвестные доходы»).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StatedBalanceRequest" }
+      responses:
+        "201":
+          description: Баланс на эту дату заявлен впервые; создана корректирующая сумма.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operation" }
+        "200":
+          description: Баланс на эту дату уже был заявлен; прежнее значение заменено.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operation" }
+        "400":
+          description: >
+            Дата вне диапазона [accountingStartDate .. сегодня] либо сумма невалидна
+            (не число). Отрицательная сумма допустима.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Запись изменена параллельно — повторите запрос.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -1105,17 +1231,54 @@ components:
     # ---- Operations ----
     Operation:
       type: object
-      required: [id, walletId, operationTypeId, amount, operationDate, isDeleted, deletedAt, createdAt, updatedAt]
+      description: >
+        Операция кошелька: обычная (доход, расход, корректировка дельтой, нога перевода)
+        либо корректирующая сумма — системная запись, которую создает и пересчитывает
+        система для заявленного баланса (ADR-0003, §6). Корректирующая сумма отличается
+        признаком isCorrection = true; у нее нет типа операции и режима корректировки.
+        Название корректирующей суммы в ответе не передается — клиент выводит его по знаку
+        amount: «Неизвестные траты» (amount меньше нуля) или «Неизвестные доходы»
+        (amount больше нуля). Корректирующая сумма не подлежит мягкому удалению
+        (isDeleted всегда false), не редактируется и не восстанавливается (409).
+      required: [id, walletId, operationTypeId, amount, operationDate, isCorrection, isDeleted, deletedAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid, readOnly: true }
         walletId: { type: string, format: uuid }
-        operationTypeId: { type: string, format: uuid }
-        amount: { $ref: "#/components/schemas/Money" }
+        operationTypeId:
+          type: [string, "null"]
+          format: uuid
+          description: >
+            Тип операции. null только у корректирующей суммы (isCorrection = true);
+            у остальных операций заполнен всегда.
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: >
+            Сумма операции. У корректирующей суммы — рассчитанная системой сумма со знаком
+            (заявленный баланс минус баланс на конец дня operationDate без этой суммы);
+            пересчитывается при любом изменении операций кошелька, влияющем на этот день.
         operationDate: { type: string, format: date }
         adjustmentMode:
           type: [string, "null"]
-          enum: [Absolute, Delta, null]
-          description: Заполнено только когда operationType ссылается на behaviorKind = Adjustment (Q3).
+          enum: [Delta, null]
+          description: >
+            Заполнено только когда operationType ссылается на behaviorKind = Adjustment (Q3):
+            Delta — сумма изменения баланса, введенная пользователем (ADR-0003, §6, п.9).
+            У корректирующей суммы и у операций других видов — null. Новое значение
+            баланса на дату задается не операцией, а PUT /wallets/{walletId}/stated-balances/{date}.
+        isCorrection:
+          type: boolean
+          readOnly: true
+          description: >
+            Корректирующая сумма заявленного баланса (ADR-0003, §6). Системная запись:
+            PATCH, DELETE и restore для нее возвращают 409.
+        statedBalance:
+          readOnly: true
+          description: >
+            Заявленный баланс X на конец дня operationDate — значение, введенное пользователем
+            (ADR-0003, §6, п.1). Заполнено только у корректирующей суммы; у остальных операций null.
+          oneOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
         transferId: { type: [string, "null"], format: uuid, readOnly: true }
         isDeleted:
           type: boolean
@@ -1136,7 +1299,14 @@ components:
         operationTypeId: { type: string, format: uuid }
         amount: { type: string, format: decimal }
         operationDate: { type: string, format: date }
-        adjustmentMode: { type: string, enum: [Absolute, Delta] }
+        adjustmentMode:
+          type: string
+          enum: [Delta]
+          description: >
+            Единственный режим корректировки — Delta (сумма изменения баланса со знаком,
+            ADR-0003, §6, п.9). Значение Absolute не поддерживается: запрос отклоняется
+            с 400. Новое значение баланса на дату задается через
+            PUT /wallets/{walletId}/stated-balances/{date}.
     OperationUpdateRequest:
       type: object
       properties:
@@ -1151,7 +1321,24 @@ components:
         operationTypeId: { type: string, format: uuid }
         amount: { type: string, format: decimal }
         operationDate: { type: string, format: date }
-        adjustmentMode: { type: string, enum: [Absolute, Delta] }
+        adjustmentMode:
+          type: string
+          enum: [Delta]
+          description: >
+            Единственный режим корректировки — Delta. Значение Absolute не поддерживается:
+            запрос отклоняется с 400. Новое значение баланса на дату задается через
+            PUT /wallets/{walletId}/stated-balances/{date}.
+    StatedBalanceRequest:
+      type: object
+      required: [amount]
+      properties:
+        amount:
+          type: string
+          format: decimal
+          description: >
+            Заявленный баланс кошелька на конец дня из пути запроса (ADR-0003, §6, п.1, п.4)
+            в валюте кошелька. Отрицательное значение допустимо.
+          example: "350.00"
     OperationPage:
       type: object
       required: [data, pagination]

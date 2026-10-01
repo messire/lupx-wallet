@@ -12,6 +12,17 @@ public sealed class TransferRepository(OperationsDbContext dbContext) : ITransfe
     public Task<Transfer?> GetByIdAsync(TransferId id, CancellationToken cancellationToken) =>
         dbContext.Transfers.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
+    public async Task<TransferWalletIds?> FindWalletIdsAsync(TransferId id, CancellationToken cancellationToken)
+    {
+        var rows = await dbContext.Transfers
+            .AsNoTracking()
+            .Where(x => x.Id == id)
+            .Select(x => new TransferWalletIds(x.SourceWalletId, x.TargetWalletId))
+            .ToListAsync(cancellationToken);
+
+        return rows.Count == 0 ? null : rows[0];
+    }
+
     public async Task<TransferPageResult> ListAsync(
         WalletId? walletId, TransferCursor? afterCursor, int limit, CancellationToken cancellationToken)
     {

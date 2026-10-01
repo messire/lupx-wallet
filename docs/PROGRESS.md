@@ -173,6 +173,469 @@ Preview-сборки, со слов пользователя, открывают
 - Тесты планировщика могут быть нестабильны около полуночи UTC (`Today` в тесте vs `UtcNow` в сервисе); `TimeProvider` в проекте не внедрён — общий долг.
 - Оставшиеся предупреждения CS9107 в `AuditApiTests`/`CrossModuleContractsRegistrationTests` снимаются переходом на `IntegrationTestBase.Fixture`.
 
+## ПЛАН: внедрение ADR-0003 §6 — заявленный баланс и корректирующая сумма (2026-10-01)
+
+**Статус: запланирован, к выполнению.** Блок C.
+
+Источник правды: [ADR-0003](architecture/adr/0003-balance-history.md) §6 (вместе с примером, «Последствия», «Состояние реализации», «Отклонённые варианты»). Смежные документы:
+- [ADR-0002](architecture/adr/0002-record-lifecycle.md): §1 — историей считаются только факты от пользователя; §2 — заявленные балансы не история кошелька и удаляются вместе с ним; §3 — корректирующая сумма мягкому удалению не подлежит.
+- [ADR-0006](architecture/adr/0006-audit.md) — аудит каждого изменения корректирующей суммы.
+- [ADR-0001](architecture/adr/0001-modular-monolith.md): §3 — синхронный порт для обязательного эффекта; §4 — одна транзакция; §5 — события; §6 — фоновые задачи.
+- Решения пользователя: вопрос 1, п.1–12, и «Итог», п.1–2 — заявленный баланс не история, данные тестовые.
+
+План составлен по коду ветки `release-candidates/v0.3.0` (коммит `3874073`). Scope — **XL**: Operations (модель, миграция с преобразованием данных, все команды, новая команда и эндпоинт, фоновый проход, подписчики на события Wallets), BalanceHistory, Audit, UI «Операции», контракт, e2e. Пункты разбиты так, чтобы не пересекаться по файлам.
+
+Уроки блоков A и B заложены в DoD сразу, а не оставлены ревью:
+- тексты исключений без GUID, путей API и ссылок на разделы документов;
+- гонки параллельных запросов (двойная дельта, 500 вместо 409);
+- advisory lock и порядок блокировок (40P01 при встречных переводах);
+- порядок доменных проверок;
+- идентификаторы плана в комментариях кода;
+- доступность (имя, `aria-describedby`, live-область, возврат фокуса, бейдж текстом, а не цветом);
+- тест должен краснеть на старом коде, а фейк не должен проверять сам себя.
+
+### П.0. Вне объёма (сознательно)
+
+- **Отмена заявленного баланса и экран со списком заявленных балансов.** ADR-0003 §6 п.8: исправление только повторным вводом, отдельной записи для управления нет. Следствие «отменить нельзя» в «Итоге» помечено как неподтверждённое. План реализует ADR как написан; отмену при необходимости можно добавить позже, отдельным пунктом.
+- **Отметка дат заявленного баланса на экране «История баланса» и действие «Указать баланс» в меню карточки кошелька.** ADR этого не требует.
+- **Пакетирование каскадного пересчёта.** Один проход BalanceHistory на кошелёк за команду вместо прохода на каждое событие — оптимизация. Лимит `TransactionScope` в 60 с остаётся известным риском (ADR-0003 «Последствия»).
+- **Внутренние имена полей в `changes` аудита** (`_amount`, `_appliedDeltaAmount`) и формат меток времени. Это общий долг ADR-0006, не этого блока.
+- HTML/JS-макеты `docs/design/*.html|*.js` не переделываются; текстовые спецификации экранов обновляются.
+- `TimeProvider` не внедряется (общий долг).
+
+### П.1. Definition of Done (по пунктам ADR-0003 §6)
+
+**Ввод заявленного баланса (§6 п.1, п.8)**
+- D1.1 `PUT /wallets/{walletId}/stated-balances/{date}`, тело `{amount}`:
+  - **201** — баланс на эту дату заявлен впервые; **200** — заменён;
+  - в теле — `Operation` корректирующей суммы: `isCorrection: true`, `statedBalance` = X, `amount` = корректирующая сумма со знаком, `operationTypeId: null`, `adjustmentMode: null`;
+  - дата вне `[AccountingStartDate .. сегодня]` → 400;
+  - неизвестный кошелёк → 404;
+  - некорректная сумма → 400; отрицательная сумма допустима.
+- D1.2 Повторный ввод на ту же дату заменяет значение — строка та же, `id` не меняется. Ввод того же X → 200 без изменений: без событий, аудита и записи в `wallets`.
+- D1.3 На пару (кошелёк, дата) — не больше одного заявленного баланса. Это гарантирует уникальный частичный индекс. Два параллельных PUT на одну дату дают одну строку, оба ответа 200/201, без 500.
+
+**Корректирующая сумма (§6 п.2, п.4, п.5)**
+- D2.1 Корректирующая сумма = X − баланс на конец дня D без неё. После PUT:
+  - `GET /wallets/{id}/balance?date=D` = X;
+  - слепок за D = X;
+  - даты раньше D не меняются.
+- D2.2 Пример ADR-0003 §6 воспроизводится интеграционным тестом дословно:
+  - исходное состояние: +500 1 сентября; −200 10 сентября и X=350 → +50; +400 20 сентября и X=600 → −150;
+  - внесли −100 от 15 сентября → сумма от 20 сентября становится −50, баланс на 20 сентября = 600;
+  - правка операции от 1 сентября на +600 → сумма от 10 сентября = −50, название меняется; балансы с 10 сентября не меняются.
+- D2.3 Конец дня: операция с датой D, созданная после заявления, поглощается — баланс на D остаётся X.
+- D2.4 Несколько заявленных балансов: каждый поглощает расхождение после предыдущего и не влияет на баланс до своей даты.
+
+**Пересчёт (§6 п.3, ADR-0003 §2)**
+- D3.1 Корректирующие суммы кошелька пересчитываются **в той же транзакции** при каждом изменении операций кошелька:
+  - создание, правка, перенос на другой кошелёк (оба кошелька);
+  - мягкое удаление и восстановление операции;
+  - создание, удаление и восстановление перевода (оба кошелька).
+- D3.2 Операции с датой > D сумму на D не меняют.
+- D3.3 Инвариант после **каждой** команды: `Wallet.CurrentBalance` = `InitialBalance` + Σ `AppliedDelta` всех не удалённых операций кошелька, включая корректирующие суммы. Тесты сверяют его на каждом шаге D2.2.
+  - Следствие из ADR-0003 «Последствия»: если позже стоит заявленный баланс, правка более ранней операции не меняет `CurrentBalance`. В этом случае `IWalletBalanceGateway` не вызывается, а запись аудита `WalletBalanceChanged` не появляется.
+- D3.4 Слепки от затронутой даты до сегодня соответствуют пересчитанным суммам.
+
+**Запрет ручных действий и видимость (§6 п.6, п.7)**
+- D4.1 `PATCH`, `DELETE` и `POST …/restore` корректирующей суммы → 409. Текст без идентификаторов: «Это корректирующая сумма — её рассчитывает система…». Проверка «корректирующая сумма» идёт **раньше** проверок «часть перевода» и «удалена».
+- D4.2 В `GET /operations` нулевые корректирующие суммы не попадают. Ненулевые попадают:
+  - внутри своего дня — после всех операций этого дня;
+  - курсорная пагинация без дублей и пропусков;
+  - старый курсор продолжает декодироваться.
+
+  Фильтр `operationTypeId` их исключает. `GET /operations/{id}` возвращает и нулевую.
+- D4.3 Корректировка дельтой (§6 п.9):
+  - `adjustmentMode: Delta` работает как раньше;
+  - `adjustmentMode: Absolute` в `POST`/`PATCH /operations` → 400 с текстом «Новое значение баланса задаётся действием „Указать баланс на дату“».
+
+**Жизненный цикл (ADR-0002 §1–§3, «Итог» п.1)**
+- D5.1 Корректирующие суммы не считаются ни историей кошелька, ни использованием справочников. Число реализаций портов (d) в `CrossModuleContractsRegistrationTests` не меняется: 1 и 2.
+- D5.2 Кошелёк, у которого есть только заявленные балансы:
+  - `DELETE /wallets/{id}` → 204;
+  - его корректирующие суммы физически удалены в той же транзакции;
+  - в аудите по записи `Operation`/`Deleted` с полным снимком на каждую сумму.
+- D5.3 Смена валюты кошелька с заявленными балансами, но без операций → 200. Валюта корректирующих сумм следует за кошельком (аудит `Updated`), числа не меняются. Последующее создание операции → 201.
+- D5.4 Корректирующая сумма не подлежит мягкому удалению: CHECK в БД `is_correction → deleted_at IS NULL` плюс доменный запрет (D4.1).
+
+**Аудит (ADR-0006)**
+- D6.1 Каждое изменение корректирующей суммы фиксируется:
+  - `Created` — первое заявление, полный снимок, включая `StatedBalance`;
+  - `Updated` — замена X;
+  - `Recalculated` — пересчёт системой, diff суммы;
+  - `Deleted` — вместе с кошельком;
+  - `Updated` — смена валюты.
+- D6.2 На одну корректирующую сумму за одну команду — **одна** запись аудита: при создании или замене с одновременным пересчётом второй записи `Recalculated` нет.
+- D6.3 Актор — инициатор: `User` для HTTP-запроса, `System` для стартового прохода сверки (R13).
+- D6.4 Атомарность: у строк `operations`, `wallets`, `balance_snapshots` и `audit_entries` одной команды одинаковый `xmin`. Проверяется для PUT и для `POST /operations`, меняющего корректирующую сумму.
+
+**Параллелизм (уроки шага 1 и блока A)**
+- D7.1 Каждая команда Operations, меняющая операции кошелька, до чтения кошелька, операций и агрегата берёт `pg_advisory_xact_lock` по каждому затронутому кошельку, в порядке возрастания `WalletId`. Ключ — тот же, что у BalanceHistory, функция общая (R4).
+- D7.2 Встречные переводы A→B и B→A параллельно — оба успешны, без 40P01. Это закрывает отложенный пункт шага 1.
+- D7.3 Параллельные PUT заявленного баланса и `POST /operations` по одному кошельку: после обоих баланс на D = X.
+
+**Миграция (R12)**
+- D8.1 Миграция `AddStatedBalanceCorrections` проверена интеграционным тестом на засеянных прежних строках `Absolute`:
+  - уникальная на дату;
+  - дубль на одну дату;
+  - мягко удалённая.
+- D8.2 После миграции и прохода сверки (R13) баланс на D = X; `CurrentBalance` сходится с инвариантом D3.3.
+- D8.3 `Down` при наличии корректирующих сумм падает с понятным текстом, а не теряет данные.
+
+**Frontend (R15)**
+- D9.1 На экране «Операции» есть действие «Указать баланс» (форма: кошелёк, дата, «Баланс на конец дня»). Подсказка «По операциям на конец дня: …» читается через live-область. Форма корректировки предлагает только «Изменение на сумму (+/−)».
+- D9.2 Строка корректирующей суммы:
+  - бейдж «Неизвестные траты» или «Неизвестные доходы» по знаку и бейдж «Система» — текстом;
+  - сумма со знаком;
+  - в колонке «Корректировка» — «Баланс на конец дня: X»;
+  - вместо «···» — только ссылка «История изменений» с доступным именем, включающим название и дату.
+  - Колонка «Корректировка» у обычных операций показывает «Изменение на сумму», а не сырое `Delta`.
+- D9.3 Доступность:
+  - поля через `app-field` (метка, `required`, `aria-describedby` подсказки и ошибки);
+  - ошибка сервера — `role="alert"`;
+  - после закрытия диалога фокус возвращается на «Указать баланс»;
+  - курсив не единственный признак системной строки.
+
+**Качество (все пункты)**
+- `dotnet build` без новых предупреждений; `dotnet test` (unit и integration) зелёный.
+- `node backend/scripts/check-architecture.mjs` — OK. Новая связь: только `Operations.Infrastructure → Wallets.Domain` (способ e).
+- `ng build`, `ng test`, `npm run check:boundaries` — OK; e2e-смоук П.5 зелёный локально.
+- `docs/api/openapi.yaml` совпадает с реализацией (`dotnet-api-compatibility`).
+- В комментариях кода и тестов нет идентификаторов плана (`R…`, `W…`, `D…`, `П.…`) — только ссылки на разделы ADR.
+- Тексты исключений, попадающие в `Problem.detail`, без GUID, путей API и ссылок на документы.
+
+### П.2. Проектные решения уровня реализации (приняты планировщиком, бизнес-правил не меняют)
+
+| # | Решение | Обоснование |
+|---|---|---|
+| R1 | **Корректирующая сумма — строка `operations.operations` с признаком.** Колонки:<br>• `is_correction boolean NOT NULL DEFAULT false`;<br>• `stated_balance_amount numeric NULL` — X, факт от пользователя.<br>У корректирующей строки `amount` = `applied_delta_amount` = сумма со знаком; `operation_type_id`, `adjustment_mode`, `transfer_id`, `deleted_at` — `NULL`.<br>Ограничения:<br>• CHECK: `is_correction = (stated_balance_amount IS NOT NULL)`; корректирующая строка без типа, режима, перевода и удаления; у обычной строки тип обязателен;<br>• уникальный частичный индекс `ux_operations_wallet_correction_date (wallet_id, operation_date) WHERE is_correction`.<br>Отдельной таблицы и отдельного ресурса API для заявленного баланса нет. | ADR-0003 «Последствия» оставляет способ хранения этапу реализации. Строка операции сразу даёт всё, что требует §6: сумму в `IWalletOperationsLookup` (слепки, баланс на дату, историческая сумма), инвариант `CurrentBalance`, место в списке, аудит по diff, `Recalculated`. Заявленный баланс и его корректирующая сумма живут 1:1, а п.12 запрещает отдельную управляемую запись.<br>Отклонено:<br>• **отдельная таблица `stated_balances` и вычисление суммы при чтении** — аудит «каждого изменения суммы» невозможен без хранения, а списку и порту понадобилось бы объединение двух источников;<br>• **системный тип операции в ReferenceData** — пользователь может удалить или деактивировать запись справочника, появляется лишняя межмодульная связь. |
+| R2 | **Владелец алгоритма — Operations.** Чистая политика `StatedBalanceCorrectionCalculator` (`Operations.Application/Policies`): по начальному балансу, обычным дельтам `(дата, сумма)` и корректирующим строкам `(id, D, X, текущая сумма)` по возрастанию D считает новые суммы. Для каждого D: `новая сумма = X − (InitialBalance + Σ обычных ≤ D + Σ новых сумм предыдущих дат)`.<br>Сервис `WalletCorrectionsReconciler` (`IWalletCorrectionsReconciler`, Application):<br>(1) у кошелька нет корректирующих строк → возвращает 0 без чтения журнала (быстрый путь);<br>(2) загружает корректирующие строки с отслеживанием и объединяет их с ещё не сохранёнными из текущей команды;<br>(3) журнал = обычные не удалённые строки кошелька из БД (`AsNoTracking`, проекция) **без** id операций, изменённых в команде, плюс текущее состояние этих операций из памяти (если они принадлежат кошельку, не удалены и не корректирующие);<br>(4) пересчитывает **все** корректирующие строки кошелька и возвращает Σ изменений. | Сохранение заявленного баланса — инвариант самого Operations, поэтому синхронный путь внутри команды (ADR-0001 §3). Межмодульной записи нет. Объединение с памятью нужно потому, что события публикуются только после `SaveChanges` (ADR-0001 §5): промежуточный `SaveChanges` запустил бы каскад BalanceHistory раньше, чем пересчитаны суммы. Полный пересчёт всех сумм кошелька дёшев (их единицы) и сам себя исправляет.<br>Отклонено:<br>• **расширить `BalanceRecalculationService`** — запись из BalanceHistory в Operations и в `CurrentBalance` из обработчика события;<br>• **собственный подписчик Operations на свои события** — результат зависел бы от порядка обработчиков одного события с BalanceHistory. |
+| R3 | **`CurrentBalance`.** Команда применяет одну итоговую дельту на кошелёк = инкрементальная дельта пользовательской операции (как сейчас) + Σ изменений корректирующих сумм. Применяется через существующий `IWalletBalanceGateway.ApplyDeltaAsync`. Если итог 0 — порт не вызывается. Контракт порта не меняется. `OperationEffectCalculator.ComputeBaseline` и ветка `Absolute` удаляются. | Закрывает п.4 ADR-0003 «Последствия»: эффект перестаёт быть локальной дельтой, но по-прежнему применяется синхронно и атомарно через порт и теперь учитывает поглощение корректирующей суммой. Инвариант D3.3 держится по построению.<br>Отклонено: **новый порт `SetCurrentBalance` от истории** — лишний записывающий метод, который скрывал бы расхождения. «Исцеление» есть только в сверке (R13). |
+| R4 | **Блокировки.** Общий помощник в `BuildingBlocks.Infrastructure` (`WalletAdvisoryLock.AcquireAsync(DatabaseFacade, WalletId, ct)`) с **тем же ключом**, что сейчас у `BalanceHistoryUnitOfWork`: `hashtextextended(<guid>::text, 0)`. Использование:<br>• `IOperationsUnitOfWork.AcquireWalletLocksAsync(IEnumerable<WalletId>)` — уникальные id по возрастанию `Guid`;<br>• Update, Delete, Restore: сначала лёгкий запрос `WalletId` (и `TransferId`) без отслеживания → блокировка → загрузка агрегата с отслеживанием;<br>• перенос операции и перевод — блокировки обоих кошельков;<br>• `BalanceHistoryUnitOfWork` переходит на тот же помощник. | Без сериализации два параллельных запроса считали бы суммы по журналу без чужого изменения, и заявленный баланс не держался бы. Ключ общий, а все `DbContext` одной команды работают через одно физическое соединение транзакции (ADR-0001 §4; доказано тестами `xmin`). Поэтому повторный захват в BalanceHistory — повторный вход, а не самоблокировка. Порядок по `Guid` закрывает отложенную взаимную блокировку встречных переводов.<br>Отклонено: **токен параллелизма на корректирующих строках** — 409 на любую параллельную операцию в кошельке. |
+| R5 | **Команда `SetStatedBalanceCommand(WalletId, Date, Amount)`** (`ICommand`), эндпоинт `PUT /wallets/{walletId}/stated-balances/{date}` (Operations.Api, тег Operations, `operationId: setStatedBalance`), тело `StatedBalanceRequest {amount: string decimal}`. Порядок:<br>(1) блокировка;<br>(2) кошелёк через порт (404);<br>(3) `OperationDateValidator` (400);<br>(4) корректирующая строка на (кошелёк, D) с отслеживанием: нет → `Operation.CreateCorrection`, есть → `ReplaceStatedBalance(X)` (при том же X — без изменений);<br>(5) `WalletCorrectionsReconciler`;<br>(6) итоговая дельта (R3);<br>(7) `SaveChanges`.<br>Ответ 201 или 200 (R7 контракта). Нарушение `ux_…_correction_date` (23505) при гонке, не закрытой блокировкой, → 409 «изменено параллельно». | PUT на естественный ключ (кошелёк, дата) — прямое выражение п.12 «повторный ввод заменяет». Маршрут под `/wallets/{id}/…` уже использует другой модуль (`/balance` у BalanceHistory).<br>Отклонено: **оставить `adjustmentMode: Absolute` в `POST /operations` с новым смыслом** — тогда нужен тип операции, а пользовательская и системная записи смешиваются в одном вызове. |
+| R6 | **Корректировка дельтой.** В `AdjustmentMode` остаётся только `Delta`. CHECK — `adjustment_mode IN ('Delta') OR NULL`. `Absolute` в запросе распознаётся до привязки к enum → 400 с понятным текстом (D4.3). | §6 п.9. Q3 («оба способа на выбор») выполняется двумя точками входа в UI (R15). |
+| R7 | **Домен `Operation`.** Новые свойства:<br>• `IsCorrection`;<br>• `StatedBalance` (`Money?`);<br>• `OperationTypeId` становится `OperationTypeId?`.<br>Новые методы:<br>• `CreateCorrection(id, walletId, currencyId, date, statedBalance)` → `OperationCreated`, сумма 0;<br>• `ReplaceStatedBalance(Money)` → `OperationUpdated(Id, WalletId, D, D, WalletId)` только при изменении;<br>• `ApplyRecalculatedDelta(decimal)` → `_amount = _appliedDeltaAmount = значение`, `UpdatedAt`; событие `CorrectionRecalculated` поднимается, **только если у агрегата нет других неопубликованных событий** (D6.2);<br>• `RebaseCurrency(CurrencyId)` → `CorrectionCurrencyChanged`;<br>• `MarkRemovedWithWallet()` → `CorrectionRemoved`.<br>`Update`, `MoveToWallet`, `SoftDelete`, `Restore`, `EnsureEditable` на корректирующей строке → `CorrectionNotEditableException` (409); проверка стоит **первой**. Для обычной строки тип обязателен. | Инварианты в агрегате, порядок проверок — урок блока A (PATCH «ноги»). Повторно использованные `OperationCreated` и `OperationUpdated` уже правильно обрабатываются BalanceHistory (каскад от D) и Audit (`Created`/`Updated`). |
+| R8 | **Новые события** (`Operations.Domain/Events/OperationEvents.cs`):<br>• `CorrectionRecalculated(OperationId, WalletId, OperationDate)` → Audit `Recalculated` (diff из `ChangeTracker`), BalanceHistory — пересчёт от даты;<br>• `CorrectionRemoved(OperationId, WalletId, OperationDate)` → Audit `Deleted` (полный снимок, состояние `Deleted`); BalanceHistory не подписан — слепки удаляет его собственный `WalletDeletedHandler`;<br>• `CorrectionCurrencyChanged(OperationId, WalletId)` → Audit `Updated`; BalanceHistory **не подписан**. | Подписка BalanceHistory на `CorrectionCurrencyChanged` при неудачном порядке обработчиков `WalletCurrencyChanged` ударила бы в инвариант неизменяемой валюты слепка (`BalanceSnapshot.UpdateBalance`). На `CorrectionRecalculated` BalanceHistory подписан ради стартовой сверки (R13) и независимости от порядка. Лишний проход в обычных командах принят (П.6 №2). |
+| R9 | **История, использование, жизненный цикл кошелька:**<br>• `OperationsWalletHistorySource` и `OperationsReferenceItemUsageProbe` исключают `IsCorrection`;<br>• новый `Operations.Infrastructure/Integration/WalletEventHandlers.cs` под блокировкой кошелька. На `WalletDeleted` — `MarkRemovedWithWallet` и `IOperationRepository.RemoveCorrection` (удаляет **только** корректирующие строки). На `WalletCurrencyChanged` — `RebaseCurrency` всех корректирующих строк;<br>• новая ссылка `Operations.Infrastructure → Wallets.Domain` (способ e, разрешено `module-rules.mjs`, цикла нет). | ADR-0002 §1 («историей считаются только факты от пользователя»), §2 и «Итог» п.1 («кошелёк без операций удаляется вместе со своими заявленными балансами»). Формулировка вопроса 2 «включая корректирующие операции» относится к модели до уточнения п.8 от 2026-09-30 (сумма стала системной) и ею перекрыта (П.8, прочтение 1). Валюта суммы следует за кошельком по аналогии с перестройкой слепков (ADR-0002 «Последствия»). |
+| R10 | **Чтение:**<br>• `ListAsync` исключает `is_correction AND amount = 0`;<br>• сортировка `(operation_date, is_correction, created_at)` по возрастанию;<br>• `OperationCursor` получает `IsCorrection`; курсор без поля декодируется как `false`;<br>• `OperationDto`: `OperationTypeId` nullable, `IsCorrection`, `StatedBalanceAmount`.<br>Контракт `Operation`:<br>• `operationTypeId: [string, null]`;<br>• `isCorrection` — обязательный, только для чтения;<br>• `statedBalance` — `Money` или `null`, только для чтения;<br>• `adjustmentMode` — `[Delta, null]`. | §6 п.7 (нулевая не показывается), п.4 (конец дня — последней в своём дне). `GET /operations/{id}` нулевую не скрывает: запись существует, на неё ссылается аудит. |
+| R11 | **Аудит:**<br>• `RecordFromChangeTrackerAsync` для всех действий корректирующей суммы;<br>• актор наследуется (ADR-0006, механизм актора);<br>• новые обработчики в `OperationsAuditHandlers.cs` и регистрации в `AuditModuleExtensions.cs`. | ADR-0006 §1, «Что фиксируется». Объём — одна запись на изменённую сумму за команду; сумм единицы, нагрузка несущественна. |
+| R12 | **Миграция `AddStatedBalanceCorrections`** (Operations, генерируется `dotnet ef`, преобразование данных — `migrationBuilder.Sql`):<br>(1) колонки R1, `operation_type_id DROP NOT NULL`;<br>(2) среди не удалённых строк `Absolute` в каждой паре (кошелёк, дата) берётся самая поздняя по `(created_at, id)`. Она становится корректирующей: `stated_balance_amount := amount`, `amount := applied_delta_amount` (прежний эффект до сверки R13), `operation_type_id := NULL`, `adjustment_mode := NULL`, `is_correction := true`;<br>(3) остальные строки `Absolute` (более ранние дубли на ту же дату и мягко удалённые) → `adjustment_mode := 'Delta'`, `amount := applied_delta_amount`. Их эффект на баланс сохраняется в точности; дубли на дату D поглощаются суммой на D;<br>(4) новые CHECK и индекс R1, CHECK режима R6;<br>(5) `Down`: если есть `is_correction`, то `RAISE EXCEPTION` («миграция необратима: есть заявленные балансы»), иначе снять колонки и ограничения. | Принцип §6: «введённое пользователем не меняется» — X сохраняется как заявленный баланс; «рассчитанное — пересчитывается» — сумма пересчитывается сверкой. Данные тестовые («Итог» п.2). Преобразование теряет только `operation_type_id` преобразованных строк и X у дублей и удалённых строк; значения остаются в записях аудита `Created`. Это изменение данных подпадает под «Критичный стоп» п.2 **только если такие строки есть в боевой базе** — проверка до слияния в `master`, П.7. В пустых базах (Testcontainers, свежий dev) стопа нет. |
+| R13 | **Сверка.** Команда `ReconcileWalletCorrectionsCommand(WalletId)` (`ICommand`, Operations.Application):<br>• блокировка, пересчёт всех сумм кошелька;<br>• `CurrentBalance` приводится к инварианту: применяется `ожидаемый − текущий`, только здесь;<br>• без изменений — без событий и аудита.<br>`StatedBalanceReconciliationHostedService` (`Operations.Infrastructure/BackgroundJobs`):<br>• один раз при старте, по кошелькам, у которых есть корректирующие строки (`IOperationRepository.GetWalletIdsWithCorrectionsAsync`);<br>• отдельный DI-scope на кошелёк, `SetSystemActor`, отправка команды через `ISender`;<br>• ошибка кошелька логируется и не останавливает проход и хост. | Нужна после миграции R12 (суммы `Absolute` считались от `CurrentBalance`, а не от баланса на D) и как самоисправление. Фоновая задача принадлежит модулю, чьей операцией управляет (ADR-0001 §6), устроена по образцу планировщика слепков (scope на кошелёк). В тестовом хосте фоновые сервисы отключены — тесты вызывают команду через помощник (R16). |
+| R14 | **BalanceHistory:**<br>• `CorrectionRecalculatedHandler` → `RecalculateFromAsync(walletId, date)`, ручная регистрация;<br>• `BalanceHistoryUnitOfWork` переходит на общий помощник блокировки (R4);<br>• `BalanceRecalculationService` не меняется, только комментарий: в сумму входят корректирующие суммы. | ADR-0003 §1 уже определяет баланс на дату через Σ `AppliedDelta`, включая корректирующие суммы. |
+| R15 | **Frontend:**<br>• `data-access/operations` — модель (`operationTypeId: string \| null`, `isCorrection`, `statedBalance`, `AdjustmentMode = 'Delta'`), `setStatedBalance(walletId, date, amount)` → `PUT`;<br>• новый `features/operations/components/stated-balance-form/`: кошелёк из тех же вариантов, что в форме операции; дата по умолчанию сегодня, `min` = дата начала учёта, `max` = сегодня; поле «Баланс на конец дня», знак допустим; после выбора кошелька и даты — «По операциям на конец дня: N» из `GET /wallets/{id}/balance?date=` в `aria-live="polite"`. Подсказка: «Расхождение с операциями будет записано как „Неизвестные траты“ или „Неизвестные доходы“. Если на эту дату баланс уже указан, новое значение заменит прежнее»;<br>• экран «Операции»: кнопка «Указать баланс» (secondary) рядом с «Добавить операцию»; диалог; тост «Баланс на {дата} указан»; перезагрузка списка; возврат фокуса;<br>• форма операции: радиогруппа убрана, у типа Adjustment подпись «Изменение баланса (+/−)» и подсказка со ссылкой на «Указать баланс»;<br>• строка корректирующей суммы — по D9.2, класс `is-correction` в scss компонента (курсив), **не** серый цвет: серый уже означает «удалена». | Q3 сохраняется: оба способа ввода доступны и выбираются пользователем. Для заявленного баланса не нужен тип операции. Префилл значения на дату помогает повторному вводу (п.12) без отдельного ресурса. |
+| R16 | **Тестовая инфраструктура** (у каждого общего файла один владелец):<br>• **W1.1** владеет `IntegrationTests/Infrastructure/TestDataBuilder.cs` (+ `SetStatedBalanceAsync`) и новым `IntegrationTests/Infrastructure/StatedBalanceTestHelpers.cs` (`RunCorrectionsReconciliationAsync(walletId)` — scope, актор `System`, `ISender`);<br>• **W2.2** — `frontend/e2e/fixtures.ts`;<br>• `CrossModuleContractsRegistrationTests.cs` не меняется (числа 1 и 2); W2.1 добавляет только проверку регистрации нового обработчика `WalletDeleted`. | По образцу блока B (R20). |
+| R17 | **Технические решения записываются в ADR-0003 новым §7 «Технические решения реализации»** (по образцу ADR-0002 §6 и ADR-0004 §10); отдельный ADR не нужен. | ADR-0003 «Последствия» прямо делегирует выбор способа хранения реализации; решения R1–R4, R12, R13 — в его рамках. |
+
+### П.3. Волны выполнения
+
+Параллельность определяется границами модулей и непересечением файлов. В W1 каждый backend-вызов собирает только свои проекты; полный `dotnet test` — в W2.
+
+| Волна | Вызовы | Запуск |
+|---|---|---|
+| **W0** | 2 × `backend-services-engineer` | **одним сообщением**, блокирует W1 |
+| **W1** | 3 × `backend-services-engineer` + 1 × `ui-builder` + 1 × `architecture-documenter` | **5 вызовов одним сообщением** |
+| **W2** | 2 × `tdd-test-engineer` (backend; frontend + e2e) | одним сообщением |
+| **W3** | `code-quality-reviewer` + `ux-parity-reviewer` | одним сообщением |
+| W3.1 | исправления по ревью — владельцам файлов из W1, параллельно по модулям | только при находках |
+| **W4** | 1 × `architecture-documenter` (итоговая сверка ADR) | один |
+
+Итого 12 вызовов (+ условные исправления W3.1).
+
+#### W0 — контракт и модель (2 параллельных вызова)
+
+**W0.1. Контракт API — `backend-services-engineer`** (`api-designer`, `dotnet-api-compatibility`)
+- `docs/api/openapi.yaml`:
+  - схема `Operation` по R10; `OperationCreateRequest`/`OperationUpdateRequest` — `adjustmentMode: [Delta]`, описание 400 для `Absolute`;
+  - новые путь `PUT /wallets/{walletId}/stated-balances/{date}` (`setStatedBalance`, тег Operations, параметр `date` формата `date`) и схема `StatedBalanceRequest {amount}`. Ответы: 201 и 200 — `Operation`; 400 — дата вне диапазона или сумма; 404 — кошелёк; 409 — изменено параллельно;
+  - `PATCH`/`DELETE /operations/{id}` и `POST …/restore` — 409 «корректирующая сумма рассчитывается системой»;
+  - `GET /operations` — корректирующие суммы включены, нулевые скрыты, порядок внутри дня, фильтр по типу их не включает;
+  - `DELETE /wallets/{id}` — 204, «заявленные балансы и корректирующие суммы удаляются вместе с кошельком; историей не считаются»;
+  - `PUT /wallets/{id}/currency` — заявленные балансы смену не блокируют;
+  - `GET /wallets/{id}/balance` и `/balance-history` — включают корректирующие суммы.
+- Проверка: YAML валиден. Не трогать: код.
+- Риск: несовместимость проводного формата для preview-frontend против backend из `master` (`operationTypeId: null`, `Absolute` → 400). Принят пользователем (вопрос 6).
+
+**W0.2. Модель, хранение, миграция — `backend-services-engineer`** (`dotnet-ddd-clean-architecture`, `dotnet-efcore-data`, `postgres-pro`)
+- `BuildingBlocks/Infrastructure/WalletAdvisoryLock.cs` — новый, R4; ключ дословно как в `BalanceHistoryUnitOfWork`.
+- Operations.Domain:
+  - `Operation.cs` (R7), `OperationEnums.cs` (R6);
+  - `Events/OperationEvents.cs` (R8 — объявления и комментарий класса);
+  - `Exceptions/OperationExceptions.cs`: `CorrectionNotEditableException`, `AbsoluteAdjustmentNotSupportedException`. Тексты без идентификаторов; `AdjustmentModeRequiredException` — без упоминания `Absolute`.
+- Operations.Infrastructure/Persistence:
+  - `Configurations/OperationConfiguration.cs` (R1, R6);
+  - `Repositories/OperationRepository.cs`: `ListAsync` по R10 и новые методы `FindWalletIdAsync`, `GetCorrectionsAsync`, `GetCorrectionAsync(walletId, date)`, `GetRegularLedgerAsync(walletId, excludingIds)`, `AnyCorrectionsAsync`, `GetWalletIdsWithCorrectionsAsync`, `RemoveCorrection`;
+  - `TransferRepository.cs` (`FindWalletIdsAsync`), `OperationsUnitOfWork.cs` (`AcquireWalletLocksAsync`);
+  - миграция `AddStatedBalanceCorrections` + `OperationsDbContextModelSnapshot.cs` (R12).
+- Operations.Application — интерфейсы и восстановление компиляции **без нового поведения**:
+  - `Abstractions/Persistence/{IOperationRepository, ITransferRepository, IOperationsUnitOfWork}.cs`;
+  - `Models/OperationDto.cs`;
+  - `UseCases/ListOperations/ListOperationsQuery.cs` (курсор);
+  - `Policies/OperationEffectCalculator.cs` (только `Delta`, без baseline);
+  - `CreateOperation`/`UpdateOperation` — только вызовы калькулятора.
+- Operations.Api: `Contracts/OperationsContracts.cs` — ответ по R10, распознавание `Absolute` → 400. Эндпоинт PUT **не** добавлять — он в W1.1.
+- Тесты — только восстановление компиляции и замена устаревших `Absolute`-ожиданий:
+  - `UnitTests/Operations/{OperationTests, OperationEffectCalculatorTests, CreateOperationCommandHandlerTests, UpdateOperationCommandHandlerTests}.cs`;
+  - `IntegrationTests/Operations/OperationsApiTests.cs`.
+- Проверка: `dotnet build` всего решения после W0 — зелёный; `dotnet ef migrations script` — SQL просмотрен; интеграционные тесты Operations зелёные.
+- Не трогать: `openapi.yaml`, BalanceHistory, Audit, `Operations.Application/UseCases/*` сверх названного.
+- Риск: П.6 №1 (данные миграции), №3 (повторный вход блокировки — ключ строго тот же).
+
+#### W1 — пять параллельных вызовов (одним сообщением)
+
+**W1.1. Operations: поведение, эндпоинт, подписчики, сверка — `backend-services-engineer`** (`dotnet-core-expert`, `dotnet-ddd-clean-architecture`, `dotnet-efcore-data`, `dotnet-concurrency`)
+- Operations.Application:
+  - новые `Policies/StatedBalanceCorrectionCalculator.cs` и `Policies/WalletCorrectionsReconciler.cs` + `Abstractions/IWalletCorrectionsReconciler.cs` (R2);
+  - новые `UseCases/SetStatedBalance/SetStatedBalanceCommand.cs` (R5), `UseCases/ReconcileWalletCorrections/ReconcileWalletCorrectionsCommand.cs` (R13);
+  - изменить `CreateOperation`, `UpdateOperation` (оба кошелька при переносе), `DeleteOperation`, `RestoreOperation`, `CreateTransfer`, `DeleteTransfer`, `RestoreTransfer`: блокировки (R4) → агрегат → сверка → одна итоговая дельта на кошелёк (R3);
+  - `Abstractions/Integration/IWalletOperationsLookup.cs` — комментарий: включает корректирующие суммы.
+- Operations.Infrastructure:
+  - `Integration/{OperationsWalletHistorySource, OperationsReferenceItemUsageProbe}.cs` (R9);
+  - новый `Integration/WalletEventHandlers.cs` (R9);
+  - новый `BackgroundJobs/StatedBalanceReconciliationHostedService.cs` (R13);
+  - `OperationsModuleExtensions.cs` (регистрации); `LupexWallet.Operations.Infrastructure.csproj` (+ `Wallets.Domain`).
+- Operations.Api: `Endpoints/OperationsEndpointsExtensions.cs` — PUT, 201/200; `CorrectionNotEditableException` в `IsLifecycleConflict` → 409; 23505 → 409.
+- Тесты:
+  - восстановление компиляции всех `UnitTests/Operations/*CommandHandlerTests.cs` (новые зависимости конструкторов);
+  - `IntegrationTests/Operations/{OperationsApiTests, TransfersApiTests, RecordLifecycleConcurrencyTests, RecordLifecycleAtomicityTests}.cs` — только восстановление;
+  - **владелец W1.1:** `IntegrationTests/Infrastructure/TestDataBuilder.cs`, новый `StatedBalanceTestHelpers.cs` (R16);
+  - один интеграционный «дымовой» тест повторного входа блокировки: `POST /operations` в кошелёк с заявленным балансом не зависает (П.6 №3).
+- Не трогать: Persistence (владелец — W0.2; если нужен новый метод репозитория, добавить его в W1.1 с пометкой в отчёте), BalanceHistory, Audit, `openapi.yaml`.
+- Зависимости: W0. Риски: П.6 №2, 3, 4.
+
+**W1.2. BalanceHistory — `backend-services-engineer`** (`dotnet-core-expert`)
+- `Infrastructure/Integration/OperationEventHandlers.cs` (+ `CorrectionRecalculatedHandler`, R14);
+- `Infrastructure/BalanceHistoryModuleExtensions.cs` (регистрация);
+- `Infrastructure/Persistence/BalanceHistoryUnitOfWork.cs` (помощник R4);
+- `Application/Policies/BalanceRecalculationService.cs` (только комментарий).
+- Тесты: `UnitTests/BalanceHistory/*` — только если ломается компиляция.
+- Зависимости: W0.2. Риск: минимальный.
+
+**W1.3. Audit — `backend-services-engineer`** (`dotnet-core-expert`)
+- `Infrastructure/Integration/OperationsAuditHandlers.cs`: `CorrectionRecalculated` → `Recalculated`, `CorrectionRemoved` → `Deleted`, `CorrectionCurrencyChanged` → `Updated` (R11);
+- `AuditModuleExtensions.cs` (3 регистрации).
+- Тесты: `UnitTests/Audit/*` — только если ломается компиляция.
+- Зависимости: W0.2. Риск: минимальный.
+
+**W1.4. UI «Операции» — `ui-builder`** (`angular-architect`)
+- Файлы:
+  - `data-access/operations/operations-api.{models,service}.ts`;
+  - `features/operations/components/operation-form/*`;
+  - новый `features/operations/components/stated-balance-form/*`;
+  - `features/operations/pages/operations-page/operations-page.component.{ts,html,scss}`;
+  - `features/operations/operations.models.ts` (если нужны метки).
+- Всё по R15, D9.1–D9.3.
+- Документы:
+  - `docs/design/screen-spec.md` («Операции»: «Указать баланс», системная строка, только «Изменение на сумму»);
+  - `docs/design/ui-kit.md` §5 «Таблица / строка списка» — состояние «системная запись»;
+  - `docs/design/verification.md` — строка «Форма операции»: удалить упоминание `Absolute`.
+- Тесты: восстановление компиляции `*.spec.ts` своих файлов.
+- Не трогать: `frontend/e2e/**`, `styles.scss`, другие фичи.
+- Зависимости: W0.1. Риски: контраст курсива на стекле, `forced-colors`, длинные названия бейджей на 360 px.
+
+**W1.5. Требования и модель — `architecture-documenter`**
+- `docs/requirements/user-scenarios.md`:
+  - UC-24 переписать: дельта — операция типа Adjustment; «Указать баланс на дату» — заявленный баланс и корректирующая сумма, повторный ввод заменяет, нулевая не показывается, ручная правка и удаление запрещены; строку Q3 сохранить с пояснением;
+  - UC-13, UC-14, UC-16, UC-23 — пересчёт корректирующих сумм; UC-14 — убрать «правило вступает в силу вместе с заявленным балансом»;
+  - UC-04, UC-02 — заявленные балансы не история, удаляются вместе с кошельком, при смене валюты следуют за ним.
+- `docs/requirements/glossary.md`: Stated Balance (заявленный баланс), Balance Correction (корректирующая сумма, «Неизвестные траты/доходы»); Manual Balance Adjustment — без «абсолютного нового значения» как операции.
+- `docs/architecture/ddd-model.md`:
+  - §2.4 — `Operation` с `IsCorrection`, `StatedBalance`; `AdjustmentInput` только `Delta`;
+  - §5 — инварианты;
+  - §6 — команды `SetStatedBalance`, `ReconcileWalletCorrections`; события `CorrectionRecalculated`, `CorrectionRemoved`, `CorrectionCurrencyChanged`; реакции Operations на `WalletDeleted` и `WalletCurrencyChanged`.
+- `docs/api/api-design.md` — новый эндпоинт, 409 корректирующей суммы.
+- `docs/database/schema.md`:
+  - схема `operations`: колонки, CHECK, индекс;
+  - абзац «Про `applied_delta_amount`» — без `Absolute`;
+  - новый абзац «Про корректирующие суммы».
+- Не трогать: ADR (сверка — W4), `docs/PROGRESS.md`.
+- Зависимости: W0.1.
+
+#### W2 — тесты (одним сообщением, 2 вызова `tdd-test-engineer`)
+
+- **W2.1 backend** → `backend/tests/LupexWallet.UnitTests/`, `backend/tests/LupexWallet.IntegrationTests/` по существующей структуре (П.5). `TestDataBuilder.cs` дорабатывается здесь: W1.1 завершён, параллельного владельца нет. Прогон: полный `dotnet test`, `check-architecture.mjs`. Требование: новые тесты на сверку, блокировки и миграцию **краснеют** на коде до W1 (проверить откатом или рассуждением, записать в отчёт).
+- **W2.2 frontend + e2e** → `frontend/src/app/**/*.spec.ts`, **`frontend/e2e/fixtures.ts` (единственный владелец)**, `frontend/e2e/operations.spec.ts` (П.5). Прогон: `ng test`, `ng build`, `check:boundaries`, e2e локально (учитывать лимит входа 5 в минуту — не больше 5 тестов подряд в файле).
+- Зависимости: вся W1.
+
+#### W3 — ревью (одним сообщением)
+
+- `code-quality-reviewer`:
+  - `dotnet-api-compatibility` против `openapi.yaml`;
+  - `postgres-pro`/`database-optimizer` — миграция R12: преобразование данных, CHECK, частичный индекс, `Down`;
+  - `dotnet-concurrency` — порядок блокировок, повторный вход, гонки PUT;
+  - отдельно: тексты исключений, идентификаторы плана в комментариях, одна запись аудита на сумму за команду.
+- `ux-parity-reviewer`: эталон — обновлённые в W1.5 `user-scenarios.md` (UC-24) и `api-design.md` плюс ADR-0003 §6; доступность D9.3.
+- Находки: тривиальные — W3.1, одной записью в «Баги, найденные и исправленные»; требующие решения пользователя — отдельный пункт следующего цикла.
+
+#### W4 — итоговая сверка документации — `architecture-documenter`
+
+- `0003-balance-history.md`:
+  - статус и «Состояние реализации» — реализовано;
+  - новый §7 «Технические решения реализации» (R1–R5, R12, R13 кратко);
+  - §3 — починить разметку таблицы триггеров (строка «Плановый запуск» слиплась с предыдущей), добавить `CorrectionRecalculated` и заявление баланса;
+  - «Последствия» — п.4 решён через R3;
+  - прочтения П.8 с пометкой «выведено, отдельно не обсуждалось».
+- `0002-record-lifecycle.md`:
+  - §2 и §3 — корректирующие суммы не история и не использование, удаляются вместе с кошельком, следуют за его валютой;
+  - §6 — физическое удаление только корректирующих строк вместе с кошельком;
+  - «Состояние реализации» — реализовано полностью.
+- `0006-audit.md`: действие `Recalculated`, `CorrectionRemoved` → `Deleted`, `CorrectionCurrencyChanged` → `Updated`; «Состояние реализации».
+- `0001-modular-monolith.md`:
+  - §2: способ (b) — `WalletDeleted`/`WalletCurrencyChanged` → Operations; способ (e) — `Operations.Infrastructure → Wallets.Domain`;
+  - §6 — фоновая сверка Operations;
+  - §4 — общий ключ advisory lock кошелька и порядок захвата.
+- `adr/README.md` — статусы.
+- Основной агент после W4:
+  - записывает итог блока в `docs/PROGRESS.md`;
+  - закрывает пункт «Absolute-корректировка…» в «Известных упрощениях / TODO» и отложенный пункт шага 1 о встречных переводах;
+  - закрывает план.
+
+### П.4. Граф зависимостей
+
+```mermaid
+graph LR
+  W01["W0.1 контракт"] --> W11["W1.1 Operations: поведение+PUT+сверка"]
+  W02["W0.2 модель+миграция+lock"] --> W11
+  W02 --> W12["W1.2 BalanceHistory"]
+  W02 --> W13["W1.3 Audit"]
+  W01 --> W14["W1.4 UI Операции"]
+  W01 --> W15["W1.5 документы требований"]
+  W11 & W12 & W13 --> W21["W2.1 тесты backend"]
+  W14 --> W22["W2.2 тесты frontend + e2e"]
+  W11 --> W22
+  W21 & W22 & W15 --> W3["W3 ревью x2"]
+  W3 --> W4["W4 сверка ADR"]
+```
+
+### П.5. План тестов
+
+**Unit (`LupexWallet.UnitTests`)**
+- `Operations/StatedBalanceCorrectionCalculatorTests` (новый):
+  - пример ADR дословно (все шаги);
+  - смена знака;
+  - несколько заявленных балансов и независимость дат до D;
+  - операции после D не влияют;
+  - отрицательный X, нулевой результат, `InitialBalance` ≠ 0.
+- `Operations/OperationTests`:
+  - `CreateCorrection` — `OperationCreated`, тип `null`;
+  - `ReplaceStatedBalance` с тем же X — без события;
+  - `ApplyRecalculatedDelta` — `CorrectionRecalculated` только без других неопубликованных событий;
+  - `Update`, `MoveToWallet`, `SoftDelete`, `Restore` корректирующей строки → `CorrectionNotEditableException` раньше остальных проверок;
+  - `Absolute` недоступен.
+- `Operations/WalletCorrectionsReconcilerTests` (новый, на фейках):
+  - нет корректирующих строк → журнал не читается;
+  - объединение с памятью для добавленной, изменённой, перенесённой (уходит из кошелька), удалённой и восстановленной операции;
+  - новая корректирующая строка из памяти учитывается;
+  - Σ изменений.
+- Обработчики команд Create, Update, Delete, Restore, CreateTransfer, DeleteTransfer, RestoreTransfer:
+  - одна итоговая дельта на кошелёк;
+  - итог 0 → `ApplyDeltaAsync` не вызван;
+  - блокировки взяты до чтений, по возрастанию `Guid` (фейк записывает порядок вызовов).
+- `Operations/SetStatedBalanceCommandHandlerTests` (новый): создание; замена; тот же X; дата вне диапазона; неизвестный кошелёк.
+- `Operations/ReconcileWalletCorrectionsCommandHandlerTests` (новый): исправляет `CurrentBalance` до инварианта; без изменений — без событий.
+- `Operations/OperationEffectCalculatorTests`: только `Delta`.
+- `BalanceHistory`: `CorrectionRecalculatedHandler` → пересчёт от даты.
+- `Audit`:
+  - `Recalculated` — diff суммы;
+  - `CorrectionRemoved` → `Deleted` с полным снимком;
+  - `CorrectionCurrencyChanged` → `Updated`.
+
+**Integration (`LupexWallet.IntegrationTests`, реальный Postgres)**
+- `Operations/StatedBalanceApiTests` (новый):
+  - пример ADR (D2.2) через API: `GET /wallets/{id}/balance?date=`, `GET /balance-history`, `CurrentBalance`, названия по знаку в `GET /operations`;
+  - нулевая скрыта в списке, но доступна по id;
+  - повторный ввод — тот же `id`, 200; тот же X — нет новой записи аудита;
+  - 400 (дата вне диапазона, сумма), 404;
+  - `PATCH`/`DELETE`/`restore` корректирующей суммы → 409, текст без GUID;
+  - конец дня (D2.3), несколько дат (D2.4);
+  - мягкое удаление и восстановление операции ≤ D;
+  - перенос операции между двумя кошельками с заявленными балансами;
+  - перевод (создание, удаление, восстановление) — суммы обоих кошельков;
+  - `Delta` работает, `Absolute` → 400;
+  - порядок в списке и курсор внутри дня.
+- `Operations/StatedBalanceAtomicityTests` (новый): одинаковый `xmin` у `operations`, `wallets`, `balance_snapshots`, `audit_entries` для PUT и для `POST /operations`, меняющего сумму.
+- `Operations/StatedBalanceConcurrencyTests` (новый, по образцу `RecordLifecycleConcurrencyTests` — `pg_stat_activity`, `SELECT … FOR UPDATE`):
+  - параллельные PUT на одну дату → одна строка, без 500;
+  - PUT параллельно с `POST /operations` → баланс на D = X;
+  - встречные переводы A→B и B→A → оба 201, без 40P01.
+- `Operations/StatedBalanceMigrationTests` (новый):
+  - применить миграции до предыдущей и засеять SQL-ом прежние `Absolute` — уникальную, дубль на дату, удалённую;
+  - применить `AddStatedBalanceCorrections` → проверить R12;
+  - `RunCorrectionsReconciliationAsync` → баланс на D = X, `CurrentBalance` по инварианту;
+  - `Down` при корректирующих суммах падает.
+- `Wallets/WalletsApiTests`:
+  - кошелёк только с заявленным балансом → `DELETE` 204, строк `is_correction` нет, аудит `Deleted` на каждую;
+  - смена валюты → 200, валюта корректирующей строки новая, затем `POST /operations` → 201;
+  - кошелёк с операцией и заявленным балансом → `DELETE` 409, `archive` 200.
+- `Reporting/ReportingApiTests`: текущая и историческая общая сумма при заявленных балансах.
+- `Audit/AuditApiTests`:
+  - `Created`, `Updated`, `Recalculated` с актором `User`;
+  - сверка через помощник — `System`;
+  - одна запись на сумму за команду.
+- `BalanceHistory/BalanceHistoryApiTests`: слепок за D = X после правок; плановый проход (`BackfillWalletBalanceSnapshotsCommand`) ничего не меняет.
+- `Infrastructure/CrossModuleContractsRegistrationTests`: числа 1 и 2 без изменений; разрешение обработчиков `WalletDeleted` из DI включает обработчик Operations.
+
+**Frontend unit (`ng test`)**
+- `data-access/operations/operations-api.service.spec.ts`: `setStatedBalance` → `PUT /wallets/{id}/stated-balances/{date}`, тело `{amount}`.
+- `operation-form.component.spec.ts`: нет варианта «Новое значение баланса»; для Adjustment отправляется `Delta`; подсказка.
+- `stated-balance-form.component.spec.ts` (новый):
+  - валидация (обязательные поля, формат суммы, отрицательная допустима, границы даты);
+  - запрос баланса на дату и live-область;
+  - ошибка сервера с `role="alert"`.
+- `operations-page.component.spec.ts`:
+  - строка корректирующей суммы — название по знаку, «Система», нет «···», ссылка истории с доступным именем;
+  - «Изменение на сумму» вместо `Delta`;
+  - «Указать баланс» открывает диалог, после успеха тост и перезагрузка, фокус возвращается.
+
+**E2E-смоук (Playwright, локально против dev-backend; не против боевого backend)**
+- `operations.spec.ts`, новый сценарий:
+  1. кошелёк с нулевым начальным балансом, доход 500 вчерашней датой;
+  2. «Указать баланс» на сегодня = 350 → строка «Неизвестные траты» −150 с «Система»;
+  3. расход 100 сегодняшней датой → строка становится −50, баланс кошелька 350;
+  4. «Указать баланс» = 400 → строки корректировки нет (0).
+
+  Не больше 5 тестов в файле (лимит входа).
+- `fixtures.ts` — помощник заявления баланса через API, если понадобится.
+
+### П.6. Риски
+
+1. **Преобразование прежних `Absolute` (R12)** меняет `operation_type_id` и, для дублей и удалённых строк, `amount`. Значения остаются в аудите. В боевой базе такие строки могут быть: проверка до слияния в `master` (П.7). При ненулевом результате — «Критичный стоп» п.2, подтверждение пользователя. Конвейер не блокируется: стоп относится к слиянию и деплою.
+2. **Лишние проходы каскада.** На одну команду BalanceHistory получает событие операции и по событию на каждую изменённую корректирующую сумму. Проходы без изменений ничего не пишут, но читают историю. Это усугубляет известный лимит 60 с (ADR-0003 «Последствия»). Смягчение (дедупликация по кошельку) — в П.0.
+3. **Повторный вход advisory lock** держится на одном физическом соединении транзакции. Если какой-то `DbContext` откроет второе соединение, захват в BalanceHistory заблокирует сам себя до таймаута. «Дымовой» тест W1.1 ловит это сразу. При нарушении — у BalanceHistory проверка `pg_try_advisory_xact_lock` или передача признака уже взятой блокировки.
+4. **Объединение журнала с памятью (R2).** Если забыть исключить изменённые id, операция учтётся дважды. Покрыто unit-тестами по каждому виду изменения и интеграционным примером ADR.
+5. **Несовместимость проводного формата** (`operationTypeId: null`, отказ от `Absolute`, новый `isCorrection`). Preview-frontend против backend из `master` не сможет создать `Absolute`; старый UI показал бы корректирующую строку без типа. Принято пользователем (вопрос 6).
+6. **«Замороженные» даты.** Отменить заявленный баланс нельзя (ADR-0003 §6 п.8, следствие не подтверждено отдельно). Ошибочно заявленный баланс навсегда поглощает операции своей даты. Повторный ввод значения «по операциям» обнуляет сумму, но не снимает якорь. UI-подсказка формы говорит о замене, но не об отмене.
+7. **Расхождение `CurrentBalance` у кошельков без заявленных балансов** сверкой (R13) не исправляется — она охватывает только кошельки с корректирующими строками. Это прежнее поведение.
+8. **Порядок обработчиков `WalletCurrencyChanged`** (Operations и BalanceHistory) не важен только потому, что `CorrectionCurrencyChanged` не запускает каскад (R8). Регресс ловит тест смены валюты в D5.3.
+9. **E2E и лимит входа** 5 в минуту; e2e — только против локального backend (после этого блока заявленный баланс в боевых данных нельзя отменить).
+
+### П.7. Ручная проверка (непроверяемо автотестами в текущей среде)
+
+- **До слияния в `master`** на боевой базе:
+  - `SELECT count(*) FILTER (WHERE deleted_at IS NULL) AS active, count(*) FILTER (WHERE deleted_at IS NOT NULL) AS deleted FROM operations.operations WHERE adjustment_mode = 'Absolute';`
+  - `SELECT wallet_id, operation_date, count(*) FROM operations.operations WHERE adjustment_mode = 'Absolute' AND deleted_at IS NULL GROUP BY 1, 2 HAVING count(*) > 1;`
+
+  Ненулевой результат → показать пользователю, что изменит R12, и получить подтверждение.
+- **Первый старт на Railway:** миграция применена; в логе — проход сверки по кошелькам с корректирующими суммами; в аудите — `Recalculated` с актором `System`; баланс на дату прежних корректировок = X.
+- **UI:**
+  - системная строка и форма «Указать баланс» — 360, 768 и 1440 px, масштаб 200 %, `forced-colors`;
+  - NVDA/Narrator читает «Неизвестные траты, Система, −150.00 EUR, баланс на конец дня 600.00 EUR»;
+  - live-область «По операциям на конец дня» объявляется один раз на изменение.
+
+### П.8. Открытые вопросы
+
+Бизнес-неоднозначностей, не закрытых ADR-0003 §6, ADR-0002, ADR-0006 и решениями по вопросу 1 и «Итогу», не найдено. **`CLARIFICATION_NEEDED` нет.**
+
+Пункт «Известных упрощений» «Absolute-корректировка… требует явного запроса/обсуждения перед реализацией» закрыт решениями 2026-09-29…30 (вопрос 1) и стопом не является. Конфликта принятых ADR нет. Условный «Критичный стоп» п.2 возможен только на этапе слияния — по результату П.7 (R12).
+
+Прочтения, принятые без отдельного вопроса. W4 фиксирует их в ADR-0003 с пометкой «выведено, отдельно не обсуждалось»; если пользователь не согласен — это отдельный мелкий пункт:
+1. **Корректирующая сумма не считается историей кошелька и использованием справочников.** Основания: ADR-0002 §1 (только факты от пользователя), «Итог» п.1 (кошелёк без операций удаляется вместе с заявленными балансами). Слова «включая корректирующие операции» в вопросе 2 (2026-09-29) предшествуют уточнению п.8 (2026-09-30), где сумма стала системной записью.
+2. **Смена валюты кошелька с заявленными балансами разрешена.** X и корректирующие суммы переходят в новую валюту теми же числами — аналог перестройки слепков (ADR-0002 «Последствия»).
+3. **Заявленный баланс вводится отдельным действием «Указать баланс»**, а не вариантом формы корректировки. Q3 («оба способа на выбор») сохраняется; для заявленного баланса не нужен тип операции.
+4. **Корректирующая сумма показывается последней записью своего дня** (п.4 — баланс на конец дня).
+5. **Ввод того же значения на ту же дату** ничего не меняет и не пишется в аудит.
+6. **Заявленный баланс на архивном кошельке** API не запрещает, как и операции (блок A, R6). UI предлагает те же кошельки, что форма операции.
+7. **Прежние `Absolute`-корректировки преобразуются в заявленные балансы** (R12) — «Итог» п.2.
+
 ## Блок B — ADR-0004 §7–§9 внедрён: доступные и активные валюты, чтение из БД, история курсов (2026-10-01)
 
 План «ПЛАН: внедрение ADR-0004 §7–§9 …» ниже выполнен целиком: W0 (2) → W1 (5 параллельных) → W2 (2) → W3 (2 ревьюера) → W3.1 (3 исправителя + перепрогон e2e) → W4. Коммиты: `9188b8d` (контракт, схема, модель), `8fd2842` (реализация), `9bb9187` (тесты), итоговый — исправления по ревью и сверка документации. Бизнес-неоднозначностей не возникло; шесть прочтений приняты при реализации и записаны в ADR-0004 «Последствия» с пометкой «выведено, отдельно не обсуждалось» (смена валюты кошелька — только на активную; период дозагрузки по всем кошелькам, включая архивные; история продлевается до сегодня ежедневно; валюты, которых нет в сервисе, остаются активными с прежними названиями; валюта с закончившимися данными стоит одного запроса за проход; ручное обновление запускает дозагрузку истории).

@@ -9,10 +9,12 @@ public sealed record CursorPageMeta(string? NextCursor, bool HasMore);
 public sealed record OperationResponse(
     Guid Id,
     Guid WalletId,
-    Guid OperationTypeId,
+    Guid? OperationTypeId,
     MoneyResponse Amount,
     DateOnly OperationDate,
     string? AdjustmentMode,
+    bool IsCorrection,
+    MoneyResponse? StatedBalance,
     Guid? TransferId,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,

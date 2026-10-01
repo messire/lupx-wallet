@@ -3,7 +3,14 @@ namespace LupexWallet.Operations.Domain;
 public abstract class OperationsDomainException(string message, Exception? innerException = null) : Exception(message, innerException);
 
 public sealed class AdjustmentModeRequiredException()
-    : OperationsDomainException("Для операции с поведением Adjustment обязателен способ ввода (Absolute/Delta).");
+    : OperationsDomainException("Для операции с поведением Adjustment обязателен способ ввода корректировки.");
+
+/// <summary>
+/// Setting an absolute balance through an operation is no longer supported; the user states the
+/// balance for a date instead (ADR-0003, §6). Answered with 400.
+/// </summary>
+public sealed class AbsoluteAdjustmentNotSupportedException()
+    : OperationsDomainException("Новое значение баланса задаётся действием „Указать баланс на дату“.");
 
 public sealed class AdjustmentModeNotAllowedException()
     : OperationsDomainException("Способ ввода корректировки (adjustmentMode) допустим только для операций с поведением Adjustment.");
@@ -47,6 +54,16 @@ public sealed class OperationNotDeletedException(Guid operationId)
 /// <summary>A soft-deleted operation cannot be edited or moved until restored.</summary>
 public sealed class OperationIsDeletedException(Guid operationId)
     : OperationsDomainException("Операция удалена — сначала восстановите её.")
+{
+    public Guid OperationId { get; } = operationId;
+}
+
+/// <summary>
+/// A balance correction is calculated by the system (ADR-0003, §6) and is not soft-deletable
+/// (ADR-0002, §3): editing, moving, deleting and restoring it is rejected with 409.
+/// </summary>
+public sealed class CorrectionNotEditableException(Guid operationId)
+    : OperationsDomainException("Это корректирующая сумма — её рассчитывает система. Изменить, удалить или восстановить её нельзя: укажите баланс на нужную дату заново.")
 {
     public Guid OperationId { get; } = operationId;
 }

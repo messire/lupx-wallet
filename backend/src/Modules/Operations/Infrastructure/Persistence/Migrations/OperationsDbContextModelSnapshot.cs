@@ -47,11 +47,17 @@ namespace LupexWallet.Operations.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deleted_at");
 
+                    b.Property<bool>("IsCorrection")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_correction");
+
                     b.Property<DateOnly>("OperationDate")
                         .HasColumnType("date")
                         .HasColumnName("operation_date");
 
-                    b.Property<Guid>("OperationTypeId")
+                    b.Property<Guid?>("OperationTypeId")
                         .HasColumnType("uuid")
                         .HasColumnName("operation_type_id");
 
@@ -75,6 +81,10 @@ namespace LupexWallet.Operations.Infrastructure.Migrations
                         .HasColumnType("numeric")
                         .HasColumnName("applied_delta_amount");
 
+                    b.Property<decimal?>("_statedBalanceAmount")
+                        .HasColumnType("numeric")
+                        .HasColumnName("stated_balance_amount");
+
                     b.HasKey("Id")
                         .HasName("pk_operations");
 
@@ -88,9 +98,20 @@ namespace LupexWallet.Operations.Infrastructure.Migrations
                     b.HasIndex("WalletId", "OperationDate")
                         .HasDatabaseName("ix_operations_wallet_date");
 
+                    b.HasIndex(new[] { "WalletId", "OperationDate" }, "ux_operations_wallet_correction_date")
+                        .IsUnique()
+                        .HasDatabaseName("ux_operations_wallet_correction_date")
+                        .HasFilter("is_correction");
+
                     b.ToTable("operations", "operations", t =>
                         {
-                            t.HasCheckConstraint("ck_operations_adjustment_mode", "adjustment_mode IN ('Absolute', 'Delta') OR adjustment_mode IS NULL");
+                            t.HasCheckConstraint("ck_operations_adjustment_mode", "adjustment_mode IN ('Delta') OR adjustment_mode IS NULL");
+
+                            t.HasCheckConstraint("ck_operations_correction_shape", "NOT is_correction OR (operation_type_id IS NULL AND adjustment_mode IS NULL AND transfer_id IS NULL AND deleted_at IS NULL)");
+
+                            t.HasCheckConstraint("ck_operations_correction_stated_balance", "is_correction = (stated_balance_amount IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_operations_regular_type", "is_correction OR operation_type_id IS NOT NULL");
                         });
                 });
 

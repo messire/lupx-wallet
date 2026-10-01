@@ -5,7 +5,7 @@ namespace LupexWallet.Operations.Application;
 public sealed record OperationDto(
     Guid Id,
     Guid WalletId,
-    Guid OperationTypeId,
+    Guid? OperationTypeId,
     decimal Amount,
     Guid CurrencyId,
     DateOnly OperationDate,
@@ -14,12 +14,14 @@ public sealed record OperationDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     bool IsDeleted,
-    DateTimeOffset? DeletedAt)
+    DateTimeOffset? DeletedAt,
+    bool IsCorrection,
+    decimal? StatedBalanceAmount)
 {
     public static OperationDto FromDomain(Operation operation) => new(
         operation.Id.Value,
         operation.WalletId.Value,
-        operation.OperationTypeId.Value,
+        operation.OperationTypeId?.Value,
         operation.Amount.Amount,
         operation.CurrencyId.Value,
         operation.OperationDate,
@@ -28,5 +30,7 @@ public sealed record OperationDto(
         operation.CreatedAt,
         operation.UpdatedAt,
         operation.IsDeleted,
-        operation.DeletedAt);
+        operation.DeletedAt,
+        operation.IsCorrection,
+        operation.StatedBalance?.Amount);
 }

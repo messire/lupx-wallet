@@ -40,8 +40,7 @@ public sealed class CreateOperationCommandHandler(
         OperationDateValidator.EnsureInRange(request.OperationDate, wallet.AccountingStartDate);
 
         var amount = new Money(request.Amount, wallet.CurrencyId);
-        var baseline = wallet.CurrentBalance; // AppliedDelta = 0 при создании — baseline = currentBalance
-        var intendedDelta = OperationEffectCalculator.ComputeIntendedDelta(effectKind, amount, request.AdjustmentMode, baseline);
+        var intendedDelta = OperationEffectCalculator.ComputeIntendedDelta(effectKind, amount, request.AdjustmentMode);
 
         var operation = Operation.Create(
             OperationId.New(), walletId, operationTypeId, effectKind, amount,

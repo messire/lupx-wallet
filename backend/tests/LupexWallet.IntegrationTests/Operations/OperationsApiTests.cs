@@ -45,7 +45,7 @@ public sealed class OperationsApiTests(ApiTestFixture fixture) : IntegrationTest
     }
 
     [Fact]
-    public async Task EndToEndScenario_IncomeExpenseBothAdjustmentModesUpdateDelete_KeepsBalanceReconciled()
+    public async Task EndToEndScenario_IncomeExpenseDeltaAdjustmentUpdateDelete_KeepsBalanceReconciled()
     {
         await AuthenticateAsync();
         var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m);
@@ -62,11 +62,11 @@ public sealed class OperationsApiTests(ApiTestFixture fixture) : IntegrationTest
         var expense = await CreateOperationAsync(wallet.Id, expenseTypeId, 300m, today);
         (await GetWalletBalanceAsync(wallet.Id)).Should().Be(900m);
 
-        // Absolute-корректировка: баланс должен стать ровно 500.
-        var absoluteAdjustment = await CreateOperationAsync(wallet.Id, adjustmentTypeId, 500m, today, "Absolute");
+        // Delta-корректировка: баланс должен уменьшиться на 400.
+        var bigAdjustment = await CreateOperationAsync(wallet.Id, adjustmentTypeId, -400m, today, "Delta");
         (await GetWalletBalanceAsync(wallet.Id)).Should().Be(500m);
 
-        // Delta-корректировка: baланс должен уменьшиться на 50.
+        // Delta-корректировка: баланс должен уменьшиться ещё на 50.
         var deltaAdjustment = await CreateOperationAsync(wallet.Id, adjustmentTypeId, -50m, today, "Delta");
         (await GetWalletBalanceAsync(wallet.Id)).Should().Be(450m);
 
@@ -87,7 +87,7 @@ public sealed class OperationsApiTests(ApiTestFixture fixture) : IntegrationTest
         deleteResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
         (await GetWalletBalanceAsync(wallet.Id)).Should().Be(900m);
 
-        _ = absoluteAdjustment;
+        _ = bigAdjustment;
         _ = deltaAdjustment;
     }
 
@@ -307,15 +307,14 @@ public sealed class OperationsApiTests(ApiTestFixture fixture) : IntegrationTest
     }
 
     [Fact]
-    public async Task DeleteAndRestoreAbsoluteAdjustment_UseTheStoredAppliedDeltaNotTheCurrentBalance()
+    public async Task DeleteAndRestoreDeltaAdjustment_UseTheStoredAppliedDelta()
     {
-        // The applied delta of an Absolute adjustment depends on the balance at creation time (1000 -> 500 = -500),
-        // so delete/restore must reverse/re-apply exactly that stored delta.
+        // Delete/restore must reverse/re-apply exactly the stored applied delta (-500).
         await AuthenticateAsync();
         var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m);
         var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
         var adjustmentTypeId = await Client.CreateOperationTypeIdAsync("Adjustment");
-        var adjustment = await CreateOperationAsync(wallet.Id, adjustmentTypeId, 500m, Today.AddDays(-2), "Absolute");
+        var adjustment = await CreateOperationAsync(wallet.Id, adjustmentTypeId, -500m, Today.AddDays(-2), "Delta");
         (await GetWalletBalanceAsync(wallet.Id)).Should().Be(500m);
         await CreateOperationAsync(wallet.Id, incomeTypeId, 100m, Today.AddDays(-1));
         (await GetWalletBalanceAsync(wallet.Id)).Should().Be(600m);
@@ -325,6 +324,29 @@ public sealed class OperationsApiTests(ApiTestFixture fixture) : IntegrationTest
 
         (await Client.PostAsync($"/api/v1/operations/{adjustment.Id}/restore", null)).StatusCode.Should().Be(HttpStatusCode.OK);
         (await GetWalletBalanceAsync(wallet.Id)).Should().Be(600m);
+    }
+
+    [Fact]
+    public async Task CreateOperation_AbsoluteAdjustmentMode_Returns400WithoutChangingBalance()
+    {
+        // The balance for a date is stated through a separate action (ADR-0003, §6); Absolute is rejected.
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 1000m);
+        var adjustmentTypeId = await Client.CreateOperationTypeIdAsync("Adjustment");
+
+        var response = await Client.PostAsJsonAsync("/api/v1/operations", new
+        {
+            WalletId = wallet.Id,
+            OperationTypeId = adjustmentTypeId,
+            Amount = 500m,
+            OperationDate = Today,
+            AdjustmentMode = "Absolute",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>()).GetProperty("detail").GetString()
+            .Should().Contain("Указать баланс на дату");
+        (await GetWalletBalanceAsync(wallet.Id)).Should().Be(1000m);
     }
 
     [Fact]

@@ -54,8 +54,7 @@ public sealed class UpdateOperationCommandHandler(
 
             var amount = new Money(request.Amount, wallet.CurrencyId);
             var previouslyApplied = operation.AppliedDelta;
-            var baseline = OperationEffectCalculator.ComputeBaseline(wallet.CurrentBalance, previouslyApplied);
-            var intendedDelta = OperationEffectCalculator.ComputeIntendedDelta(effectKind, amount, request.AdjustmentMode, baseline);
+            var intendedDelta = OperationEffectCalculator.ComputeIntendedDelta(effectKind, amount, request.AdjustmentMode);
             var incrementalDelta = OperationEffectCalculator.ComputeIncrementalDelta(intendedDelta, previouslyApplied);
 
             operation.Update(operationTypeId, effectKind, amount, request.OperationDate, request.AdjustmentMode, appliedDelta: intendedDelta);
@@ -68,8 +67,7 @@ public sealed class UpdateOperationCommandHandler(
             // эквивалент удаления со старого кошелька + создания на новом:
             // 1. Реверсируем то, что операция ранее применила к СТАРОМУ кошельку.
             // 2. Вычисляем intendedDelta для НОВОГО кошелька так же, как при первичном
-            //    создании (CreateOperationCommand) — baseline = его CurrentBalance, amount
-            //    сконструирован с его CurrencyId (валюта операции меняется вслед за
+            //    создании (CreateOperationCommand) — amount сконструирован с его CurrencyId (валюта операции меняется вслед за
             //    валютой нового кошелька, а не сравнивается со старой — Operation.
             //    MoveToWallet, в отличие от Update, не бросает OperationCurrencyImmutableException).
             var oldWalletId = operation.WalletId;
@@ -81,7 +79,7 @@ public sealed class UpdateOperationCommandHandler(
             OperationDateValidator.EnsureInRange(request.OperationDate, newWallet.AccountingStartDate);
 
             var amount = new Money(request.Amount, newWallet.CurrencyId);
-            var intendedDelta = OperationEffectCalculator.ComputeIntendedDelta(effectKind, amount, request.AdjustmentMode, newWallet.CurrentBalance);
+            var intendedDelta = OperationEffectCalculator.ComputeIntendedDelta(effectKind, amount, request.AdjustmentMode);
 
             operation.MoveToWallet(newWalletId, operationTypeId, effectKind, amount, request.OperationDate, request.AdjustmentMode, appliedDelta: intendedDelta);
 

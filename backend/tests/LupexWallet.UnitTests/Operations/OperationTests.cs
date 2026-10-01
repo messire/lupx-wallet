@@ -66,11 +66,11 @@ public sealed class OperationTests
     [Fact]
     public void Create_AdjustmentWithMode_DoesNotRequirePositiveAmount()
     {
-        // Absolute-корректировка может привести к отрицательной "сумме" appliedDelta —
-        // Adjustment не подпадает под требование "сумма положительна" (OperationEffectCalculator).
+        // Корректировка дельтой может быть отрицательной — Adjustment не подпадает под
+        // требование "сумма положительна" (OperationEffectCalculator).
         var act = () => Operation.Create(
             OperationId.New(), WalletId.New(), OperationTypeId.New(), OperationEffectKind.Adjustment,
-            Money(-50m), DateOnly.FromDateTime(DateTime.UtcNow), adjustmentMode: AdjustmentMode.Absolute, appliedDelta: Money(-50m));
+            Money(-50m), DateOnly.FromDateTime(DateTime.UtcNow), adjustmentMode: AdjustmentMode.Delta, appliedDelta: Money(-50m));
 
         act.Should().NotThrow();
     }
@@ -110,7 +110,7 @@ public sealed class OperationTests
         var otherCurrency = new Money(100m, new CurrencyId(Guid.NewGuid()));
 
         var act = () => operation.Update(
-            operation.OperationTypeId, OperationEffectKind.Income, otherCurrency,
+            operation.OperationTypeId!.Value, OperationEffectKind.Income, otherCurrency,
             operation.OperationDate, adjustmentMode: null, appliedDelta: otherCurrency);
 
         act.Should().Throw<OperationCurrencyImmutableException>();
@@ -176,7 +176,7 @@ public sealed class OperationTests
             TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(10m), DateOnly.FromDateTime(DateTime.UtcNow));
 
         var act = () => sourceOperation.MoveToWallet(
-            WalletId.New(), sourceOperation.OperationTypeId, OperationEffectKind.Income, Money(10m),
+            WalletId.New(), sourceOperation.OperationTypeId!.Value, OperationEffectKind.Income, Money(10m),
             sourceOperation.OperationDate, adjustmentMode: null, appliedDelta: Money(10m));
 
         act.Should().Throw<OperationPartOfTransferException>();
@@ -193,7 +193,7 @@ public sealed class OperationTests
         var newWalletId = WalletId.New();
 
         var act = () => operation.MoveToWallet(
-            newWalletId, operation.OperationTypeId, OperationEffectKind.Income, newAmount,
+            newWalletId, operation.OperationTypeId!.Value, OperationEffectKind.Income, newAmount,
             operation.OperationDate, adjustmentMode: null, appliedDelta: newAmount);
 
         act.Should().NotThrow();
@@ -212,7 +212,7 @@ public sealed class OperationTests
         var newAmount = Money(150m);
 
         operation.MoveToWallet(
-            newWalletId, operation.OperationTypeId, OperationEffectKind.Income, newAmount,
+            newWalletId, operation.OperationTypeId!.Value, OperationEffectKind.Income, newAmount,
             newDate, adjustmentMode: null, appliedDelta: newAmount);
 
         operation.WalletId.Should().Be(newWalletId);
@@ -232,7 +232,7 @@ public sealed class OperationTests
         var operation = CreateIncome(100m, new DateOnly(2026, 1, 10));
 
         operation.Update(
-            operation.OperationTypeId, OperationEffectKind.Income, Money(120m),
+            operation.OperationTypeId!.Value, OperationEffectKind.Income, Money(120m),
             operation.OperationDate, adjustmentMode: null, appliedDelta: Money(120m));
 
         var updatedEvent = operation.DomainEvents.OfType<OperationUpdated>().Single();
@@ -371,7 +371,7 @@ public sealed class OperationTests
         operation.SoftDelete();
 
         var act = () => operation.MoveToWallet(
-            WalletId.New(), operation.OperationTypeId, OperationEffectKind.Income, Money(100m),
+            WalletId.New(), operation.OperationTypeId!.Value, OperationEffectKind.Income, Money(100m),
             operation.OperationDate, adjustmentMode: null, appliedDelta: Money(100m));
 
         act.Should().Throw<OperationIsDeletedException>();
@@ -387,7 +387,7 @@ public sealed class OperationTests
         operation.Restore();
 
         var act = () => operation.Update(
-            operation.OperationTypeId, OperationEffectKind.Income, Money(150m),
+            operation.OperationTypeId!.Value, OperationEffectKind.Income, Money(150m),
             operation.OperationDate, adjustmentMode: null, appliedDelta: Money(150m));
 
         act.Should().NotThrow();

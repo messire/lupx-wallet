@@ -69,3 +69,16 @@ public sealed class OperationRestoredHandler(BalanceRecalculationService recalcu
         recalculationService.RecalculateFromAsync(
             notification.DomainEvent.WalletId, notification.DomainEvent.OperationDate, cancellationToken);
 }
+
+/// <summary>
+/// The system changed the amount of a balance correction (ADR-0003, §6). The correction is an
+/// ordinary operation row with its own applied delta, so the cascade is the same as for an edit,
+/// from the correction's date.
+/// </summary>
+public sealed class CorrectionRecalculatedHandler(BalanceRecalculationService recalculationService)
+    : INotificationHandler<DomainEventNotification<CorrectionRecalculated>>
+{
+    public Task Handle(DomainEventNotification<CorrectionRecalculated> notification, CancellationToken cancellationToken) =>
+        recalculationService.RecalculateFromAsync(
+            notification.DomainEvent.WalletId, notification.DomainEvent.OperationDate, cancellationToken);
+}

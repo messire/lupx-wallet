@@ -43,6 +43,7 @@ public static class BalanceHistoryModuleExtensions
         services.AddScoped<INotificationHandler<DomainEventNotification<OperationUpdated>>, OperationUpdatedHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<OperationDeleted>>, OperationDeletedHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<OperationRestored>>, OperationRestoredHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<CorrectionRecalculated>>, CorrectionRecalculatedHandler>();
 
         // ADR-0002, §2: snapshots are not wallet history — removed with the wallet, rebuilt on a currency change.
         services.AddScoped<INotificationHandler<DomainEventNotification<WalletDeleted>>, WalletDeletedHandler>();

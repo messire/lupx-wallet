@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using Npgsql;
 
@@ -10,6 +11,9 @@ public sealed record CurrencyResponse(Guid Id, string Code, string Name);
 public sealed record AvailableCurrencyResponse(string Code, string Name, bool IsActive);
 public sealed record OperationBehaviorKindResponse(Guid Id, string Code, string Name);
 public sealed record MoneyResponse(string Amount, Guid CurrencyId);
+public sealed record StatedBalanceCorrectionResponse(
+    Guid Id, Guid WalletId, Guid? OperationTypeId, MoneyResponse Amount, DateOnly OperationDate,
+    string? AdjustmentMode, bool IsCorrection, MoneyResponse? StatedBalance, bool IsDeleted);
 public sealed record WalletResponse(
     Guid Id, string Name, Guid WalletTypeId, string? PurposeDescription, Guid CurrencyId,
     MoneyResponse InitialBalance, DateOnly AccountingStartDate, MoneyResponse CurrentBalance,
@@ -131,6 +135,19 @@ public static class TestDataBuilder
         });
         await response.EnsureSuccessWithBodyAsync();
         return (await response.Content.ReadFromJsonAsync<WalletResponse>())!;
+    }
+
+    /// <summary>
+    /// States the wallet balance at the end of <paramref name="date"/> (PUT /wallets/{id}/stated-balances/{date});
+    /// returns the status (201 first statement, 200 replacement) and the correction row.
+    /// </summary>
+    public static async Task<(HttpStatusCode Status, StatedBalanceCorrectionResponse Correction)> SetStatedBalanceAsync(
+        this HttpClient client, Guid walletId, DateOnly date, decimal amount)
+    {
+        var response = await client.PutAsJsonAsync(
+            $"/api/v1/wallets/{walletId}/stated-balances/{date:yyyy-MM-dd}", new { Amount = amount });
+        await response.EnsureSuccessWithBodyAsync();
+        return (response.StatusCode, (await response.Content.ReadFromJsonAsync<StatedBalanceCorrectionResponse>())!);
     }
 
     /// <summary>Resolves the code of an active currency by id (wallets are created by code, ADR-0004 §7).</summary>

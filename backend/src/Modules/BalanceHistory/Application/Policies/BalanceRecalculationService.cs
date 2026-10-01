@@ -24,6 +24,11 @@ namespace LupexWallet.BalanceHistory.Application;
 /// Expense/Adjustment/Transfer), computed once in Operations.Application
 /// (OperationEffectCalculator) when the operation is created/changed, so it's enough here to
 /// sum the ready-made deltas (IWalletOperationsLookup) without repeating that logic.
+///
+/// Balance corrections (ADR-0003, §6) are ordinary operation rows with their own applied
+/// delta, so the balance on a date includes the correction amounts dated on or before it. On the
+/// date of a stated balance the snapshot therefore equals the stated amount X (the correction
+/// is computed as X minus the balance without it).
 /// </summary>
 public sealed class BalanceRecalculationService(
     IBalanceSnapshotRepository repository,

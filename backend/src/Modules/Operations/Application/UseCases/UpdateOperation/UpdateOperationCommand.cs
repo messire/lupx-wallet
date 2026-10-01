@@ -22,15 +22,25 @@ public sealed class UpdateOperationCommandHandler(
     IOperationRepository repository,
     IOperationsUnitOfWork unitOfWork,
     IOperationTypeLookup operationTypeLookup,
-    IWalletBalanceGateway walletBalanceGateway) : IRequestHandler<UpdateOperationCommand, OperationDto>
+    IWalletBalanceGateway walletBalanceGateway,
+    IWalletCorrectionsReconciler correctionsReconciler) : IRequestHandler<UpdateOperationCommand, OperationDto>
 {
     public async Task<OperationDto> Handle(UpdateOperationCommand request, CancellationToken cancellationToken)
     {
-        var operation = await repository.GetByIdAsync(new OperationId(request.Id), cancellationToken)
+        var operationId = new OperationId(request.Id);
+        var newWalletId = new WalletId(request.WalletId);
+
+        // Locks come first, in ascending WalletId order, before anything is read: the current
+        // wallet is found without tracking, the aggregate is loaded only under the lock.
+        var currentWalletId = await repository.FindWalletIdAsync(operationId, cancellationToken)
+            ?? throw new KeyNotFoundException($"Operation {request.Id} не найдена.");
+        await unitOfWork.AcquireWalletLocksAsync([currentWalletId, newWalletId], cancellationToken);
+
+        var operation = await repository.GetByIdAsync(operationId, cancellationToken)
             ?? throw new KeyNotFoundException($"Operation {request.Id} не найдена.");
 
-        // ADR-0002, §3: a transfer leg or a soft-deleted operation is not editable (incl. moving to
-        // another wallet); fail before any IWalletBalanceGateway call so no balance is touched.
+        // A correction, a transfer leg or a soft-deleted operation is not editable (incl. moving to
+        // another wallet; ADR-0002, §3; ADR-0003, §6); fail before any IWalletBalanceGateway call so no balance is touched.
         operation.EnsureEditable();
 
         var operationTypeId = new OperationTypeId(request.OperationTypeId);
@@ -43,7 +53,6 @@ public sealed class UpdateOperationCommandHandler(
         }
 
         var effectKind = BehaviorKindMapping.Parse(operationType.BehaviorKindCode);
-        var newWalletId = new WalletId(request.WalletId);
 
         if (newWalletId == operation.WalletId)
         {
@@ -59,17 +68,20 @@ public sealed class UpdateOperationCommandHandler(
 
             operation.Update(operationTypeId, effectKind, amount, request.OperationDate, request.AdjustmentMode, appliedDelta: intendedDelta);
 
-            await walletBalanceGateway.ApplyDeltaAsync(operation.WalletId, incrementalDelta, cancellationToken);
+            var correctionsChange = await correctionsReconciler.ReconcileAsync(operation.WalletId, [operation], cancellationToken);
+            await WalletBalanceChange.ApplyAsync(
+                walletBalanceGateway, operation.WalletId,
+                incrementalDelta.Add(new Money(correctionsChange, incrementalDelta.CurrencyId)), cancellationToken);
         }
         else
         {
-            // Перенос на другой кошелек (UC-13, решение пользователя от 2026-09-11) —
-            // эквивалент удаления со старого кошелька + создания на новом:
-            // 1. Реверсируем то, что операция ранее применила к СТАРОМУ кошельку.
-            // 2. Вычисляем intendedDelta для НОВОГО кошелька так же, как при первичном
-            //    создании (CreateOperationCommand) — amount сконструирован с его CurrencyId (валюта операции меняется вслед за
-            //    валютой нового кошелька, а не сравнивается со старой — Operation.
-            //    MoveToWallet, в отличие от Update, не бросает OperationCurrencyImmutableException).
+            // Moving to another wallet (UC-13) is equivalent to deleting from the old wallet and
+            // creating on the new one:
+            // 1. The old wallet gets the reversal of what the operation applied to it.
+            // 2. The intended delta for the new wallet is computed as on a primary create — the
+            //    amount carries the new wallet's currency (the operation's currency follows the new
+            //    wallet; Operation.MoveToWallet, unlike Update, does not enforce currency immutability).
+            // Both wallets then get one net delta each, including their corrections' change.
             var oldWalletId = operation.WalletId;
             var oldWalletReversal = operation.AppliedDelta.Negate();
 
@@ -83,8 +95,15 @@ public sealed class UpdateOperationCommandHandler(
 
             operation.MoveToWallet(newWalletId, operationTypeId, effectKind, amount, request.OperationDate, request.AdjustmentMode, appliedDelta: intendedDelta);
 
-            await walletBalanceGateway.ApplyDeltaAsync(oldWalletId, oldWalletReversal, cancellationToken);
-            await walletBalanceGateway.ApplyDeltaAsync(newWalletId, intendedDelta, cancellationToken);
+            var oldCorrectionsChange = await correctionsReconciler.ReconcileAsync(oldWalletId, [operation], cancellationToken);
+            var newCorrectionsChange = await correctionsReconciler.ReconcileAsync(newWalletId, [operation], cancellationToken);
+
+            await WalletBalanceChange.ApplyAsync(
+                walletBalanceGateway, oldWalletId,
+                oldWalletReversal.Add(new Money(oldCorrectionsChange, oldWalletReversal.CurrencyId)), cancellationToken);
+            await WalletBalanceChange.ApplyAsync(
+                walletBalanceGateway, newWalletId,
+                intendedDelta.Add(new Money(newCorrectionsChange, intendedDelta.CurrencyId)), cancellationToken);
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);

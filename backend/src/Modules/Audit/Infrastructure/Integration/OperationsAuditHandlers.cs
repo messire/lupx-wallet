@@ -40,6 +40,31 @@ public sealed class OperationRestoredAuditHandler(AuditRecorder recorder) : INot
         recorder.RecordFromChangeTrackerAsync(notification.DomainEvent, "Operation", notification.DomainEvent.OperationId.Value, "Restored", cancellationToken);
 }
 
+/// <summary>
+/// Balance correction (ADR-0003, §6). Stating or replacing a balance reuses
+/// OperationCreated/OperationUpdated (the diff carries the stated balance and the amount); the
+/// handlers below cover the system-initiated changes. The entity type stays "Operation": a
+/// correction is a row of the same aggregate.
+/// </summary>
+public sealed class CorrectionRecalculatedAuditHandler(AuditRecorder recorder) : INotificationHandler<DomainEventNotification<CorrectionRecalculated>>
+{
+    public Task Handle(DomainEventNotification<CorrectionRecalculated> notification, CancellationToken cancellationToken) =>
+        recorder.RecordFromChangeTrackerAsync(notification.DomainEvent, "Operation", notification.DomainEvent.OperationId.Value, "Recalculated", cancellationToken);
+}
+
+/// <summary>The correction row is physically removed with its wallet, so the diff holds the old values only.</summary>
+public sealed class CorrectionRemovedAuditHandler(AuditRecorder recorder) : INotificationHandler<DomainEventNotification<CorrectionRemoved>>
+{
+    public Task Handle(DomainEventNotification<CorrectionRemoved> notification, CancellationToken cancellationToken) =>
+        recorder.RecordFromChangeTrackerAsync(notification.DomainEvent, "Operation", notification.DomainEvent.OperationId.Value, "Deleted", cancellationToken);
+}
+
+public sealed class CorrectionCurrencyChangedAuditHandler(AuditRecorder recorder) : INotificationHandler<DomainEventNotification<CorrectionCurrencyChanged>>
+{
+    public Task Handle(DomainEventNotification<CorrectionCurrencyChanged> notification, CancellationToken cancellationToken) =>
+        recorder.RecordFromChangeTrackerAsync(notification.DomainEvent, "Operation", notification.DomainEvent.OperationId.Value, "Updated", cancellationToken);
+}
+
 public sealed class TransferCreatedAuditHandler(AuditRecorder recorder) : INotificationHandler<DomainEventNotification<TransferCreated>>
 {
     public Task Handle(DomainEventNotification<TransferCreated> notification, CancellationToken cancellationToken) =>

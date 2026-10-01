@@ -1,7 +1,10 @@
 <div class="page">
   <div class="page-heading">
     <h1>Операции</h1>
-    <app-button variant="primary" (click)="openCreateForm()">Добавить операцию</app-button>
+    <div class="page-heading__actions">
+      <app-button variant="secondary" (click)="openStatedBalanceForm()">Указать баланс</app-button>
+      <app-button variant="primary" (click)="openCreateForm()">Добавить операцию</app-button>
+    </div>
   </div>
 
   @if (successMessage(); as message) {
@@ -74,6 +77,24 @@
     }
   </app-dialog>
 
+  <app-dialog
+    [open]="isStatedBalanceFormOpen()"
+    titleText="Указать баланс на дату"
+    size="md"
+    (dismissRequested)="cancelStatedBalanceForm()"
+    (closed)="cancelStatedBalanceForm()"
+  >
+    @if (isStatedBalanceFormOpen()) {
+      <app-stated-balance-form
+        [wallets]="walletOptions()"
+        [isSubmitting]="isStatedBalanceSubmitting()"
+        [errorMessage]="statedBalanceError()"
+        (save)="saveStatedBalance($event)"
+        (cancel)="cancelStatedBalanceForm()"
+      />
+    }
+  </app-dialog>
+
   @if (isLoading() && operations().length === 0) {
     <app-loading-state label="Загрузка…">
       <app-skeleton height="56px" />
@@ -106,36 +127,64 @@
           </thead>
           <tbody>
             @for (operation of operations(); track operation.id) {
-              <tr [class.transfer-part]="operation.transferId" [class.is-deleted]="operation.isDeleted">
+              <tr
+                [class.transfer-part]="operation.transferId"
+                [class.is-deleted]="operation.isDeleted"
+                [class.is-system]="operation.isCorrection"
+              >
                 <td class="date-col">
                   {{ operation.operationDate }}
+                  @if (operation.isCorrection) {
+                    <app-badge tone="neutral" title="Рассчитано системой по указанному балансу">Система</app-badge>
+                  }
                   @if (operation.isDeleted) {
                     <app-badge tone="neutral" [title]="deletedBadgeTitle(operation)">Удалена</app-badge>
                   }
                 </td>
                 <td>{{ walletName(operation.walletId) }}</td>
                 <td>
-                  <app-badge [tone]="operationTone(operationBehaviorKindCode(operation.operationTypeId))">
-                    {{ operationTypeName(operation.operationTypeId) }}
-                  </app-badge>
-                </td>
-                <td class="amount-col">
-                  <span
-                    class="amount"
-                    [class.amount--income]="operationBehaviorKindCode(operation.operationTypeId) === 'Income'"
-                    [class.amount--expense]="operationBehaviorKindCode(operation.operationTypeId) === 'Expense'"
-                  >
-                    {{ amountSign(operationBehaviorKindCode(operation.operationTypeId)) }}{{
-                      formatMoney(operation.amount, walletCurrencyCode(operation.walletId))
-                    }}
-                  </span>
-                  @if (amountCategoryLabel(operationBehaviorKindCode(operation.operationTypeId)); as categoryLabel) {
-                    <span class="amount-category">{{ categoryLabel }}</span>
+                  @if (operation.isCorrection) {
+                    <app-badge [tone]="isNegativeAmount(operation) ? 'danger' : 'success'">
+                      {{ correctionTitle(operation) }}
+                    </app-badge>
+                  } @else {
+                    <app-badge [tone]="operationTone(operationBehaviorKindCode(operation.operationTypeId))">
+                      {{ operationTypeName(operation.operationTypeId) }}
+                    </app-badge>
                   }
                 </td>
-                <td>{{ operation.adjustmentMode ?? '' }}</td>
+                <td class="amount-col">
+                  @if (operation.isCorrection) {
+                    <span class="amount" [class.amount--income]="!isNegativeAmount(operation)" [class.amount--expense]="isNegativeAmount(operation)">
+                      {{ correctionAmountText(operation) }}
+                    </span>
+                  } @else {
+                    <span
+                      class="amount"
+                      [class.amount--income]="operationBehaviorKindCode(operation.operationTypeId) === 'Income'"
+                      [class.amount--expense]="operationBehaviorKindCode(operation.operationTypeId) === 'Expense'"
+                    >
+                      {{ amountSign(operationBehaviorKindCode(operation.operationTypeId)) }}{{
+                        formatMoney(operation.amount, walletCurrencyCode(operation.walletId))
+                      }}
+                    </span>
+                    @if (amountCategoryLabel(operationBehaviorKindCode(operation.operationTypeId)); as categoryLabel) {
+                      <span class="amount-category">{{ categoryLabel }}</span>
+                    }
+                  }
+                </td>
+                <td>{{ adjustmentText(operation) }}</td>
                 <td class="actions">
-                  @if (operation.transferId) {
+                  @if (operation.isCorrection) {
+                    <a
+                      class="history-link"
+                      [routerLink]="['/audit']"
+                      [queryParams]="{ entityType: 'Operation', entityId: operation.id }"
+                      [attr.aria-label]="correctionHistoryLabel(operation)"
+                    >
+                      История изменений
+                    </a>
+                  } @else if (operation.transferId) {
                     <app-badge tone="neutral" title="Часть перевода — управляется с экрана «Переводы»">часть перевода</app-badge>
                     <a class="history-link" [routerLink]="['/transfers']">Открыть перевод</a>
                     <a
@@ -215,7 +264,9 @@
   >
     @if (pendingRowActionsOperation(); as pending) {
       <div class="row-actions-list">
-        @if (pending.isDeleted) {
+        @if (pending.isCorrection) {
+          <!-- Системная запись: только история изменений (изменение, удаление и восстановление запрещены). -->
+        } @else if (pending.isDeleted) {
           <app-button variant="secondary" type="button" [fullWidth]="true" (click)="restoreFromRowActions(pending)">Восстановить</app-button>
         } @else {
           <app-button variant="secondary" type="button" [fullWidth]="true" (click)="editFromRowActions(pending)">Изменить</app-button>

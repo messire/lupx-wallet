@@ -8,7 +8,8 @@ namespace LupexWallet.Operations.Infrastructure;
 /// ADR-0002, §4 — one of the two implementations (with Wallets) of
 /// ReferenceData.Application.IReferenceItemUsageProbe: data owner is Operations. Checks
 /// OperationType/Currency usage in operations.operations (a targeted EXISTS, not a collection
-/// dump); soft-deleted operations count as usage (no deleted_at filter). WalletType is not
+/// dump); soft-deleted operations count as usage (no deleted_at filter); balance
+/// corrections do not (system rows, ADR-0003, §6). WalletType is not
 /// relevant to this module — returns false. Registered in AddOperationsModule.
 /// </summary>
 public sealed class OperationsReferenceItemUsageProbe(OperationsDbContext dbContext) : IReferenceItemUsageProbe
@@ -19,7 +20,7 @@ public sealed class OperationsReferenceItemUsageProbe(OperationsDbContext dbCont
             ReferenceItemKind.OperationType => dbContext.Operations.AnyAsync(
                 o => o.OperationTypeId == new OperationTypeId(referenceItemId), cancellationToken),
             ReferenceItemKind.Currency => dbContext.Operations.AnyAsync(
-                o => o.CurrencyId == new CurrencyId(referenceItemId), cancellationToken),
+                o => !o.IsCorrection && o.CurrencyId == new CurrencyId(referenceItemId), cancellationToken),
             ReferenceItemKind.WalletType => Task.FromResult(false),
             _ => Task.FromResult(false),
         };

@@ -15,16 +15,28 @@ public sealed record RestoreOperationCommand(Guid Id) : IRequest<OperationDto>, 
 public sealed class RestoreOperationCommandHandler(
     IOperationRepository repository,
     IOperationsUnitOfWork unitOfWork,
-    IWalletBalanceGateway walletBalanceGateway) : IRequestHandler<RestoreOperationCommand, OperationDto>
+    IWalletBalanceGateway walletBalanceGateway,
+    IWalletCorrectionsReconciler correctionsReconciler) : IRequestHandler<RestoreOperationCommand, OperationDto>
 {
     public async Task<OperationDto> Handle(RestoreOperationCommand request, CancellationToken cancellationToken)
     {
-        var operation = await repository.GetByIdAsync(new OperationId(request.Id), cancellationToken)
+        var operationId = new OperationId(request.Id);
+
+        var walletId = await repository.FindWalletIdAsync(operationId, cancellationToken)
+            ?? throw new KeyNotFoundException($"Operation {request.Id} не найдена.");
+        await unitOfWork.AcquireWalletLocksAsync([walletId], cancellationToken);
+
+        var operation = await repository.GetByIdAsync(operationId, cancellationToken)
             ?? throw new KeyNotFoundException($"Operation {request.Id} не найдена.");
 
         operation.Restore();
 
-        await walletBalanceGateway.ApplyDeltaAsync(operation.WalletId, operation.AppliedDelta, cancellationToken);
+        // One net delta: the restored effect plus the change of the wallet's balance corrections.
+        var effect = operation.AppliedDelta;
+        var correctionsChange = await correctionsReconciler.ReconcileAsync(operation.WalletId, [operation], cancellationToken);
+        await WalletBalanceChange.ApplyAsync(
+            walletBalanceGateway, operation.WalletId, effect.Add(new Money(correctionsChange, effect.CurrencyId)), cancellationToken);
+
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return OperationDto.FromDomain(operation);

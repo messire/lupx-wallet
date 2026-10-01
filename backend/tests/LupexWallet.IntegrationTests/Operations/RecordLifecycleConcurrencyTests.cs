@@ -10,12 +10,13 @@ using Xunit;
 namespace LupexWallet.IntegrationTests.Operations;
 
 /// <summary>
-/// Two concurrent requests against the same record (ADR-0002, §3): deleted_at is a concurrency token, so
-/// exactly one of them wins, the other gets 409 and its whole transaction (including the wallet delta)
-/// rolls back — the balance delta is applied once and the audit trail has a single entry.
-/// The race is forced deterministically: the test holds a row lock on the record, both requests load it as
-/// "active" and block (one on the record's UPDATE, the other on the first one's wallet row), then the lock
-/// is released. Without the token both requests would succeed.
+/// Two concurrent requests against the same record (ADR-0002, §3): commands on a wallet are serialized by
+/// the wallet advisory lock (ADR-0001, §4), so the loser reads the committed state and is rejected with 409 by
+/// the lifecycle rules (deleted_at stays a concurrency token as a safety net). Exactly one of them wins, the
+/// loser's whole transaction (including the wallet delta) rolls back — the balance delta is applied once and
+/// the audit trail has a single entry.
+/// The race is forced deterministically: the test holds a row lock on the record, both requests are in flight
+/// (one blocked on the record's UPDATE, the other on the wallet lock), then the lock is released.
 /// </summary>
 public sealed class RecordLifecycleConcurrencyTests(ApiTestFixture fixture) : IntegrationTestBase(fixture)
 {
@@ -93,11 +94,11 @@ public sealed class RecordLifecycleConcurrencyTests(ApiTestFixture fixture) : In
     private static async Task AssertOneWinnerAsync(HttpResponseMessage[] responses, HttpStatusCode winnerStatus)
     {
         responses.Select(r => r.StatusCode).Should().BeEquivalentTo(
-            new[] { winnerStatus, HttpStatusCode.Conflict }, "exactly one request wins, the other is rejected as a concurrent modification");
+            new[] { winnerStatus, HttpStatusCode.Conflict }, "exactly one request wins, the other is rejected as a conflict");
 
         var loser = responses.Single(r => r.StatusCode == HttpStatusCode.Conflict);
         var problem = await loser.Content.ReadFromJsonAsync<JsonElement>();
-        problem.GetProperty("detail").GetString().Should().Contain("параллельно");
+        problem.GetProperty("detail").GetString().Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]
@@ -159,8 +160,9 @@ public sealed class RecordLifecycleConcurrencyTests(ApiTestFixture fixture) : In
             }),
             "SELECT id FROM operations.operations WHERE id = @id FOR UPDATE", operationId);
 
-        responses.Count(r => r.StatusCode == HttpStatusCode.Conflict).Should().Be(1, "the second writer is rejected");
-        responses.Count(r => r.IsSuccessStatusCode).Should().Be(1);
+        // Serialized by the wallet lock: delete first rejects the edit (409), edit first lets the delete follow (both succeed).
+        responses.Should().OnlyContain(r => r.IsSuccessStatusCode || r.StatusCode == HttpStatusCode.Conflict);
+        responses.Count(r => r.IsSuccessStatusCode).Should().BeGreaterThanOrEqualTo(1);
         var operation = (await (await Client.GetAsync($"/api/v1/operations/{operationId}")).Content.ReadFromJsonAsync<OperationResponse>())!;
         var expectedBalance = operation.IsDeleted ? 1000m : 1500m;
         (await Client.GetWalletBalanceAsync(wallet.Id)).Should().Be(expectedBalance,

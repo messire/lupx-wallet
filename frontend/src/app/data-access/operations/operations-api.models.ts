@@ -1,19 +1,27 @@
 // Mirrors docs/api/openapi.yaml (Operation, OperationCreateRequest,
-// OperationUpdateRequest, OperationPage schemas).
+// OperationUpdateRequest, StatedBalanceRequest, OperationPage schemas).
 
 import { CursorPage } from '../../shared/pagination/cursor-page';
 import { Money } from '../../shared/money/money';
 
-export type AdjustmentMode = 'Absolute' | 'Delta';
+/** The only adjustment mode: a signed change of the balance (ADR-0003 §6). */
+export type AdjustmentMode = 'Delta';
 
 export interface Operation {
   id: string;
   walletId: string;
-  operationTypeId: string;
+  /** Null only for a correction amount (`isCorrection = true`). */
+  operationTypeId: string | null;
+  /** For a correction amount: the signed amount calculated by the system. */
   amount: Money;
   operationDate: string;
   /** Set only when operationType references behaviorKind = Adjustment (Q3). */
   adjustmentMode: AdjustmentMode | null;
+  /** ADR-0003 §6: a system record that reconciles the operations with a stated balance.
+   *  It cannot be edited, deleted or restored (409); the client derives its title from the amount sign. */
+  isCorrection: boolean;
+  /** The balance at the end of `operationDate` stated by the user; set only for a correction amount. */
+  statedBalance: Money | null;
   /** Non-null means the operation is part of a transfer (see UC-17): it cannot be
    *  edited/deleted directly via /operations, only via /transfers/{transferId}. */
   transferId: string | null;
@@ -35,6 +43,20 @@ export interface CreateOperationRequest {
   amount: string;
   operationDate: string;
   adjustmentMode?: AdjustmentMode;
+}
+
+/** StatedBalanceRequest (openapi.yaml): the balance at the end of the day from the path, in the wallet currency. */
+export interface StatedBalanceRequest {
+  /** Decimal-point string; a negative value is allowed. */
+  amount: string;
+}
+
+/** Result of `PUT /wallets/{walletId}/stated-balances/{date}`. */
+export interface StatedBalanceResult {
+  /** The correction amount of that date (may be zero). */
+  correction: Operation;
+  /** True for 201 (stated for the first time), false for 200 (a previous value was replaced). */
+  created: boolean;
 }
 
 /** OperationUpdateRequest (openapi.yaml) — walletId allows moving the operation to another

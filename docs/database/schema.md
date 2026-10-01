@@ -135,16 +135,25 @@ CREATE TABLE operations.transfers (
 CREATE TABLE operations.operations (
     id                     uuid PRIMARY KEY,
     wallet_id              uuid         NOT NULL,  -- wallets.wallets.id, без FK
-    operation_type_id      uuid         NOT NULL,  -- reference_data.operation_types.id, без FK
+    operation_type_id      uuid,        -- reference_data.operation_types.id, без FK; NULL только у корректирующей суммы (is_correction)
     amount                 numeric      NOT NULL,
     applied_delta_amount   numeric      NOT NULL,  -- фактически применённая к балансу кошелька знаковая дельта — см. ниже
     currency_id            uuid         NOT NULL,  -- reference_data.currencies.id, без FK; должна совпадать с currency_id кошелька (проверка в приложении)
     operation_date         date         NOT NULL,
-    adjustment_mode        varchar(16)  CHECK (adjustment_mode IN ('Absolute', 'Delta') OR adjustment_mode IS NULL),
+    adjustment_mode        varchar(16),  -- 'Delta' | NULL; режима 'Absolute' больше нет (ADR-0003 §6, п.9)
     transfer_id            uuid,        -- FK добавлена ниже как DEFERRABLE (взаимная ссылка с transfers)
     deleted_at             timestamptz, -- NULL = не удалена; мягкое удаление (ADR-0002 §3): строка остается в БД и в списках
+    is_correction          boolean      NOT NULL DEFAULT false,  -- корректирующая сумма заявленного баланса (ADR-0003 §6) — см. «Про корректирующие суммы»
+    stated_balance_amount  numeric,     -- заявленный баланс X (факт от пользователя); NOT NULL только у корректирующей суммы
     created_at              timestamptz  NOT NULL DEFAULT now(),
-    updated_at              timestamptz  NOT NULL DEFAULT now()
+    updated_at              timestamptz  NOT NULL DEFAULT now(),
+
+    CONSTRAINT ck_operations_adjustment_mode CHECK (adjustment_mode IN ('Delta') OR adjustment_mode IS NULL),
+    CONSTRAINT ck_operations_correction_stated_balance CHECK (is_correction = (stated_balance_amount IS NOT NULL)),
+    CONSTRAINT ck_operations_correction_shape CHECK (
+        NOT is_correction
+        OR (operation_type_id IS NULL AND adjustment_mode IS NULL AND transfer_id IS NULL AND deleted_at IS NULL)),
+    CONSTRAINT ck_operations_regular_type CHECK (is_correction OR operation_type_id IS NOT NULL)
 );
 
 -- Циклическая зависимость operations.transfer_id <-> transfers.source/target_operation_id
@@ -167,9 +176,29 @@ ALTER TABLE operations.transfers
 CREATE INDEX ix_operations_wallet_date ON operations.operations (wallet_id, operation_date);
 CREATE INDEX ix_operations_operation_type ON operations.operations (operation_type_id);
 CREATE INDEX ix_operations_transfer ON operations.operations (transfer_id) WHERE transfer_id IS NOT NULL;
+
+-- Не более одного заявленного баланса на пару (кошелёк, дата): повторный ввод заменяет значение в той же строке (ADR-0003 §6, п.8)
+CREATE UNIQUE INDEX ux_operations_wallet_correction_date ON operations.operations (wallet_id, operation_date) WHERE is_correction;
 ```
 
-**Про `applied_delta_amount`.** Добавлена при реализации среза Operations (не было в первой версии схемы) — хранит фактически применённую к `wallets.current_balance_amount` знаковую дельту, отдельно от пользовательского ввода (`amount` + `adjustment_mode`). Нужна, чтобы `UpdateOperation`/`DeleteOperation` могли корректно отменить именно тот эффект, который был применён ранее (а `RestoreOperation` — применить его заново) — особенно для `Adjustment`/`Absolute`, где применённая дельта зависела от баланса кошелька в момент применения и невыводима заново из одного `amount`. Подробности — `Operations.Domain.Operation` и `Operations.Application.OperationEffectCalculator`.
+**Про `applied_delta_amount`.** Добавлена при реализации среза Operations (не было в первой версии схемы) — хранит фактически применённую к `wallets.current_balance_amount` знаковую дельту, отдельно от пользовательского ввода (`amount` + `adjustment_mode`). Нужна, чтобы `UpdateOperation`/`DeleteOperation` могли корректно отменить именно тот эффект, который был применён ранее (а `RestoreOperation` — применить его заново). Для обычных операций, включая корректировку дельтой (`adjustment_mode = 'Delta'`), `applied_delta_amount` выводится из `amount` и поведения типа операции; хранится как зафиксированный эффект, чтобы не зависеть от последующих изменений справочника. У корректирующей суммы `amount = applied_delta_amount` — рассчитанная системой сумма со знаком. Режима `Absolute` больше нет: прежняя абсолютная корректировка считала дельту от баланса кошелька в момент ввода и замораживала её — теперь абсолютное значение задаётся заявленным балансом, а его сумма пересчитывается (см. ниже). Подробности — `Operations.Domain.Operation` и `Operations.Application.OperationEffectCalculator` (только `Delta`).
+
+**Про корректирующие суммы.** Заявленный баланс ([ADR-0003](../architecture/adr/0003-balance-history.md), §6) и его корректирующая сумма хранятся одной строкой `operations.operations` с `is_correction = true` ([ADR-0003](../architecture/adr/0003-balance-history.md), «Последствия»: способ хранения — решение этапа реализации; отдельной таблицы нет). Колонка `stated_balance_amount` — заявленный баланс X на конец дня `operation_date` (введено пользователем, система не меняет); `amount` = `applied_delta_amount` — сумма со знаком, равная X минус баланс на конец дня `operation_date` без неё (рассчитано системой, пересчитывается при любом изменении операций кошелька с датой ≤ `operation_date`). У корректирующей строки нет типа операции, режима корректировки, перевода и признака удаления — это гарантируют CHECK-ограничения:
+- `ck_operations_correction_stated_balance` — `is_correction` ⇔ `stated_balance_amount IS NOT NULL`;
+- `ck_operations_correction_shape` — корректирующая строка без `operation_type_id`, `adjustment_mode`, `transfer_id` и `deleted_at` (мягкое удаление ей не подлежит, ADR-0002 §3);
+- `ck_operations_regular_type` — у обычной строки `operation_type_id` обязателен (колонка стала nullable только ради корректирующей суммы);
+- `ck_operations_adjustment_mode` — `adjustment_mode` ∈ {`Delta`} или NULL.
+
+Уникальный частичный индекс `ux_operations_wallet_correction_date` обеспечивает не более одного заявленного баланса на пару (кошелёк, дата); при гонке двух одновременных вводов нарушение уникальности (`23505`) превращается в 409, обычный путь сериализуется advisory lock кошелька. Корректирующие строки не считаются историей кошелька и использованием справочников (`IWalletHistorySource` и `IReferenceItemUsageProbe` их исключают), входят в порт `IWalletOperationsLookup` как обычные дельты (поэтому слепки, баланс на дату и историческая общая сумма их учитывают), физически удаляются только вместе с кошельком, а `currency_id` следует за валютой кошелька. Нулевая корректирующая строка существует, но из `GET /operations` исключается (`is_correction AND amount = 0`); порядок списка — `(operation_date, is_correction, created_at)` по возрастанию. Новых индексов, кроме `ux_…`, нет.
+
+**Миграция `AddStatedBalanceCorrections`** (Operations; преобразование данных — `migrationBuilder.Sql`) превращает прежние абсолютные корректировки (`adjustment_mode = 'Absolute'`) в заявленные балансы ([ADR-0003](../architecture/adr/0003-balance-history.md), §6; решение пользователя 2026-09-30: существующие данные тестовые, «Итог» п.2). Порядок:
+1. Добавляются колонки `is_correction`, `stated_balance_amount`; `operation_type_id` становится nullable.
+2. Среди **не удалённых** строк `Absolute` в каждой паре (кошелёк, дата) берётся самая поздняя по `(created_at, id)`: она становится корректирующей — `stated_balance_amount := amount`, `amount := applied_delta_amount` (прежний эффект до сверки), `operation_type_id := NULL`, `adjustment_mode := NULL`, `is_correction := true`.
+3. Остальные строки `Absolute` (более ранние дубли на ту же дату и мягко удалённые) становятся обычной корректировкой дельтой: `adjustment_mode := 'Delta'`, `amount := applied_delta_amount`. Их эффект на баланс сохраняется в точности; дубли на дату D поглощаются суммой на D.
+4. Создаются CHECK-ограничения и индекс.
+5. `Down`: при наличии строк с `is_correction` падает с исключением БД (`RAISE EXCEPTION`: откат невозможен без потери заявленных балансов) и ничего не теряет; иначе удаляет колонки и ограничения, возвращает `operation_type_id NOT NULL` и прежний CHECK режима. Строки, ставшие `Delta`, обратно в `Absolute` не превращаются.
+
+Преобразование теряет только `operation_type_id` преобразованных строк, а также X у дублей и удалённых строк (значения остаются в записях аудита `Created`). После миграции фоновая сверка при старте приложения (`ReconcileWalletCorrections`) пересчитывает суммы от баланса на дату D (суммы `Absolute` считались от текущего баланса кошелька) и приводит `wallets.current_balance_amount` к `initial_balance_amount + Σ applied_delta_amount`. Перед слиянием в `master` проверить боевую базу на такие строки (изменение данных — «Критичный стоп», п.2 `CLAUDE.md`, только если они там есть; в пустых базах стопа нет).
 
 **Про `deleted_at`.** Мягкое удаление операций и переводов ([ADR-0002](../architecture/adr/0002-record-lifecycle.md), §3): одна nullable-колонка одновременно служит признаком удаления (`IS NOT NULL`) и моментом удаления; `NULL` — запись не удалена. Физического удаления строк `operations`/`transfers` нет; «ноги» перевода получают то же значение `deleted_at`, что и сам перевод. Удаленные строки остаются видимыми в списках и учитываются при определении истории кошелька и использования элемента справочника, но исключаются из расчета баланса (слепки, баланс на дату, общая сумма) — фильтр `deleted_at IS NULL` применяется явно в запросах расчета, а не глобально. Значение `updated_at` при удалении и восстановлении не меняется. Новых индексов нет: выборки по-прежнему идут по `ix_operations_wallet_date`. Добавление nullable-колонки не затрагивает существующие строки (все — «не удалены»).
 

@@ -12,6 +12,7 @@ import { WalletsApiService } from '../../../../data-access/wallets/wallets-api.s
 import { CreateOperationRequest, Operation, UpdateOperationRequest } from '../../../../data-access/operations/operations-api.models';
 import { OperationsApiService } from '../../../../data-access/operations/operations-api.service';
 import { OperationFormComponent, WalletOption } from '../../components/operation-form/operation-form.component';
+import { StatedBalanceFormComponent, StatedBalanceFormValue } from '../../components/stated-balance-form/stated-balance-form.component';
 import { OperationTypeOption } from '../../operations.models';
 import { BadgeComponent, BadgeTone } from '@shared/ui/badge/badge.component';
 import { ButtonComponent } from '@shared/ui/button/button.component';
@@ -27,9 +28,14 @@ import { ToastComponent } from '@shared/ui/toast/toast.component';
 
 /**
  * UC-11 (income), UC-12 (expense), UC-13 (edit), UC-14 (delete), UC-15 (list),
- * UC-24 (Absolute/Delta adjustment, Q3). Operations that are part of a transfer
- * (transferId !== null, UC-17) are shown as blocked from direct edit/delete —
- * they are managed from the "Transfers" screen (see features/transfers).
+ * UC-24 (adjustment by a signed delta, Q3; "Указать баланс" states the balance at the end
+ * of a day). Operations that are part of a transfer (transferId !== null, UC-17) are shown
+ * as blocked from direct edit/delete — they are managed from the "Transfers" screen
+ * (see features/transfers).
+ *
+ * ADR-0003 §6: a correction amount (`isCorrection`) is a system record reconciling the
+ * operations with a stated balance. It is titled by its sign, marked with the "Система"
+ * badge, and offers only the change history — it cannot be edited, deleted or restored.
  *
  * ADR-0002 §3/§5: deletion is soft and allowed for any date. A deleted operation
  * stays in the list (row class `is-deleted` + "Удалена" badge), cannot be edited
@@ -42,6 +48,7 @@ import { ToastComponent } from '@shared/ui/toast/toast.component';
     ReactiveFormsModule,
     RouterLink,
     OperationFormComponent,
+    StatedBalanceFormComponent,
     BadgeComponent,
     ButtonComponent,
     CardComponent,
@@ -84,6 +91,11 @@ export class OperationsComponent implements OnInit {
   readonly successMessage = signal<string | null>(null);
   readonly editingOperation = signal<Operation | null>(null);
 
+  /** "Указать баланс" dialog (ADR-0003 §6): separate state from the operation form. */
+  readonly isStatedBalanceFormOpen = signal(false);
+  readonly isStatedBalanceSubmitting = signal(false);
+  readonly statedBalanceError = signal<string | null>(null);
+
   /** Error of the last delete attempt — shown inside the confirmation dialog. */
   readonly deleteError = signal<string | null>(null);
   readonly isDeleting = signal(false);
@@ -120,6 +132,7 @@ export class OperationsComponent implements OnInit {
       id: wallet.id,
       name: wallet.name,
       currencyCode: currencies.get(wallet.currencyId) ?? '',
+      accountingStartDate: wallet.accountingStartDate,
     }));
   });
 
@@ -240,10 +253,62 @@ export class OperationsComponent implements OnInit {
     this.isFormOpen.set(true);
   }
 
+  openStatedBalanceForm(): void {
+    this.statedBalanceError.set(null);
+    this.isStatedBalanceFormOpen.set(true);
+  }
+
+  cancelStatedBalanceForm(): void {
+    this.isStatedBalanceFormOpen.set(false);
+    this.statedBalanceError.set(null);
+  }
+
+  /**
+   * ADR-0003 §6, p.8: a repeated input for the same date replaces the previous value — the toast
+   * tells which of the two happened (201 = stated for the first time, 200 = replaced).
+   */
+  saveStatedBalance(value: StatedBalanceFormValue): void {
+    if (this.isStatedBalanceSubmitting()) {
+      return;
+    }
+    this.isStatedBalanceSubmitting.set(true);
+    this.statedBalanceError.set(null);
+
+    this.operationsService.setStatedBalance(value.walletId, value.date, value.amount).subscribe({
+      next: (result) => {
+        this.isStatedBalanceSubmitting.set(false);
+        this.cancelStatedBalanceForm();
+        this.loadOperations();
+        this.successMessage.set(
+          result.created
+            ? `Баланс на ${value.date} указан`
+            : `Баланс на ${value.date} заменён: прежнее значение обновлено`,
+        );
+      },
+      error: (error: unknown) => {
+        this.isStatedBalanceSubmitting.set(false);
+        this.statedBalanceError.set(extractErrorMessage(error, this.statedBalanceFallbackError(error)));
+      },
+    });
+  }
+
+  private statedBalanceFallbackError(error: unknown): string {
+    if (error instanceof HttpErrorResponse) {
+      if (error.status === 400) {
+        return 'Проверьте данные: дата должна быть от начала учёта кошелька до сегодняшнего дня, баланс — числом.';
+      }
+      if (error.status === 409) {
+        return 'Запись изменена параллельно. Повторите ввод.';
+      }
+    }
+    return 'Не удалось указать баланс.';
+  }
+
   openEditForm(operation: Operation): void {
-    if (operation.transferId || operation.isDeleted) {
+    if (operation.transferId || operation.isDeleted || operation.isCorrection) {
       // Part of a transfer — editable only via the "Transfers" screen (UC-17);
-      // a deleted operation must be restored first (ADR-0002 §3).
+      // a deleted operation must be restored first (ADR-0002 §3); a correction amount is
+      // calculated by the system and replaced only by stating the balance again (ADR-0003 §6).
       return;
     }
     this.editingOperation.set(operation);
@@ -334,7 +399,7 @@ export class OperationsComponent implements OnInit {
   }
 
   requestDeleteConfirm(operation: Operation): void {
-    if (operation.transferId || operation.isDeleted) {
+    if (operation.transferId || operation.isDeleted || operation.isCorrection) {
       return;
     }
     this.deleteError.set(null);
@@ -386,7 +451,7 @@ export class OperationsComponent implements OnInit {
 
   /** ADR-0002 §3: restore is reversible, so it runs without a confirmation dialog. */
   restoreOperation(operation: Operation): void {
-    if (operation.transferId || !operation.isDeleted || this.isRestoring()) {
+    if (operation.transferId || operation.isCorrection || !operation.isDeleted || this.isRestoring()) {
       return;
     }
     this.isRestoring.set(true);
@@ -427,6 +492,35 @@ export class OperationsComponent implements OnInit {
     return `Действия с операцией: ${operation.operationDate}, ${this.operationTypeName(operation.operationTypeId)}, ${amount}`;
   }
 
+  /** Accessible name of the history link of a correction row: the title and the date identify the row. */
+  correctionHistoryLabel(operation: Operation): string {
+    return `История изменений: ${this.correctionTitle(operation)}, ${operation.operationDate}`;
+  }
+
+  /** The correction amount is negative: the stated balance is lower than the operations give. */
+  isNegativeAmount(operation: Operation): boolean {
+    return operation.amount.amount.startsWith('-');
+  }
+
+  /** Title of a correction amount by its sign (the server sends no title): "Неизвестные траты" / "Неизвестные доходы". */
+  correctionTitle(operation: Operation): string {
+    return this.isNegativeAmount(operation) ? 'Неизвестные траты' : 'Неизвестные доходы';
+  }
+
+  /** Signed amount of a correction row with an explicit currency: "+50 USD" / "−50 USD" (ui-kit §5). */
+  correctionAmountText(operation: Operation): string {
+    const text = formatMoney(operation.amount, this.walletCurrencyCode(operation.walletId));
+    return this.isNegativeAmount(operation) ? `−${text.slice(1)}` : `+${text}`;
+  }
+
+  /** "Корректировка" column: the stated balance of a correction row, the delta mode of an adjustment, otherwise empty. */
+  adjustmentText(operation: Operation): string {
+    if (operation.isCorrection && operation.statedBalance) {
+      return `Баланс на конец дня: ${formatMoney(operation.statedBalance, this.walletCurrencyCode(operation.walletId))}`;
+    }
+    return operation.adjustmentMode === 'Delta' ? 'Изменение на сумму' : '';
+  }
+
   walletName(walletId: string): string {
     return this.wallets().find((wallet) => wallet.id === walletId)?.name ?? walletId;
   }
@@ -437,12 +531,16 @@ export class OperationsComponent implements OnInit {
     return this.currencies().find((currency) => currency.id === currencyId)?.code;
   }
 
-  operationTypeName(operationTypeId: string): string {
+  /** Type name; "—" when there is no type (a correction amount has none). */
+  operationTypeName(operationTypeId: string | null): string {
+    if (operationTypeId === null) {
+      return '—';
+    }
     return this.operationTypesRaw().find((type) => type.id === operationTypeId)?.name ?? operationTypeId;
   }
 
   /** Operation type's behaviorKind code — used to style the row (ui-kit §5 "Table / list row"). */
-  operationBehaviorKindCode(operationTypeId: string): string {
+  operationBehaviorKindCode(operationTypeId: string | null): string {
     return this.allOperationTypeOptions().find((type) => type.id === operationTypeId)?.behaviorKindCode ?? '';
   }
 

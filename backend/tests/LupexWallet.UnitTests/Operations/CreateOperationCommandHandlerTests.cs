@@ -23,9 +23,10 @@ public sealed class CreateOperationCommandHandlerTests
     private readonly IOperationsUnitOfWork _unitOfWork = Substitute.For<IOperationsUnitOfWork>();
     private readonly IOperationTypeLookup _operationTypeLookup = Substitute.For<IOperationTypeLookup>();
     private readonly IWalletBalanceGateway _walletBalanceGateway = Substitute.For<IWalletBalanceGateway>();
+    private readonly IWalletCorrectionsReconciler _correctionsReconciler = Substitute.For<IWalletCorrectionsReconciler>();
 
     private CreateOperationCommandHandler CreateHandler() =>
-        new(_operationRepository, _unitOfWork, _operationTypeLookup, _walletBalanceGateway);
+        new(_operationRepository, _unitOfWork, _operationTypeLookup, _walletBalanceGateway, _correctionsReconciler);
 
     private static WalletBalanceInfo Wallet(decimal currentBalance = 0m, DateOnly? accountingStartDate = null) => new(
         WalletId.New(), WalletCurrency, new Money(0m, WalletCurrency), new Money(currentBalance, WalletCurrency),

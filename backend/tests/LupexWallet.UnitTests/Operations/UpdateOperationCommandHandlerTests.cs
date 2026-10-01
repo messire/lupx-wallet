@@ -24,9 +24,10 @@ public sealed class UpdateOperationCommandHandlerTests
     private readonly IOperationsUnitOfWork _unitOfWork = Substitute.For<IOperationsUnitOfWork>();
     private readonly IOperationTypeLookup _operationTypeLookup = Substitute.For<IOperationTypeLookup>();
     private readonly IWalletBalanceGateway _walletBalanceGateway = Substitute.For<IWalletBalanceGateway>();
+    private readonly IWalletCorrectionsReconciler _correctionsReconciler = Substitute.For<IWalletCorrectionsReconciler>();
 
     private UpdateOperationCommandHandler CreateHandler() =>
-        new(_operationRepository, _unitOfWork, _operationTypeLookup, _walletBalanceGateway);
+        new(_operationRepository, _unitOfWork, _operationTypeLookup, _walletBalanceGateway, _correctionsReconciler);
 
     private static Money Money(decimal amount, CurrencyId? currency = null) => new(amount, currency ?? WalletCurrency);
 
@@ -59,7 +60,7 @@ public sealed class UpdateOperationCommandHandlerTests
     {
         var operation = Income(WalletId.New(), amount: 100m);
         operation.SoftDelete();
-        _operationRepository.GetByIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(operation);
+        _operationRepository.Found(operation);
         _operationTypeLookup.GetAsync(Arg.Any<OperationTypeId>(), Arg.Any<CancellationToken>()).Returns(ActiveType("Income"));
         _walletBalanceGateway.GetAsync(operation.WalletId, Arg.Any<CancellationToken>()).Returns(Wallet(operation.WalletId, 500m));
         var command = new UpdateOperationCommand(
@@ -78,7 +79,7 @@ public sealed class UpdateOperationCommandHandlerTests
     {
         var operation = Income(WalletId.New(), amount: 100m);
         operation.SoftDelete();
-        _operationRepository.GetByIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(operation);
+        _operationRepository.Found(operation);
         _operationTypeLookup.GetAsync(Arg.Any<OperationTypeId>(), Arg.Any<CancellationToken>()).Returns(ActiveType("Income"));
         var newWalletId = WalletId.New();
         _walletBalanceGateway.GetAsync(newWalletId, Arg.Any<CancellationToken>()).Returns(Wallet(newWalletId, 0m));
@@ -100,7 +101,7 @@ public sealed class UpdateOperationCommandHandlerTests
         var (transfer, sourceOperation, targetOperation) = Transfer.Create(
             TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(10m), DateOnly.FromDateTime(DateTime.UtcNow));
         transfer.SoftDelete(sourceOperation, targetOperation);
-        _operationRepository.GetByIdAsync(sourceOperation.Id, Arg.Any<CancellationToken>()).Returns(sourceOperation);
+        _operationRepository.Found(sourceOperation);
         var command = new UpdateOperationCommand(
             sourceOperation.Id.Value, sourceOperation.WalletId.Value, Guid.NewGuid(), 999m, sourceOperation.OperationDate, null);
 
@@ -114,7 +115,7 @@ public sealed class UpdateOperationCommandHandlerTests
     public async Task Handle_SameWallet_AppliesIncrementalDeltaOnlyOnce()
     {
         var operation = Income(WalletId.New(), amount: 100m);
-        _operationRepository.GetByIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(operation);
+        _operationRepository.Found(operation);
         _operationTypeLookup.GetAsync(Arg.Any<OperationTypeId>(), Arg.Any<CancellationToken>()).Returns(ActiveType("Income"));
         var wallet = Wallet(operation.WalletId, currentBalance: 500m);
         _walletBalanceGateway.GetAsync(operation.WalletId, Arg.Any<CancellationToken>()).Returns(wallet);
@@ -136,7 +137,7 @@ public sealed class UpdateOperationCommandHandlerTests
     {
         var (_, sourceOperation, _) = Transfer.Create(
             TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(10m), DateOnly.FromDateTime(DateTime.UtcNow));
-        _operationRepository.GetByIdAsync(sourceOperation.Id, Arg.Any<CancellationToken>()).Returns(sourceOperation);
+        _operationRepository.Found(sourceOperation);
         _operationTypeLookup.GetAsync(Arg.Any<OperationTypeId>(), Arg.Any<CancellationToken>()).Returns(ActiveType("Income"));
         var newWalletId = WalletId.New();
         _walletBalanceGateway.GetAsync(newWalletId, Arg.Any<CancellationToken>()).Returns(Wallet(newWalletId, currentBalance: 0m));
@@ -153,7 +154,7 @@ public sealed class UpdateOperationCommandHandlerTests
     public async Task Handle_WalletChanged_NewWalletNotFound_ThrowsWalletReferenceNotFoundException()
     {
         var operation = Income(WalletId.New(), amount: 100m);
-        _operationRepository.GetByIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(operation);
+        _operationRepository.Found(operation);
         _operationTypeLookup.GetAsync(Arg.Any<OperationTypeId>(), Arg.Any<CancellationToken>()).Returns(ActiveType("Income"));
         var newWalletId = WalletId.New();
         _walletBalanceGateway.GetAsync(newWalletId, Arg.Any<CancellationToken>()).Returns((WalletBalanceInfo?)null);
@@ -172,7 +173,7 @@ public sealed class UpdateOperationCommandHandlerTests
         var oldWalletId = WalletId.New();
         var newWalletId = WalletId.New();
         var operation = Income(oldWalletId, amount: 100m);
-        _operationRepository.GetByIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(operation);
+        _operationRepository.Found(operation);
         _operationTypeLookup.GetAsync(Arg.Any<OperationTypeId>(), Arg.Any<CancellationToken>()).Returns(ActiveType("Income"));
         var newWallet = Wallet(newWalletId, currentBalance: 1000m);
         _walletBalanceGateway.GetAsync(newWalletId, Arg.Any<CancellationToken>()).Returns(newWallet);
@@ -201,7 +202,7 @@ public sealed class UpdateOperationCommandHandlerTests
         var newWalletId = WalletId.New();
         var newCurrency = new CurrencyId(Guid.NewGuid());
         var operation = Income(oldWalletId, amount: 100m);
-        _operationRepository.GetByIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(operation);
+        _operationRepository.Found(operation);
         _operationTypeLookup.GetAsync(Arg.Any<OperationTypeId>(), Arg.Any<CancellationToken>()).Returns(ActiveType("Income"));
         var newWallet = Wallet(newWalletId, currentBalance: 0m, currency: newCurrency);
         _walletBalanceGateway.GetAsync(newWalletId, Arg.Any<CancellationToken>()).Returns(newWallet);
@@ -221,7 +222,7 @@ public sealed class UpdateOperationCommandHandlerTests
         var newWalletId = WalletId.New();
         var operationDate = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-5);
         var operation = Income(oldWalletId, amount: 100m, date: operationDate);
-        _operationRepository.GetByIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(operation);
+        _operationRepository.Found(operation);
         _operationTypeLookup.GetAsync(Arg.Any<OperationTypeId>(), Arg.Any<CancellationToken>()).Returns(ActiveType("Income"));
         // Новый кошелек начал учет позже даты операции — перенос должен быть отклонен.
         var newWallet = Wallet(newWalletId, currentBalance: 0m, accountingStartDate: DateOnly.FromDateTime(DateTime.UtcNow));

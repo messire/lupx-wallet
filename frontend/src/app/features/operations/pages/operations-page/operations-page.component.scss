@@ -3,6 +3,13 @@
   margin-bottom: var(--lw-space-6);
 }
 
+/* Два действия заголовка («Указать баланс», «Добавить операцию») переносятся на узком экране. */
+.page-heading__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lw-space-3);
+}
+
 .toolbar {
   display: flex;
   justify-content: flex-end;
@@ -19,6 +26,20 @@
 
   tr.transfer-part {
     color: var(--lw-text-muted);
+  }
+
+  /* Системная запись (корректирующая сумма, ADR-0003 §6): курсив и более спокойный текст
+     — лишь дополнительный признак, главный — текстовый бейдж «Система». Цвет —
+     --lw-text-secondary (контраст на --lw-glass-strong выше нормы 4.5:1, не ниже
+     обычного текста строки); в forced-colors цвета задаёт система, остаются курсив и
+     бейдж. Не перечёркивается и не смешивается с `is-deleted`. */
+  tr.is-system td:not(.actions) {
+    font-style: italic;
+    color: var(--lw-text-secondary);
+
+    app-badge {
+      font-style: normal;
+    }
   }
 
   .amount {

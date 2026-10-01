@@ -1,0 +1,32 @@
+<form class="entity-form" [formGroup]="form" (ngSubmit)="submit()">
+  <app-field label="Кошелек" [error]="walletError()" [required]="true">
+    <select appFieldControl formControlName="walletId">
+      <option value="" disabled>— выберите кошелек —</option>
+      @for (wallet of wallets(); track wallet.id) {
+        <option [value]="wallet.id">{{ wallet.name }}</option>
+      }
+    </select>
+  </app-field>
+
+  <app-field label="Дата" [error]="dateError()" [required]="true">
+    <input appFieldControl type="date" formControlName="date" [attr.min]="minDate()" [attr.max]="today" />
+  </app-field>
+
+  <app-field label="Баланс на конец дня" [hint]="amountHint" [error]="amountError()" [required]="true">
+    <div class="input-suffix">
+      <input appFieldControl type="text" inputmode="decimal" placeholder="0.00" formControlName="amount" />
+      @if (selectedWalletCurrencyCode(); as currencyCode) {
+        <span class="input-suffix__code">{{ currencyCode }}</span>
+      }
+    </div>
+  </app-field>
+
+  @if (errorMessage()) {
+    <p class="form-error" role="alert">{{ errorMessage() }}</p>
+  }
+
+  <div class="form-actions">
+    <app-button type="submit" variant="primary" [loading]="isSubmitting()" loadingText="Сохранение…">Указать баланс</app-button>
+    <app-button type="button" variant="secondary" (click)="onCancel()">Отмена</app-button>
+  </div>
+</form>

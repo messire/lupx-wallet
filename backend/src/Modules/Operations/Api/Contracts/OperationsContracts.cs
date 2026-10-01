@@ -27,6 +27,8 @@ public sealed record OperationCreateRequest(
 public sealed record OperationUpdateRequest(
     Guid WalletId, Guid OperationTypeId, decimal Amount, DateOnly OperationDate, string? AdjustmentMode);
 
+public sealed record StatedBalanceRequest(decimal Amount);
+
 public sealed record OperationPageResponse(IReadOnlyList<OperationResponse> Data, CursorPageMeta Pagination);
 
 public sealed record TransferResponse(

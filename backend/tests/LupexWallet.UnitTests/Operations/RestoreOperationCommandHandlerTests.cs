@@ -21,8 +21,9 @@ public sealed class RestoreOperationCommandHandlerTests
     private readonly IOperationRepository _operationRepository = Substitute.For<IOperationRepository>();
     private readonly IOperationsUnitOfWork _unitOfWork = Substitute.For<IOperationsUnitOfWork>();
     private readonly IWalletBalanceGateway _walletBalanceGateway = Substitute.For<IWalletBalanceGateway>();
+    private readonly IWalletCorrectionsReconciler _correctionsReconciler = Substitute.For<IWalletCorrectionsReconciler>();
 
-    private RestoreOperationCommandHandler CreateHandler() => new(_operationRepository, _unitOfWork, _walletBalanceGateway);
+    private RestoreOperationCommandHandler CreateHandler() => new(_operationRepository, _unitOfWork, _walletBalanceGateway, _correctionsReconciler);
 
     private static Operation DeletedOperation(OperationEffectKind kind, decimal amount, decimal appliedDelta, DateOnly? date = null)
     {
@@ -54,7 +55,7 @@ public sealed class RestoreOperationCommandHandlerTests
     public async Task Handle_DeletedIncome_ReappliesPositiveDeltaSavesAndReturnsActiveDto()
     {
         var operation = DeletedOperation(OperationEffectKind.Income, 70m, 70m);
-        _operationRepository.GetByIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(operation);
+        _operationRepository.Found(operation);
 
         var result = await CreateHandler().Handle(new RestoreOperationCommand(operation.Id.Value), CancellationToken.None);
 
@@ -71,7 +72,7 @@ public sealed class RestoreOperationCommandHandlerTests
     public async Task Handle_DeletedExpense_ReappliesNegativeDelta()
     {
         var operation = DeletedOperation(OperationEffectKind.Expense, 40m, -40m);
-        _operationRepository.GetByIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(operation);
+        _operationRepository.Found(operation);
 
         await CreateHandler().Handle(new RestoreOperationCommand(operation.Id.Value), CancellationToken.None);
 
@@ -83,7 +84,7 @@ public sealed class RestoreOperationCommandHandlerTests
     public async Task Handle_DoesNotLookUpWallet_SoDateAndArchivalAreNotRechecked()
     {
         var operation = DeletedOperation(OperationEffectKind.Income, 70m, 70m, new DateOnly(2000, 1, 1));
-        _operationRepository.GetByIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(operation);
+        _operationRepository.Found(operation);
 
         await CreateHandler().Handle(new RestoreOperationCommand(operation.Id.Value), CancellationToken.None);
 
@@ -96,7 +97,7 @@ public sealed class RestoreOperationCommandHandlerTests
         var operation = Operation.Create(
             OperationId.New(), WalletId.New(), OperationTypeId.New(), OperationEffectKind.Income,
             Money(10m), DateOnly.FromDateTime(DateTime.UtcNow), adjustmentMode: null, appliedDelta: Money(10m));
-        _operationRepository.GetByIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(operation);
+        _operationRepository.Found(operation);
 
         var act = () => CreateHandler().Handle(new RestoreOperationCommand(operation.Id.Value), CancellationToken.None);
 
@@ -111,7 +112,7 @@ public sealed class RestoreOperationCommandHandlerTests
         var (transfer, source, target) = Transfer.Create(
             TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(10m), DateOnly.FromDateTime(DateTime.UtcNow));
         transfer.SoftDelete(source, target);
-        _operationRepository.GetByIdAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
+        _operationRepository.Found(source);
 
         var act = () => CreateHandler().Handle(new RestoreOperationCommand(source.Id.Value), CancellationToken.None);
 

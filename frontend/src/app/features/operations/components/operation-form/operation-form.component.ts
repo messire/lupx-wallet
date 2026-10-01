@@ -3,24 +3,26 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, injec
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { amountValidator } from '@shared/money/money';
 import { fieldError } from '@shared/forms/field-error';
-import { AdjustmentMode, CreateOperationRequest, Operation, UpdateOperationRequest } from '../../../../data-access/operations/operations-api.models';
+import { CreateOperationRequest, Operation, UpdateOperationRequest } from '../../../../data-access/operations/operations-api.models';
 import { OperationTypeOption } from '../../operations.models';
 import { ButtonComponent } from '@shared/ui/button/button.component';
 import { FieldComponent } from '@shared/ui/field/field.component';
 import { FieldControlDirective } from '@shared/ui/field/field-control.directive';
-import { RadioGroupComponent } from '@shared/ui/radio/radio-group.component';
-import { RadioOptionComponent } from '@shared/ui/radio/radio-option.component';
 
 export interface WalletOption {
   id: string;
   name: string;
   currencyCode: string;
+  /** Start of the wallet accounting (yyyy-MM-dd); the lower bound of a stated-balance date. */
+  accountingStartDate?: string;
 }
 
 /**
  * Operation create/edit form (UC-11 income, UC-12 expense, UC-13 edit, UC-24
- * adjustment). The adjustment mode (Absolute/Delta, Q3) is shown only when the
- * selected operation type has behaviorKind = Adjustment.
+ * adjustment). An adjustment (selected operation type has behaviorKind = Adjustment)
+ * is always a signed change of the balance (ADR-0003 §6): the amount is entered with
+ * a sign and `adjustmentMode = Delta` is sent. A new balance value is stated with a
+ * separate form (`StatedBalanceFormComponent`).
  *
  * The wallet field is also available in edit mode (UC-13) — changing the
  * operation's wallet moves it to another wallet with both balances
@@ -29,14 +31,7 @@ export interface WalletOption {
 @Component({
   selector: 'app-operation-form',
   standalone: true,
-  imports: [
-    ReactiveFormsModule,
-    ButtonComponent,
-    FieldComponent,
-    FieldControlDirective,
-    RadioGroupComponent,
-    RadioOptionComponent,
-  ],
+  imports: [ReactiveFormsModule, ButtonComponent, FieldComponent, FieldControlDirective],
   templateUrl: './operation-form.component.html',
   styleUrl: './operation-form.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -70,7 +65,6 @@ export class OperationFormComponent {
     operationTypeId: ['', Validators.required],
     amount: ['', [Validators.required, amountValidator]],
     operationDate: [this.today(), Validators.required],
-    adjustmentMode: ['Delta' as AdjustmentMode],
   });
 
   constructor() {
@@ -87,10 +81,9 @@ export class OperationFormComponent {
       if (operation) {
         this.form.patchValue({
           walletId: operation.walletId,
-          operationTypeId: operation.operationTypeId,
+          operationTypeId: operation.operationTypeId ?? '',
           amount: operation.amount.amount,
           operationDate: operation.operationDate,
-          adjustmentMode: operation.adjustmentMode ?? 'Delta',
         });
         this.updateSelectedBehaviorKind(operation.operationTypeId);
         this.selectedWalletId.set(operation.walletId);
@@ -114,7 +107,7 @@ export class OperationFormComponent {
     }
 
     const value = this.form.getRawValue();
-    const adjustment = this.isAdjustment() ? { adjustmentMode: value.adjustmentMode } : {};
+    const adjustment = this.isAdjustment() ? { adjustmentMode: 'Delta' as const } : {};
 
     if (this.isEditMode()) {
       const request: UpdateOperationRequest = {
@@ -160,6 +153,11 @@ export class OperationFormComponent {
       amount: 'Сумма — число с точкой в качестве разделителя (например, 1234.56)',
     });
   }
+
+  /** Hint under the amount of an adjustment: the sign carries the direction of the change. */
+  readonly amountHint = computed(() =>
+    this.isAdjustment() ? 'Изменение баланса: плюс увеличивает баланс, минус уменьшает' : null,
+  );
 
   private updateSelectedBehaviorKind(typeId: string | null): void {
     const type = this.operationTypes().find((candidate) => candidate.id === typeId);

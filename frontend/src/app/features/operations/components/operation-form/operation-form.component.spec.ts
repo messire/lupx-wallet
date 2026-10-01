@@ -33,20 +33,26 @@ describe('OperationFormComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  it('does not show adjustment mode for a non-adjustment type', () => {
+  it('labels the amount "Сумма" for a non-adjustment type', () => {
     component.form.controls.operationTypeId.setValue('type-income');
     fixture.detectChanges();
 
     expect(component.isAdjustment()).toBe(false);
     expect(fixture.nativeElement.querySelector('app-radio-group')).toBeNull();
+    expect(fixture.nativeElement.textContent).not.toContain('Изменение на сумму');
   });
 
-  it('shows adjustment mode selector only for Adjustment behaviorKind', () => {
+  it('offers only the signed change for an Adjustment type: no mode selector, no "Новое значение баланса"', () => {
     component.form.controls.operationTypeId.setValue('type-adjustment');
     fixture.detectChanges();
 
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(component.isAdjustment()).toBe(true);
-    expect(fixture.nativeElement.querySelector('app-radio-group')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('app-radio-group')).toBeNull();
+    expect(text).toContain('Изменение на сумму (+/−)');
+    expect(text).toContain('плюс увеличивает баланс, минус уменьшает');
+    expect(text).not.toContain('Новое значение баланса');
+    expect(text).not.toContain('Новый баланс');
   });
 
   it('emits CreateOperationRequest without adjustmentMode for a non-adjustment type', () => {
@@ -58,7 +64,6 @@ describe('OperationFormComponent', () => {
       operationTypeId: 'type-income',
       amount: '150.00',
       operationDate: '2026-09-01',
-      adjustmentMode: 'Delta',
     });
 
     component.submit();
@@ -73,16 +78,15 @@ describe('OperationFormComponent', () => {
     ]);
   });
 
-  it('emits adjustmentMode when the selected type behaviorKind is Adjustment', () => {
+  it('emits adjustmentMode Delta (and a negative amount as is) when the selected type behaviorKind is Adjustment', () => {
     const emitted: unknown[] = [];
     component.save.subscribe((value) => emitted.push(value));
 
     component.form.setValue({
       walletId: 'wallet-1',
       operationTypeId: 'type-adjustment',
-      amount: '1000.00',
+      amount: '-1000.00',
       operationDate: '2026-09-01',
-      adjustmentMode: 'Absolute',
     });
 
     component.submit();
@@ -91,9 +95,9 @@ describe('OperationFormComponent', () => {
       {
         walletId: 'wallet-1',
         operationTypeId: 'type-adjustment',
-        amount: '1000.00',
+        amount: '-1000.00',
         operationDate: '2026-09-01',
-        adjustmentMode: 'Absolute',
+        adjustmentMode: 'Delta',
       },
     ]);
   });
@@ -116,6 +120,8 @@ describe('OperationFormComponent', () => {
       amount: { amount: '150.00', currencyId: 'currency-1' },
       operationDate: '2026-09-01',
       adjustmentMode: null,
+      isCorrection: false,
+      statedBalance: null,
       transferId: null,
       isDeleted: false,
       deletedAt: null,
@@ -151,6 +157,8 @@ describe('OperationFormComponent', () => {
       amount: { amount: '150.00', currencyId: 'currency-1' },
       operationDate: '2026-09-01',
       adjustmentMode: null,
+      isCorrection: false,
+      statedBalance: null,
       transferId: null,
       isDeleted: false,
       deletedAt: null,

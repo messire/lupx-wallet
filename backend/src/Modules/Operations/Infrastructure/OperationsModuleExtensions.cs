@@ -2,6 +2,8 @@ using LupexWallet.BuildingBlocks.Infrastructure;
 using LupexWallet.Operations.Application;
 using LupexWallet.ReferenceData.Application;
 using LupexWallet.Wallets.Application;
+using LupexWallet.Wallets.Domain;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -31,6 +33,7 @@ public static class OperationsModuleExtensions
         services.AddScoped<ITransferRepository, TransferRepository>();
         services.AddScoped<IOperationsUnitOfWork, OperationsUnitOfWork>();
         services.AddScoped<IWalletOperationsLookup, WalletOperationsLookup>();
+        services.AddScoped<IWalletCorrectionsReconciler, WalletCorrectionsReconciler>();
 
         // ADR-0002, §2: единственная реализация Wallets.Application.IWalletHistorySource
         // (удалённые операции считаются историей).
@@ -39,6 +42,14 @@ public static class OperationsModuleExtensions
         // ADR-0002, §4: одна из двух реализаций ReferenceData.Application.IReferenceItemUsageProbe
         // (удалённые операции считаются использованием).
         services.AddScoped<IReferenceItemUsageProbe, OperationsReferenceItemUsageProbe>();
+
+        // ADR-0002, §2: balance corrections are removed with the wallet and follow its currency.
+        // Registered manually: MediatR scans only *.Application assemblies in Program.cs.
+        services.AddScoped<INotificationHandler<DomainEventNotification<WalletDeleted>>, WalletDeletedHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<WalletCurrencyChanged>>, WalletCurrencyChangedHandler>();
+
+        // ADR-0003, §6: startup reconciliation of the balance corrections.
+        services.AddHostedService<StatedBalanceReconciliationHostedService>();
 
         return services;
     }

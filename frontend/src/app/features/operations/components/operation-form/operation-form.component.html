@@ -17,18 +17,9 @@
     </select>
   </app-field>
 
-  @if (isAdjustment()) {
-    <div class="field-group">
-      <span class="field-group__label" id="adjustment-mode-label">Способ корректировки</span>
-      <app-radio-group formControlName="adjustmentMode" ariaLabelledBy="adjustment-mode-label">
-        <app-radio-option value="Delta" label="Изменение на сумму (+/−)" />
-        <app-radio-option value="Absolute" label="Новое значение баланса" />
-      </app-radio-group>
-    </div>
-  }
-
   <app-field
-    [label]="isAdjustment() && form.controls.adjustmentMode.value === 'Absolute' ? 'Новый баланс' : 'Сумма'"
+    [label]="isAdjustment() ? 'Изменение на сумму (+/−)' : 'Сумма'"
+    [hint]="amountHint()"
     [error]="amountError()"
     [required]="true"
   >

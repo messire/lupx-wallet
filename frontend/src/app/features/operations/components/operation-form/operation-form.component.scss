@@ -8,17 +8,6 @@
   gap: var(--lw-space-4);
 }
 
-.field-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--lw-space-2);
-}
-
-.field-group__label {
-  font-size: var(--lw-type-small);
-  color: var(--lw-text-secondary);
-}
-
 .form-actions {
   display: flex;
   gap: var(--lw-space-3);

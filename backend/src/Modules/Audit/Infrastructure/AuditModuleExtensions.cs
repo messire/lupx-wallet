@@ -67,7 +67,8 @@ public static class AuditModuleExtensions
         services.AddScoped<INotificationHandler<DomainEventNotification<CurrencyRenamed>>, CurrencyRenamedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<CurrencyDeleted>>, CurrencyDeletedAuditHandler>();
 
-        // Operations (OperationCreated/Updated/Deleted/Restored, TransferCreated/Deleted/Restored).
+        // Operations (OperationCreated/Updated/Deleted/Restored, TransferCreated/Deleted/Restored,
+        // CorrectionRecalculated/Removed/CurrencyChanged).
         services.AddScoped<INotificationHandler<DomainEventNotification<OperationCreated>>, OperationCreatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<OperationUpdated>>, OperationUpdatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<OperationDeleted>>, OperationDeletedAuditHandler>();
@@ -75,6 +76,9 @@ public static class AuditModuleExtensions
         services.AddScoped<INotificationHandler<DomainEventNotification<TransferDeleted>>, TransferDeletedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<OperationRestored>>, OperationRestoredAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<TransferRestored>>, TransferRestoredAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<CorrectionRecalculated>>, CorrectionRecalculatedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<CorrectionRemoved>>, CorrectionRemovedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<CorrectionCurrencyChanged>>, CorrectionCurrencyChangedAuditHandler>();
 
         // BalanceHistory (BalanceSnapshotCreated/Updated/Deleted).
         services.AddScoped<INotificationHandler<DomainEventNotification<BalanceSnapshotCreated>>, BalanceSnapshotCreatedAuditHandler>();

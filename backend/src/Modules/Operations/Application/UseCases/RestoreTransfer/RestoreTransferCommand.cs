@@ -15,11 +15,18 @@ public sealed class RestoreTransferCommandHandler(
     ITransferRepository transferRepository,
     IOperationRepository operationRepository,
     IOperationsUnitOfWork unitOfWork,
-    IWalletBalanceGateway walletBalanceGateway) : IRequestHandler<RestoreTransferCommand, TransferDto>
+    IWalletBalanceGateway walletBalanceGateway,
+    IWalletCorrectionsReconciler correctionsReconciler) : IRequestHandler<RestoreTransferCommand, TransferDto>
 {
     public async Task<TransferDto> Handle(RestoreTransferCommand request, CancellationToken cancellationToken)
     {
-        var transfer = await transferRepository.GetByIdAsync(new TransferId(request.Id), cancellationToken)
+        var transferId = new TransferId(request.Id);
+
+        var walletIds = await transferRepository.FindWalletIdsAsync(transferId, cancellationToken)
+            ?? throw new KeyNotFoundException($"Transfer {request.Id} не найден.");
+        await unitOfWork.AcquireWalletLocksAsync([walletIds.SourceWalletId, walletIds.TargetWalletId], cancellationToken);
+
+        var transfer = await transferRepository.GetByIdAsync(transferId, cancellationToken)
             ?? throw new KeyNotFoundException($"Transfer {request.Id} не найден.");
 
         var sourceOperation = await operationRepository.GetByIdAsync(transfer.SourceOperationId, cancellationToken)
@@ -29,8 +36,17 @@ public sealed class RestoreTransferCommandHandler(
 
         transfer.Restore(sourceOperation, targetOperation);
 
-        await walletBalanceGateway.ApplyDeltaAsync(transfer.SourceWalletId, sourceOperation.AppliedDelta, cancellationToken);
-        await walletBalanceGateway.ApplyDeltaAsync(transfer.TargetWalletId, targetOperation.AppliedDelta, cancellationToken);
+        // One net delta per wallet: the restored leg plus the change of that wallet's balance corrections.
+        Operation[] legs = [sourceOperation, targetOperation];
+        var sourceCorrectionsChange = await correctionsReconciler.ReconcileAsync(transfer.SourceWalletId, legs, cancellationToken);
+        var targetCorrectionsChange = await correctionsReconciler.ReconcileAsync(transfer.TargetWalletId, legs, cancellationToken);
+
+        await WalletBalanceChange.ApplyAsync(
+            walletBalanceGateway, transfer.SourceWalletId,
+            sourceOperation.AppliedDelta.Add(new Money(sourceCorrectionsChange, sourceOperation.CurrencyId)), cancellationToken);
+        await WalletBalanceChange.ApplyAsync(
+            walletBalanceGateway, transfer.TargetWalletId,
+            targetOperation.AppliedDelta.Add(new Money(targetCorrectionsChange, targetOperation.CurrencyId)), cancellationToken);
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
 

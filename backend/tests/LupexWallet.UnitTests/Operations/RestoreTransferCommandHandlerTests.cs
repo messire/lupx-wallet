@@ -21,9 +21,10 @@ public sealed class RestoreTransferCommandHandlerTests
     private readonly IOperationRepository _operationRepository = Substitute.For<IOperationRepository>();
     private readonly IOperationsUnitOfWork _unitOfWork = Substitute.For<IOperationsUnitOfWork>();
     private readonly IWalletBalanceGateway _walletBalanceGateway = Substitute.For<IWalletBalanceGateway>();
+    private readonly IWalletCorrectionsReconciler _correctionsReconciler = Substitute.For<IWalletCorrectionsReconciler>();
 
     private RestoreTransferCommandHandler CreateHandler() =>
-        new(_transferRepository, _operationRepository, _unitOfWork, _walletBalanceGateway);
+        new(_transferRepository, _operationRepository, _unitOfWork, _walletBalanceGateway, _correctionsReconciler);
 
     private (Transfer Transfer, Operation Source, Operation Target) ArrangeTransfer(bool deleted)
     {
@@ -35,7 +36,7 @@ public sealed class RestoreTransferCommandHandlerTests
             transfer.SoftDelete(source, target);
         }
 
-        _transferRepository.GetByIdAsync(transfer.Id, Arg.Any<CancellationToken>()).Returns(transfer);
+        _transferRepository.Found(transfer);
         _operationRepository.GetByIdAsync(transfer.SourceOperationId, Arg.Any<CancellationToken>()).Returns(source);
         _operationRepository.GetByIdAsync(transfer.TargetOperationId, Arg.Any<CancellationToken>()).Returns(target);
         return (transfer, source, target);

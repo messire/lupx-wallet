@@ -16,7 +16,36 @@ public static class OperationsEndpointsExtensions
     {
         MapOperations(app);
         MapTransfers(app);
+        MapStatedBalances(app);
         return app;
+    }
+
+    private static void MapStatedBalances(IEndpointRouteBuilder app)
+    {
+        app.MapPut("/wallets/{walletId:guid}/stated-balances/{date}", async (
+            Guid walletId, DateOnly date, [FromBody] StatedBalanceRequest request, ISender sender, CancellationToken ct) =>
+        {
+            try
+            {
+                var result = await sender.Send(new SetStatedBalanceCommand(walletId, date, request.Amount), ct);
+                var response = ToResponse(result.Operation);
+                return result.Created
+                    ? Results.Created($"/api/v1/operations/{response.Id}", response)
+                    : Results.Ok(response);
+            }
+            catch (WalletReferenceNotFoundException)
+            {
+                return Results.NotFound();
+            }
+            catch (OperationsDomainException ex) when (IsLifecycleConflict(ex))
+            {
+                return ConflictProblem(ex);
+            }
+            catch (OperationsDomainException ex)
+            {
+                return ValidationProblem(ex);
+            }
+        }).WithTags("Operations").WithName("setStatedBalance");
     }
 
     private static void MapOperations(IEndpointRouteBuilder app)
@@ -193,7 +222,7 @@ public static class OperationsEndpointsExtensions
     private static bool IsLifecycleConflict(OperationsDomainException ex) => ex is
         OperationPartOfTransferException or OperationAlreadyDeletedException or OperationNotDeletedException
         or OperationIsDeletedException or TransferAlreadyDeletedException or TransferNotDeletedException
-        or RecordModifiedConcurrentlyException;
+        or CorrectionNotEditableException or RecordModifiedConcurrentlyException;
 
     /// <summary>
     /// Absolute is recognized before enum binding and answered with 400: the balance for a date is

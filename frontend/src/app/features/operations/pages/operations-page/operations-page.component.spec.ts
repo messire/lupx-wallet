@@ -36,6 +36,8 @@ const operation1: Operation = {
   amount: { amount: '12.50', currencyId: 'c-usd' },
   operationDate: '2026-09-10',
   adjustmentMode: null,
+  isCorrection: false,
+  statedBalance: null,
   transferId: null,
   isDeleted: false,
   deletedAt: null,
@@ -497,6 +499,200 @@ describe('OperationsComponent', () => {
 
     expect(component.isFormOpen()).toBe(false);
     expect(component.pendingDeleteOperation()).toBeNull();
+  });
+
+  // ---- ADR-0003 §6: correction amount (system row) ----
+
+  const negativeCorrection: Operation = {
+    ...operation1,
+    id: 'op-corr-neg',
+    operationTypeId: null,
+    amount: { amount: '-50.00', currencyId: 'c-usd' },
+    operationDate: '2026-09-12',
+    isCorrection: true,
+    statedBalance: { amount: '350.00', currencyId: 'c-usd' },
+  };
+
+  const positiveCorrection: Operation = {
+    ...negativeCorrection,
+    id: 'op-corr-pos',
+    amount: { amount: '50.00', currencyId: 'c-usd' },
+  };
+
+  it('renders a negative correction as "Неизвестные траты" with the "Система" badge and the stated balance', () => {
+    const fixture = createComponent([negativeCorrection]);
+    const row = (fixture.nativeElement as HTMLElement).querySelector('tbody tr') as HTMLElement;
+    const cells = row.querySelectorAll('td');
+
+    expect(row.classList.contains('is-system')).toBe(true);
+    expect(row.classList.contains('is-deleted')).toBe(false);
+    // The badge sits in the date cell, so a screen reader reads it before the row data.
+    expect(cells[0].textContent).toContain('Система');
+    expect(cells[2].textContent).toContain('Неизвестные траты');
+    expect(cells[2].textContent).not.toContain('Неизвестные доходы');
+    expect(cells[3].textContent?.replace(/\s+/g, ' ').trim()).toBe('−50.00 USD');
+    expect(cells[4].textContent).toContain('Баланс на конец дня: 350.00 USD');
+  });
+
+  it('renders a positive correction as "Неизвестные доходы" with an explicit plus sign', () => {
+    const fixture = createComponent([positiveCorrection]);
+    const cells = (fixture.nativeElement as HTMLElement).querySelectorAll('tbody tr td');
+
+    expect(cells[2].textContent).toContain('Неизвестные доходы');
+    expect(cells[3].textContent?.replace(/\s+/g, ' ').trim()).toBe('+50.00 USD');
+  });
+
+  it('shows only the change-history link in a correction row, named with the title and the date', () => {
+    const fixture = createComponent([negativeCorrection]);
+    const actions = (fixture.nativeElement as HTMLElement).querySelector('tbody tr td.actions') as HTMLElement;
+
+    expect(actions.querySelector('button')).toBeNull();
+    const links = actions.querySelectorAll('a');
+    expect(links.length).toBe(1);
+    expect(links[0].textContent).toContain('История изменений');
+    expect(links[0].getAttribute('aria-label')).toBe('История изменений: Неизвестные траты, 2026-09-12');
+    expect(links[0].getAttribute('href')).toContain('entityId=op-corr-neg');
+  });
+
+  it('shows "Изменение на сумму" instead of the raw Delta in the adjustment column of an adjustment', () => {
+    const fixture = createComponent([{ ...operation1, adjustmentMode: 'Delta' }]);
+    const cells = (fixture.nativeElement as HTMLElement).querySelectorAll('tbody tr td');
+
+    expect(cells[4].textContent?.trim()).toBe('Изменение на сумму');
+  });
+
+  it('never offers edit, delete or restore for a correction, even if its menu is opened', () => {
+    const fixture = createComponent([negativeCorrection]);
+    const component = fixture.componentInstance;
+
+    component.openRowActions(negativeCorrection);
+    fixture.detectChanges();
+    const text = rowActionsText(fixture);
+    expect(text).toContain('История изменений');
+    expect(text).not.toContain('Изменить');
+    expect(text).not.toContain('Удалить');
+    expect(text).not.toContain('Восстановить');
+
+    component.openEditForm(negativeCorrection);
+    component.requestDeleteConfirm(negativeCorrection);
+    component.restoreOperation({ ...negativeCorrection, isDeleted: true });
+    expect(component.isFormOpen()).toBe(false);
+    expect(component.pendingDeleteOperation()).toBeNull();
+    httpMock.expectNone((r) => r.url.endsWith('/restore'));
+  });
+
+  it('shows "—" for an absent operation type', () => {
+    const fixture = createComponent([operation1]);
+
+    expect(fixture.componentInstance.operationTypeName(null)).toBe('—');
+  });
+
+  // ---- "Указать баланс" ----
+
+  function openStatedBalanceDialog(fixture: ComponentFixture<OperationsComponent>): HTMLElement {
+    const root = fixture.nativeElement as HTMLElement;
+    const trigger = Array.from(root.querySelectorAll('.page-heading button')).find((button) =>
+      button.textContent?.includes('Указать баланс'),
+    ) as HTMLButtonElement;
+    trigger.click();
+    fixture.detectChanges();
+    return root;
+  }
+
+  it('has an "Указать баланс" action next to "Добавить операцию" that opens the form with the hint', () => {
+    const fixture = createComponent([operation1]);
+    const root = openStatedBalanceDialog(fixture);
+
+    expect(fixture.componentInstance.isStatedBalanceFormOpen()).toBe(true);
+    expect(root.querySelector('app-stated-balance-form')).not.toBeNull();
+    expect(root.querySelector('.page-heading')?.textContent).toContain('Добавить операцию');
+    expect(root.querySelector('app-stated-balance-form')?.textContent).toContain('Неизвестные траты');
+  });
+
+  it('submits the stated balance with PUT, reloads the list and reports 201 as "указан"', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+    openStatedBalanceDialog(fixture);
+
+    component.saveStatedBalance({ walletId: 'wallet-1', date: '2026-09-10', amount: '350.00' });
+
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-09-10`);
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ amount: '350.00' });
+    req.flush(positiveCorrection, { status: 201, statusText: 'Created' });
+    httpMock
+      .expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`)
+      .flush({ data: [operation1, positiveCorrection], ...emptyPage });
+    fixture.detectChanges();
+
+    expect(component.isStatedBalanceFormOpen()).toBe(false);
+    expect(component.isStatedBalanceSubmitting()).toBe(false);
+    expect(component.successMessage()).toBe('Баланс на 2026-09-10 указан');
+    expect((fixture.nativeElement as HTMLElement).querySelectorAll('tbody tr').length).toBe(2);
+  });
+
+  it('reports 200 as a replacement of the previous value', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+
+    component.saveStatedBalance({ walletId: 'wallet-1', date: '2026-09-10', amount: '350.00' });
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-09-10`)
+      .flush(positiveCorrection, { status: 200, statusText: 'OK' });
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`).flush({ data: [], ...emptyPage });
+
+    expect(component.successMessage()).toBe('Баланс на 2026-09-10 заменён: прежнее значение обновлено');
+  });
+
+  it('keeps the form open and shows the server detail of a 400 (date out of range) as an alert', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+    openStatedBalanceDialog(fixture);
+
+    component.saveStatedBalance({ walletId: 'wallet-1', date: '2025-01-01', amount: '1' });
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2025-01-01`)
+      .flush(
+        { title: 'Bad Request', status: 400, detail: 'Дата раньше начала учета кошелька.' },
+        { status: 400, statusText: 'Bad Request' },
+      );
+    fixture.detectChanges();
+
+    expect(component.isStatedBalanceFormOpen()).toBe(true);
+    expect(component.isStatedBalanceSubmitting()).toBe(false);
+    const alert = (fixture.nativeElement as HTMLElement).querySelector('app-stated-balance-form p.form-error[role="alert"]');
+    expect(alert?.textContent).toContain('Дата раньше начала учета кошелька.');
+    expect(component.successMessage()).toBeNull();
+    httpMock.expectNone((r) => r.url === `${environment.apiBaseUrl}/operations`);
+  });
+
+  it('uses readable fallback texts for 400 and 409 without problem details', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+
+    component.saveStatedBalance({ walletId: 'wallet-1', date: '2025-01-01', amount: '1' });
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2025-01-01`)
+      .flush(null, { status: 400, statusText: 'Bad Request' });
+    expect(component.statedBalanceError()).toContain('от начала учёта кошелька до сегодняшнего дня');
+
+    component.saveStatedBalance({ walletId: 'wallet-1', date: '2025-01-01', amount: '1' });
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2025-01-01`)
+      .flush(null, { status: 409, statusText: 'Conflict' });
+    expect(component.statedBalanceError()).toBe('Запись изменена параллельно. Повторите ввод.');
+  });
+
+  it('ignores a repeated submit while the first PUT is in flight', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+
+    component.saveStatedBalance({ walletId: 'wallet-1', date: '2026-09-10', amount: '1' });
+    component.saveStatedBalance({ walletId: 'wallet-1', date: '2026-09-10', amount: '1' });
+
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-09-10`);
+    req.flush(positiveCorrection, { status: 201, statusText: 'Created' });
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`).flush({ data: [], ...emptyPage });
   });
 
   it('treats a response without isDeleted (older backend) as an active row', () => {

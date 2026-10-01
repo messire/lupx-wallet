@@ -22,9 +22,10 @@ public sealed class DeleteTransferCommandHandlerTests
     private readonly IOperationRepository _operationRepository = Substitute.For<IOperationRepository>();
     private readonly IOperationsUnitOfWork _unitOfWork = Substitute.For<IOperationsUnitOfWork>();
     private readonly IWalletBalanceGateway _walletBalanceGateway = Substitute.For<IWalletBalanceGateway>();
+    private readonly IWalletCorrectionsReconciler _correctionsReconciler = Substitute.For<IWalletCorrectionsReconciler>();
 
     private DeleteTransferCommandHandler CreateHandler() =>
-        new(_transferRepository, _operationRepository, _unitOfWork, _walletBalanceGateway);
+        new(_transferRepository, _operationRepository, _unitOfWork, _walletBalanceGateway, _correctionsReconciler);
 
     [Fact]
     public async Task Handle_UnknownTransfer_ThrowsKeyNotFoundException()
@@ -44,7 +45,7 @@ public sealed class DeleteTransferCommandHandlerTests
         var yesterday = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1);
         var (transfer, sourceOperation, targetOperation) = Transfer.Create(
             TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(50m), yesterday);
-        _transferRepository.GetByIdAsync(transfer.Id, Arg.Any<CancellationToken>()).Returns(transfer);
+        _transferRepository.Found(transfer);
         _operationRepository.GetByIdAsync(transfer.SourceOperationId, Arg.Any<CancellationToken>()).Returns(sourceOperation);
         _operationRepository.GetByIdAsync(transfer.TargetOperationId, Arg.Any<CancellationToken>()).Returns(targetOperation);
         var command = new DeleteTransferCommand(transfer.Id.Value);
@@ -61,7 +62,7 @@ public sealed class DeleteTransferCommandHandlerTests
         var (transfer, sourceOperation, targetOperation) = Transfer.Create(
             TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(50m), DateOnly.FromDateTime(DateTime.UtcNow));
         transfer.SoftDelete(sourceOperation, targetOperation);
-        _transferRepository.GetByIdAsync(transfer.Id, Arg.Any<CancellationToken>()).Returns(transfer);
+        _transferRepository.Found(transfer);
         _operationRepository.GetByIdAsync(transfer.SourceOperationId, Arg.Any<CancellationToken>()).Returns(sourceOperation);
         _operationRepository.GetByIdAsync(transfer.TargetOperationId, Arg.Any<CancellationToken>()).Returns(targetOperation);
 
@@ -77,7 +78,7 @@ public sealed class DeleteTransferCommandHandlerTests
     {
         var (transfer, sourceOperation, _) = Transfer.Create(
             TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(50m), DateOnly.FromDateTime(DateTime.UtcNow));
-        _transferRepository.GetByIdAsync(transfer.Id, Arg.Any<CancellationToken>()).Returns(transfer);
+        _transferRepository.Found(transfer);
         _operationRepository.GetByIdAsync(transfer.SourceOperationId, Arg.Any<CancellationToken>()).Returns(sourceOperation);
         _operationRepository.GetByIdAsync(transfer.TargetOperationId, Arg.Any<CancellationToken>()).Returns((Operation?)null);
 
@@ -92,7 +93,7 @@ public sealed class DeleteTransferCommandHandlerTests
     {
         var (transfer, sourceOperation, targetOperation) = Transfer.Create(
             TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(50m), DateOnly.FromDateTime(DateTime.UtcNow));
-        _transferRepository.GetByIdAsync(transfer.Id, Arg.Any<CancellationToken>()).Returns(transfer);
+        _transferRepository.Found(transfer);
         _operationRepository.GetByIdAsync(transfer.SourceOperationId, Arg.Any<CancellationToken>()).Returns(sourceOperation);
         _operationRepository.GetByIdAsync(transfer.TargetOperationId, Arg.Any<CancellationToken>()).Returns(targetOperation);
         var command = new DeleteTransferCommand(transfer.Id.Value);

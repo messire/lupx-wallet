@@ -29,16 +29,22 @@ internal sealed class OperationJournalFake
     /// <summary>The excluded id sets of every ledger read, to prove the journal was (not) read.</summary>
     public List<IReadOnlyCollection<OperationId>> LedgerReads { get; } = [];
 
+    /// <summary>The date bound of every ledger read (null = unbounded).</summary>
+    public List<DateOnly?> LedgerBounds { get; } = [];
+
     public OperationJournalFake()
     {
-        Repository.GetRegularLedgerAsync(Arg.Any<WalletId>(), Arg.Any<IReadOnlyCollection<OperationId>>(), Arg.Any<CancellationToken>())
+        Repository.GetRegularLedgerAsync(Arg.Any<WalletId>(), Arg.Any<IReadOnlyCollection<OperationId>>(), Arg.Any<DateOnly?>(), Arg.Any<CancellationToken>())
             .Returns(call =>
             {
                 var walletId = call.ArgAt<WalletId>(0);
                 var excluded = call.ArgAt<IReadOnlyCollection<OperationId>>(1);
+                var throughDate = call.ArgAt<DateOnly?>(2);
                 LedgerReads.Add(excluded);
+                LedgerBounds.Add(throughDate);
                 IReadOnlyList<WalletLedgerEntry> ledger = _rows
-                    .Where(r => r.WalletId == walletId && !r.IsDeleted && !excluded.Contains(r.Id))
+                    .Where(r => r.WalletId == walletId && !r.IsDeleted && !excluded.Contains(r.Id)
+                        && (throughDate is null || r.Date <= throughDate))
                     .Select(r => new WalletLedgerEntry(r.Date, r.Delta))
                     .ToList();
                 return Task.FromResult(ledger);

@@ -81,7 +81,7 @@
     [open]="isStatedBalanceFormOpen()"
     titleText="Указать баланс на дату"
     size="md"
-    (dismissRequested)="cancelStatedBalanceForm()"
+    (dismissRequested)="onStatedBalanceDismissRequested($event)"
     (closed)="cancelStatedBalanceForm()"
   >
     @if (isStatedBalanceFormOpen()) {
@@ -238,8 +238,8 @@
       <p>
         Операция «{{ operationTypeName(pending.operationTypeId) }}» от {{ pending.operationDate }} на сумму
         {{ formatMoney(pending.amount, walletCurrencyCode(pending.walletId)) }} будет удалена.
-        Запись останется в списке, исключится из расчётов, баланс кошелька «{{ walletName(pending.walletId) }}» будет
-        пересчитан. Операцию можно восстановить.
+        Запись останется в списке, исключится из расчётов, балансы и история кошелька «{{ walletName(pending.walletId) }}»
+        будут пересчитаны. Операцию можно восстановить.
       </p>
     }
     @if (deleteError()) {
@@ -264,9 +264,7 @@
   >
     @if (pendingRowActionsOperation(); as pending) {
       <div class="row-actions-list">
-        @if (pending.isCorrection) {
-          <!-- Системная запись: только история изменений (изменение, удаление и восстановление запрещены). -->
-        } @else if (pending.isDeleted) {
+        @if (pending.isDeleted) {
           <app-button variant="secondary" type="button" [fullWidth]="true" (click)="restoreFromRowActions(pending)">Восстановить</app-button>
         } @else {
           <app-button variant="secondary" type="button" [fullWidth]="true" (click)="editFromRowActions(pending)">Изменить</app-button>

@@ -121,6 +121,36 @@ public static class StatedBalanceTestHelpers
         return new WalletLockHolder(connection, walletId);
     }
 
+    /// <summary>
+    /// Holds the wallet lock, sends the requests one by one (each must reach the advisory lock before the next is sent, so
+    /// the grant order after the release is the send order), then releases the lock and returns the responses in send order.
+    /// Unlike a command that takes the lock first, a command that touches the wallet row before locking proceeds up to
+    /// that point and queues holding the row, which is the state in which a lock-order deadlock forms.
+    /// </summary>
+    public static async Task<HttpResponseMessage[]> SendQueuedBehindWalletLockAsync(
+        this ApiTestFixture fixture, Guid walletId, params Func<Task<HttpResponseMessage>>[] sends)
+    {
+        var tasks = new List<Task<HttpResponseMessage>>();
+        try
+        {
+            await using (await fixture.HoldWalletLockAsync(walletId))
+            {
+                foreach (var send in sends)
+                {
+                    tasks.Add(send());
+                    await fixture.WaitForAdvisoryLockWaitersAsync(tasks.Count, tasks.ToArray());
+                }
+            }
+        }
+        catch
+        {
+            await Task.WhenAll(tasks.Select(task => task.ContinueWith(_ => { })));
+            throw;
+        }
+
+        return await Task.WhenAll(tasks);
+    }
+
     /// <summary>Waits until at least <paramref name="expected"/> backends are blocked on an advisory lock.</summary>
     public static async Task WaitForAdvisoryLockWaitersAsync(this ApiTestFixture fixture, int expected, params Task[] requests)
     {

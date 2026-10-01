@@ -51,6 +51,10 @@ describe('OperationFormComponent', () => {
     expect(fixture.nativeElement.querySelector('app-radio-group')).toBeNull();
     expect(text).toContain('Изменение на сумму (+/−)');
     expect(text).toContain('плюс увеличивает баланс, минус уменьшает');
+    // The hint points to the other way of stating a balance and speaks the same words as the label.
+    expect(text).toContain('Изменение на сумму: плюс увеличивает');
+    expect(text).toContain('Чтобы задать фактический баланс на дату, используйте «Указать баланс»');
+    expect(text).not.toContain('Изменение баланса');
     expect(text).not.toContain('Новое значение баланса');
     expect(text).not.toContain('Новый баланс');
   });

@@ -68,10 +68,11 @@ public interface IOperationRepository
     /// <summary>
     /// Non-deleted, non-correction operations of the wallet as read-only projections from the
     /// database, skipping <paramref name="excludingIds"/> (operations changed by the current command,
-    /// which the caller supplies from memory).
+    /// which the caller supplies from memory). When <paramref name="throughDate"/> is set, operations
+    /// dated after it are not read.
     /// </summary>
     Task<IReadOnlyList<WalletLedgerEntry>> GetRegularLedgerAsync(
-        WalletId walletId, IReadOnlyCollection<OperationId> excludingIds, CancellationToken cancellationToken);
+        WalletId walletId, IReadOnlyCollection<OperationId> excludingIds, DateOnly? throughDate, CancellationToken cancellationToken);
 
     Task<bool> AnyCorrectionsAsync(WalletId walletId, CancellationToken cancellationToken);
 

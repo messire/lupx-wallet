@@ -21,5 +21,5 @@ public interface IOperationsUnitOfWork
 }
 
 /// <summary>An operation/transfer was modified by a concurrent request; answered with 409.</summary>
-public sealed class RecordModifiedConcurrentlyException(Exception innerException)
+public sealed class RecordModifiedConcurrentlyException(Exception? innerException = null)
     : OperationsDomainException("Запись изменена параллельно — обновите список и повторите действие.", innerException);

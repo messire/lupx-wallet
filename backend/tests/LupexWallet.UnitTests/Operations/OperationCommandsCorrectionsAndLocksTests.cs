@@ -288,6 +288,106 @@ public sealed class OperationCommandsCorrectionsAndLocksTests
         await AssertNotAppliedAsync(walletId);
     }
 
+    // ---- The operation was moved to another wallet between the lookup and the lock ----
+
+    /// <summary>The lookup answers with <paramref name="lockedWalletId"/> while the loaded aggregate already belongs to another wallet.</summary>
+    private Operation ArrangeOperationMovedAwayFrom(WalletId lockedWalletId)
+    {
+        var operation = Income(WalletId.New(), 100m);
+        _operationRepository.FindWalletIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(lockedWalletId);
+        _operationRepository.GetByIdAsync(operation.Id, Arg.Any<CancellationToken>()).Returns(operation);
+        return operation;
+    }
+
+    private async Task AssertNothingChangedAsync()
+    {
+        await _gateway.DidNotReceive().ApplyDeltaAsync(Arg.Any<WalletId>(), Arg.Any<Money>(), Arg.Any<CancellationToken>());
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UpdateOperation_MovedToAnotherWalletBeforeTheLockWasTaken_ThrowsRecordModifiedConcurrently()
+    {
+        var lockedWalletId = ArrangeWallet();
+        var operation = ArrangeOperationMovedAwayFrom(lockedWalletId);
+
+        var act = () => CreateUpdateHandler().Handle(
+            new UpdateOperationCommand(operation.Id.Value, lockedWalletId.Value, Guid.NewGuid(), 1m, Today, null), CancellationToken.None);
+
+        await act.Should().ThrowAsync<RecordModifiedConcurrentlyException>();
+        await AssertNothingChangedAsync();
+    }
+
+    [Fact]
+    public async Task DeleteOperation_MovedToAnotherWalletBeforeTheLockWasTaken_ThrowsRecordModifiedConcurrently()
+    {
+        var operation = ArrangeOperationMovedAwayFrom(ArrangeWallet());
+
+        var act = () => new DeleteOperationCommandHandler(_operationRepository, _unitOfWork, _gateway, _reconciler)
+            .Handle(new DeleteOperationCommand(operation.Id.Value), CancellationToken.None);
+
+        await act.Should().ThrowAsync<RecordModifiedConcurrentlyException>();
+        operation.IsDeleted.Should().BeFalse();
+        await AssertNothingChangedAsync();
+    }
+
+    [Fact]
+    public async Task RestoreOperation_MovedToAnotherWalletBeforeTheLockWasTaken_ThrowsRecordModifiedConcurrently()
+    {
+        var operation = ArrangeOperationMovedAwayFrom(ArrangeWallet());
+        operation.SoftDelete();
+
+        var act = () => new RestoreOperationCommandHandler(_operationRepository, _unitOfWork, _gateway, _reconciler)
+            .Handle(new RestoreOperationCommand(operation.Id.Value), CancellationToken.None);
+
+        await act.Should().ThrowAsync<RecordModifiedConcurrentlyException>();
+        operation.IsDeleted.Should().BeTrue();
+        await AssertNothingChangedAsync();
+    }
+
+    // ---- A rejected adjustmentMode is reported after the checks of the operation itself ----
+
+    [Fact]
+    public async Task UpdateOperation_RejectedAdjustmentModeOfARegularOperation_IsThrownBeforeAnyBalanceChange()
+    {
+        var walletId = ArrangeWallet();
+        var operation = Income(walletId, 100m);
+        _operationRepository.Found(operation);
+
+        var act = () => CreateUpdateHandler().Handle(
+            new UpdateOperationCommand(operation.Id.Value, walletId.Value, Guid.NewGuid(), 1m, Today, null, new AbsoluteAdjustmentNotSupportedException()),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<AbsoluteAdjustmentNotSupportedException>();
+        await AssertNothingChangedAsync();
+    }
+
+    [Fact]
+    public async Task UpdateOperation_RejectedAdjustmentModeOfACorrection_ThrowsCorrectionNotEditableFirst()
+    {
+        var walletId = ArrangeWallet();
+        var correction = Operation.CreateCorrection(OperationId.New(), walletId, Currency, Today, 100m);
+        _operationRepository.Found(correction);
+
+        var act = () => CreateUpdateHandler().Handle(
+            new UpdateOperationCommand(correction.Id.Value, walletId.Value, Guid.NewGuid(), 1m, Today, null, new AbsoluteAdjustmentNotSupportedException()),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<CorrectionNotEditableException>();
+    }
+
+    [Fact]
+    public async Task UpdateOperation_RejectedAdjustmentModeOfAMissingOperation_StaysNotFound()
+    {
+        _operationRepository.FindWalletIdAsync(Arg.Any<OperationId>(), Arg.Any<CancellationToken>()).Returns((WalletId?)null);
+
+        var act = () => CreateUpdateHandler().Handle(
+            new UpdateOperationCommand(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1m, Today, null, new AbsoluteAdjustmentNotSupportedException()),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<KeyNotFoundException>();
+    }
+
     // ---- Transfers ----
 
     private (Transfer Transfer, Operation Source, Operation Target) NewTransfer(WalletId source, WalletId target, decimal amount)

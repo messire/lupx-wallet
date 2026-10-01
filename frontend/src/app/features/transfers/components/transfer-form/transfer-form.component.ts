@@ -19,7 +19,7 @@ export interface TransferWalletOption {
 }
 
 /**
- * screen-spec.md "Переводы" / user requirements (П.0.1): a transfer amount must be
+ * screen-spec.md "Переводы" / user requirements: a transfer amount must be
  * positive. `amountValidator` alone only checks the string format (ADR-0005) and
  * deliberately allows a leading '-' for other forms (e.g. Operations' adjustment
  * "Delta" mode) — this validator adds the transfer-specific positivity rule without

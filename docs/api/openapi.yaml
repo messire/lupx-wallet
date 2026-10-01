@@ -608,7 +608,9 @@ paths:
           description: >
             Ошибка валидации, либо adjustmentMode = Absolute: значение не поддерживается,
             новое значение баланса задается действием «Указать баланс на дату»
-            (PUT /wallets/{walletId}/stated-balances/{date}).
+            (PUT /wallets/{walletId}/stated-balances/{date}); любое другое неизвестное или
+            числовое значение adjustmentMode тоже отклоняется (принимаются только имена
+            членов перечисления).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -655,7 +657,9 @@ paths:
           description: >
             Ошибка валидации, либо adjustmentMode = Absolute: значение не поддерживается,
             новое значение баланса задается действием «Указать баланс на дату»
-            (PUT /wallets/{walletId}/stated-balances/{date}).
+            (PUT /wallets/{walletId}/stated-balances/{date}); любое другое неизвестное или
+            числовое значение adjustmentMode тоже отклоняется. Порядок ответов: 404, затем 409
+            (корректирующая сумма, удалена, часть перевода, параллельное изменение), затем 400.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -1240,7 +1244,7 @@ components:
         amount: «Неизвестные траты» (amount меньше нуля) или «Неизвестные доходы»
         (amount больше нуля). Корректирующая сумма не подлежит мягкому удалению
         (isDeleted всегда false), не редактируется и не восстанавливается (409).
-      required: [id, walletId, operationTypeId, amount, operationDate, isCorrection, isDeleted, deletedAt, createdAt, updatedAt]
+      required: [id, walletId, operationTypeId, amount, operationDate, isCorrection, statedBalance, isDeleted, deletedAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid, readOnly: true }
         walletId: { type: string, format: uuid }

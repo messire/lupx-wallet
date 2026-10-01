@@ -29,10 +29,10 @@
 | # | Способ | Где объявлен | Где реализован | Примеры |
 |---|---|---|---|---|
 | a | Типизированный Id | `SharedKernel` | — | `Operation.WalletId` |
-| b | Доменное событие | `Domain` издателя | подписчик — в `Infrastructure` другого модуля | `OperationCreated` → BalanceHistory, Audit; `WalletDeleted` → BalanceHistory; `CurrencyDeleted`, `CurrencyCreated`, `WalletCreated`, `WalletCurrencyChanged`, `PrimaryWalletChanged` → ExchangeRates |
+| b | Доменное событие | `Domain` издателя | подписчик — в `Infrastructure` другого модуля | `OperationCreated` → BalanceHistory, Audit; `CorrectionRecalculated` → BalanceHistory, Audit; `WalletDeleted`, `WalletCurrencyChanged` → BalanceHistory, Operations (корректирующие суммы, ADR-0002, §6); `CurrencyDeleted`, `CurrencyCreated`, `WalletCreated`, `WalletCurrencyChanged`, `PrimaryWalletChanged` → ExchangeRates |
 | c | Порт у владельца данных | `Application` владельца | `Infrastructure` владельца; вызывает `Application` потребителя | `IWalletBalanceGateway`, `IOperationTypeLookup`, `IWalletOperationsLookup`, `IWalletDirectory`, `ICurrencyLookup`, `IWalletBalanceOnDateLookup`; записывающие порты `ReferenceData` — `IAvailableCurrencyCatalog` (его вызывает `ExchangeRates`, чтобы заменить список доступных валют) и `ICurrencyActivation` (его вызывает `Wallets`, чтобы при создании кошелька сделать валюту активной) |
 | d | Порт у потребителя | `Application` потребителя | `Infrastructure` владельца или нескольких владельцев | `IWalletHistorySource`, `IReferenceItemUsageProbe` |
-| e | Ссылка `Infrastructure` → чужой `Domain` | — | ради типов событий, не ради поведения | подписчики BalanceHistory (`Operations.Domain`, `Wallets.Domain`), ExchangeRates (`Wallets.Domain`, `ReferenceData.Domain`) и Audit |
+| e | Ссылка `Infrastructure` → чужой `Domain` | — | ради типов событий, не ради поведения | подписчики BalanceHistory (`Operations.Domain`, `Wallets.Domain`), Operations (`Wallets.Domain`), ExchangeRates (`Wallets.Domain`, `ReferenceData.Domain`) и Audit |
 
 Способ (c) — основной. Порт может быть и записывающим (`IWalletBalanceGateway.ApplyDeltaAsync`, `ICurrencyActivation.EnsureActiveAsync`); он работает через `DbContext` владельца и потому участвует в общей транзакции команды, если она есть. `IAvailableCurrencyCatalog.ReplaceAsync` вызывается из команды вне `ICommand` (§4) и сохраняет собственным `SaveChanges` владельца.
 
@@ -52,6 +52,7 @@
 
 - `TransactionBehavior` (MediatR pipeline behavior) открывает `System.Transactions.TransactionScope` вокруг обработки каждой команды (`ICommand`), но не запросов (`IQuery`). `TransactionBehavior` привязан к маркеру `ICommand<TResponse>`, а не к `IRequest<TResponse>`, чтобы команды без результата (`IRequest, ICommand<Unit>`, например все `Delete*Command`) тоже попадали в транзакцию: в MediatR 12 `IRequest` не наследует `IRequest<Unit>`, и ограничение по `IRequest<TResponse>` заставляло бы DI-контейнер молча пропускать поведение. Регрессию ловит `TransactionBehaviorRegistrationTests` (обходит все команды `*.Application`-сборок).
 - Несколько `DbContext` разных модулей участвуют в одной физической транзакции на одном соединении к одной базе PostgreSQL; распределённой транзакции не возникает.
+- **Порядок блокировок.** Команды, меняющие операции или историю баланса кошелька, берут `pg_advisory_xact_lock` кошелька (`WalletAdvisoryLock`, общий помощник в `BuildingBlocks.Infrastructure`, один ключ у Operations, BalanceHistory и Wallets) **до любых чтений** — в том числе до чтения строки `wallets` через порт или репозиторий; при нескольких кошельках — по возрастанию `WalletId`. Подписчики берут ту же блокировку повторно (повторный вход на том же соединении). Если команда другого модуля публикует событие, на которое подписчики берут блокировку кошелька (`DeleteWallet`, `ChangeWalletCurrency`), она берёт её первой: порядок «строка `wallets`, затем advisory» против «advisory, затем строка» даёт взаимную блокировку (40P01) ([ADR-0003](./0003-balance-history.md), §7).
 - Сильная согласованность вместо eventual consistency и outbox: либо сохраняется всё (операция, баланс, слепки, аудит), либо ничего.
 - Команда, выполняющая внешний HTTP-вызов, намеренно не является `ICommand` и управляет атомарностью сама в рамках своего `DbContext` (`RefreshExchangeRatesCommand`, `BackfillExchangeRateHistoryCommand`, см. [ADR-0004](./0004-currencies-and-exchange-rates.md)): лимит `TransactionScope` по умолчанию — 1 минута, а последовательные вызовы с ретраями его легко превышают.
 
@@ -66,7 +67,7 @@
 
 ### 6. Фоновые задачи
 
-Фоновая задача принадлежит модулю, чьей доменной операцией управляет, реализуется как `BackgroundService` в его `Infrastructure` и переиспользует те же команды и сервисы, что и пользовательские сценарии. Различие — только актор аудита (`System` вместо `User`, ADR-0006). Каждый проход (или каждая его команда, как обновление курсов и затем дозагрузка истории в `ExchangeRateRefreshBackgroundService`) выполняется в собственном DI-scope; необработанное исключение прохода не должно останавливать хост.
+Фоновая задача принадлежит модулю, чьей доменной операцией управляет, реализуется как `BackgroundService` в его `Infrastructure` и переиспользует те же команды и сервисы, что и пользовательские сценарии. Различие — только актор аудита (`System` вместо `User`, ADR-0006). Примеры: планировщик слепков (BalanceHistory) и однократная сверка корректирующих сумм при старте `StatedBalanceReconciliationHostedService` (Operations, [ADR-0003](./0003-balance-history.md), §7). Каждый проход (или каждая его команда, как обновление курсов и затем дозагрузка истории в `ExchangeRateRefreshBackgroundService`) выполняется в собственном DI-scope; необработанное исключение прохода не должно останавливать хост.
 
 ### 7. Реакция на событие, требующая внешнего I/O
 

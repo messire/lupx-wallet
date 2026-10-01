@@ -12,6 +12,10 @@ public sealed class AdjustmentModeRequiredException()
 public sealed class AbsoluteAdjustmentNotSupportedException()
     : OperationsDomainException("Новое значение баланса задаётся действием „Указать баланс на дату“.");
 
+/// <summary>The adjustmentMode value is not a name of <see cref="AdjustmentMode"/>; answered with 400.</summary>
+public sealed class AdjustmentModeUnknownException()
+    : OperationsDomainException("Неизвестный способ ввода корректировки (adjustmentMode).");
+
 public sealed class AdjustmentModeNotAllowedException()
     : OperationsDomainException("Способ ввода корректировки (adjustmentMode) допустим только для операций с поведением Adjustment.");
 
@@ -63,7 +67,7 @@ public sealed class OperationIsDeletedException(Guid operationId)
 /// (ADR-0002, §3): editing, moving, deleting and restoring it is rejected with 409.
 /// </summary>
 public sealed class CorrectionNotEditableException(Guid operationId)
-    : OperationsDomainException("Это корректирующая сумма — её рассчитывает система. Изменить, удалить или восстановить её нельзя: укажите баланс на нужную дату заново.")
+    : OperationsDomainException("Это корректирующая сумма — её рассчитывает система. Чтобы изменить сумму, добавьте недостающую операцию или исправьте существующую; чтобы заменить заявленный баланс, укажите его на ту же дату заново.")
 {
     public Guid OperationId { get; } = operationId;
 }
@@ -121,4 +125,10 @@ public sealed class WalletReferenceNotFoundException(Guid walletId)
 public sealed class OperationDateOutOfRangeException(DateOnly operationDate, DateOnly accountingStartDate, DateOnly today)
     : OperationsDomainException(
         $"Дата операции ({operationDate:yyyy-MM-dd}) должна быть не раньше даты начала учета кошелька " +
+        $"({accountingStartDate:yyyy-MM-dd}) и не позже сегодняшнего дня ({today:yyyy-MM-dd} UTC).");
+
+/// <summary>Same bounds as <see cref="OperationDateOutOfRangeException"/>, worded for the date of a stated balance.</summary>
+public sealed class StatedBalanceDateOutOfRangeException(DateOnly date, DateOnly accountingStartDate, DateOnly today)
+    : OperationsDomainException(
+        $"Дата баланса ({date:yyyy-MM-dd}) должна быть не раньше даты начала учета кошелька " +
         $"({accountingStartDate:yyyy-MM-dd}) и не позже сегодняшнего дня ({today:yyyy-MM-dd} UTC).");

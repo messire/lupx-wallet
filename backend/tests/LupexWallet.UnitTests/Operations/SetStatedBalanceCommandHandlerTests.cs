@@ -136,7 +136,7 @@ public sealed class SetStatedBalanceCommandHandlerTests
 
         var act = () => CreateHandler().Handle(Command(Today.AddDays(-6), 100m), CancellationToken.None);
 
-        await act.Should().ThrowAsync<OperationDateOutOfRangeException>();
+        await act.Should().ThrowAsync<StatedBalanceDateOutOfRangeException>();
         await AssertNothingChangedAsync();
     }
 
@@ -147,7 +147,7 @@ public sealed class SetStatedBalanceCommandHandlerTests
 
         var act = () => CreateHandler().Handle(Command(Today.AddDays(1), 100m), CancellationToken.None);
 
-        await act.Should().ThrowAsync<OperationDateOutOfRangeException>();
+        await act.Should().ThrowAsync<StatedBalanceDateOutOfRangeException>();
         await AssertNothingChangedAsync();
     }
 

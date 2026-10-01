@@ -1,11 +1,13 @@
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, output, signal } from '@angular/core';
 import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, Validators } from '@angular/forms';
-import { amountValidator } from '@shared/money/money';
+import { Observable, Subject, catchError, concat, distinctUntilChanged, map, of, switchMap, tap } from 'rxjs';
+import { Money, amountValidator, formatMoney } from '@shared/money/money';
 import { fieldError } from '@shared/forms/field-error';
 import { ButtonComponent } from '@shared/ui/button/button.component';
 import { FieldComponent } from '@shared/ui/field/field.component';
 import { FieldControlDirective } from '@shared/ui/field/field-control.directive';
+import { StatedBalanceLookupService } from '../../stated-balance-lookup.service';
 import { WalletOption } from '../operation-form/operation-form.component';
 
 /** Value emitted by {@link StatedBalanceFormComponent}: the balance at the end of `date`. */
@@ -17,6 +19,18 @@ export interface StatedBalanceFormValue {
   amount: string;
 }
 
+/** State of the live hint under the date: what the operations give at the end of the chosen day. */
+export type BalanceLookupState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'ready'; operationsBalance: Money; statedBalance: Money | null };
+
+interface LookupKey {
+  walletId: string;
+  date: string;
+}
+
 /**
  * "Указать баланс на дату" form (UC-24, ADR-0003 §6): the user states the actual wallet
  * balance at the end of a day; the system records the difference with the operations as a
@@ -24,6 +38,11 @@ export interface StatedBalanceFormValue {
  *
  * The date is limited to `[accountingStartDate of the wallet .. today]` (the server enforces
  * the same range and answers 400 otherwise).
+ *
+ * Live hint (ADR-0003, §7): once the wallet and the date are valid, "По операциям на конец дня: N" is shown in a polite
+ * live region (stale answers are cancelled by `switchMap`; a failed lookup only replaces the hint with a notice
+ * and never blocks the form). If a balance is already stated for that day, its value is put into the empty amount
+ * field with a note that the new value replaces the previous one.
  */
 @Component({
   selector: 'app-stated-balance-form',
@@ -36,6 +55,7 @@ export interface StatedBalanceFormValue {
 export class StatedBalanceFormComponent {
   private readonly formBuilder = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly lookupService = inject(StatedBalanceLookupService);
 
   readonly wallets = input.required<WalletOption[]>();
   readonly isSubmitting = input(false);
@@ -47,7 +67,9 @@ export class StatedBalanceFormComponent {
   /** Explains what happens with the entered balance; shown under the amount until an error replaces it. */
   readonly amountHint =
     'Введите фактический баланс на конец дня; разница запишется как «Неизвестные траты» или «Неизвестные доходы» ' +
-    'и будет пересчитываться при изменении операций';
+    'и будет пересчитываться при изменении операций. ' +
+    'Операции этой и более ранних дат не изменят указанный баланс: корректирующая сумма их поглотит. ' +
+    'Повторный ввод на ту же дату заменяет прежнее значение; отменить указанный баланс нельзя';
 
   readonly today = this.todayIso();
   readonly selectedWalletId = signal<string | null>(null);
@@ -65,11 +87,59 @@ export class StatedBalanceFormComponent {
     amount: ['', [Validators.required, amountValidator]],
   });
 
+  /** The live hint (a polite live region in the template). */
+  readonly lookup = signal<BalanceLookupState>({ status: 'idle' });
+
+  /** "По операциям на конец дня: N" — the balance without the correction amount of the chosen day. */
+  readonly operationsBalanceText = computed(() => {
+    const state = this.lookup();
+    return state.status === 'ready' ? formatMoney(state.operationsBalance, this.selectedWalletCurrencyCode()) : null;
+  });
+
+  /** "На эту дату баланс уже указан: X. Новое значение заменит прежнее" — only when a balance is already stated. */
+  readonly existingStatedBalanceText = computed(() => {
+    const state = this.lookup();
+    if (state.status !== 'ready' || !state.statedBalance) {
+      return null;
+    }
+    const stated = formatMoney(state.statedBalance, this.selectedWalletCurrencyCode());
+    return `На эту дату баланс уже указан: ${stated}. Новое значение заменит прежнее`;
+  });
+
+  private readonly lookupRequests = new Subject<LookupKey | null>();
+  /** The amount put into the field by the prefill; removed again when the wallet or the date changes. */
+  private prefilledAmount: string | null = null;
+
   constructor() {
     this.form.controls.walletId.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((walletId) => {
       this.selectedWalletId.set(walletId || null);
       // The allowed date range depends on the wallet.
       this.form.controls.date.updateValueAndValidity();
+    });
+
+    this.form.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.requestLookup());
+
+    this.lookupRequests
+      .pipe(
+        distinctUntilChanged((previous, current) => previous?.walletId === current?.walletId && previous?.date === current?.date),
+        tap(() => this.clearPrefill()),
+        // A new wallet/date cancels the request in flight, so a late answer never overwrites a newer one.
+        switchMap((key) => (key ? this.lookupState(key) : of<BalanceLookupState>({ status: 'idle' }))),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((state) => {
+        this.lookup.set(state);
+        if (state.status === 'ready') {
+          this.prefill(state.statedBalance);
+        }
+      });
+
+    // A wallet that vanished from the list (e.g. after a 404 and a reload) must not stay selected.
+    effect(() => {
+      const selectedId = this.selectedWalletId();
+      if (selectedId && !this.wallets().some((wallet) => wallet.id === selectedId)) {
+        this.form.controls.walletId.setValue('');
+      }
     });
 
     effect(() => {
@@ -111,6 +181,41 @@ export class StatedBalanceFormComponent {
       required: 'Укажите баланс',
       amount: 'Баланс — число с точкой в качестве разделителя (например, 1234.56)',
     });
+  }
+
+  private requestLookup(): void {
+    const { walletId, date } = this.form.controls;
+    const ready = !!walletId.value && walletId.valid && !!date.value && date.valid;
+    this.lookupRequests.next(ready ? { walletId: walletId.value, date: date.value } : null);
+  }
+
+  private lookupState(key: LookupKey): Observable<BalanceLookupState> {
+    return concat(
+      of<BalanceLookupState>({ status: 'loading' }),
+      this.lookupService.load(key.walletId, key.date).pipe(
+        map((context): BalanceLookupState => ({ status: 'ready', ...context })),
+        // A failed hint is not an error of the form: the balance can still be stated.
+        catchError(() => of<BalanceLookupState>({ status: 'error' })),
+      ),
+    );
+  }
+
+  /** The previously stated value goes into the amount field, but never over what the user has already typed. */
+  private prefill(statedBalance: Money | null): void {
+    const amount = this.form.controls.amount;
+    if (statedBalance && amount.value.trim() === '') {
+      amount.setValue(statedBalance.amount, { emitEvent: false });
+      this.prefilledAmount = statedBalance.amount;
+    }
+  }
+
+  /** Removes a value put in by the prefill when it no longer belongs to the chosen wallet and date. */
+  private clearPrefill(): void {
+    const amount = this.form.controls.amount;
+    if (this.prefilledAmount !== null && amount.value === this.prefilledAmount) {
+      amount.setValue('', { emitEvent: false });
+    }
+    this.prefilledAmount = null;
   }
 
   private dateRangeValidator(control: AbstractControl): ValidationErrors | null {

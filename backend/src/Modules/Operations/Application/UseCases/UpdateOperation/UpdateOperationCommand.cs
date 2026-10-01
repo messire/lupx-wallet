@@ -16,7 +16,8 @@ public sealed record UpdateOperationCommand(
     Guid OperationTypeId,
     decimal Amount,
     DateOnly OperationDate,
-    AdjustmentMode? AdjustmentMode) : IRequest<OperationDto>, ICommand<OperationDto>;
+    AdjustmentMode? AdjustmentMode,
+    OperationsDomainException? AdjustmentModeError = null) : IRequest<OperationDto>, ICommand<OperationDto>;
 
 public sealed class UpdateOperationCommandHandler(
     IOperationRepository repository,
@@ -39,9 +40,21 @@ public sealed class UpdateOperationCommandHandler(
         var operation = await repository.GetByIdAsync(operationId, cancellationToken)
             ?? throw new KeyNotFoundException($"Operation {request.Id} не найдена.");
 
+        // Moved to another wallet between the lookup and the lock: the held lock is the wrong one.
+        if (operation.WalletId != currentWalletId)
+        {
+            throw new RecordModifiedConcurrentlyException();
+        }
+
         // A correction, a transfer leg or a soft-deleted operation is not editable (incl. moving to
         // another wallet; ADR-0002, §3; ADR-0003, §6); fail before any IWalletBalanceGateway call so no balance is touched.
         operation.EnsureEditable();
+
+        // A rejected adjustmentMode is reported only now, so a correction or a deleted operation answers 409 first.
+        if (request.AdjustmentModeError is not null)
+        {
+            throw request.AdjustmentModeError;
+        }
 
         var operationTypeId = new OperationTypeId(request.OperationTypeId);
         var operationType = await operationTypeLookup.GetAsync(operationTypeId, cancellationToken)

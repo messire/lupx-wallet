@@ -4,12 +4,12 @@ import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, Va
 import { RouterLink } from '@angular/router';
 import { appendPage } from '@shared/pagination/cursor-page';
 import { extractErrorMessage } from '../../../../core/http/problem-details';
-import { formatMoney } from '@shared/money/money';
+import { formatMoney, isZeroAmount } from '@shared/money/money';
 import { Currency, OperationBehaviorKind, OperationType } from '../../../../data-access/reference-data/reference-data-api.models';
 import { ReferenceDataApiService } from '../../../../data-access/reference-data/reference-data-api.service';
 import { Wallet } from '../../../../data-access/wallets/wallets-api.models';
 import { WalletsApiService } from '../../../../data-access/wallets/wallets-api.service';
-import { CreateOperationRequest, Operation, UpdateOperationRequest } from '../../../../data-access/operations/operations-api.models';
+import { CreateOperationRequest, Operation, StatedBalanceResult, UpdateOperationRequest } from '../../../../data-access/operations/operations-api.models';
 import { OperationsApiService } from '../../../../data-access/operations/operations-api.service';
 import { OperationFormComponent, WalletOption } from '../../components/operation-form/operation-form.component';
 import { StatedBalanceFormComponent, StatedBalanceFormValue } from '../../components/stated-balance-form/stated-balance-form.component';
@@ -258,9 +258,22 @@ export class OperationsComponent implements OnInit {
     this.isStatedBalanceFormOpen.set(true);
   }
 
+  /** Closing is refused while the PUT is in flight (like the delete confirmation): the result or an error needs a place to show. */
   cancelStatedBalanceForm(): void {
+    if (this.isStatedBalanceSubmitting()) {
+      return;
+    }
     this.isStatedBalanceFormOpen.set(false);
     this.statedBalanceError.set(null);
+  }
+
+  /** Escape/backdrop of the "Указать баланс" dialog (native `cancel` event): prevented while the PUT is in flight. */
+  onStatedBalanceDismissRequested(event: Event): void {
+    if (this.isStatedBalanceSubmitting()) {
+      event.preventDefault();
+      return;
+    }
+    this.cancelStatedBalanceForm();
   }
 
   /**
@@ -279,17 +292,35 @@ export class OperationsComponent implements OnInit {
         this.isStatedBalanceSubmitting.set(false);
         this.cancelStatedBalanceForm();
         this.loadOperations();
-        this.successMessage.set(
-          result.created
-            ? `Баланс на ${value.date} указан`
-            : `Баланс на ${value.date} заменён: прежнее значение обновлено`,
-        );
+        this.successMessage.set(this.statedBalanceToast(value.date, result));
       },
       error: (error: unknown) => {
         this.isStatedBalanceSubmitting.set(false);
-        this.statedBalanceError.set(extractErrorMessage(error, this.statedBalanceFallbackError(error)));
+        this.statedBalanceError.set(this.statedBalanceErrorMessage(error));
+        if (error instanceof HttpErrorResponse && error.status === 404) {
+          // The wallet is gone (deleted elsewhere): the dropdown on screen is stale.
+          this.loadWallets();
+        }
+        this.reloadOnConflict(error);
       },
     });
+  }
+
+  /** Toast of a stated balance: 201 = "указан", 200 = "заменён"; a zero correction means the operations already match it. */
+  private statedBalanceToast(date: string, result: StatedBalanceResult): string {
+    const action = result.created ? 'указан' : 'заменён';
+    if (isZeroAmount(result.correction.amount.amount)) {
+      return `Баланс на ${date} ${action}: совпадает с операциями`;
+    }
+    return result.created ? `Баланс на ${date} указан` : `Баланс на ${date} заменён: прежнее значение обновлено`;
+  }
+
+  /** 404 always gets the fixed text (the server sends an empty body); 400/409 prefer the server detail. */
+  private statedBalanceErrorMessage(error: unknown): string {
+    if (error instanceof HttpErrorResponse && error.status === 404) {
+      return 'Кошелек не найден — возможно, удалён. Обновите страницу.';
+    }
+    return extractErrorMessage(error, this.statedBalanceFallbackError(error));
   }
 
   private statedBalanceFallbackError(error: unknown): string {
@@ -298,7 +329,7 @@ export class OperationsComponent implements OnInit {
         return 'Проверьте данные: дата должна быть от начала учёта кошелька до сегодняшнего дня, баланс — числом.';
       }
       if (error.status === 409) {
-        return 'Запись изменена параллельно. Повторите ввод.';
+        return 'Запись изменена параллельно — обновите список и повторите действие.';
       }
     }
     return 'Не удалось указать баланс.';
@@ -335,6 +366,10 @@ export class OperationsComponent implements OnInit {
   private nextRowAction: { type: 'edit' | 'delete' | 'restore'; operation: Operation } | null = null;
 
   openRowActions(operation: Operation): void {
+    if (operation.isCorrection) {
+      // A correction amount has no "···" button (only the history link) and nothing to offer in the menu.
+      return;
+    }
     this.pendingRowActionsOperation.set(operation);
   }
 

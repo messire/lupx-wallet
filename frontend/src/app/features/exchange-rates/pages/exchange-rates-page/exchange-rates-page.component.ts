@@ -80,7 +80,7 @@ export class ExchangeRatesComponent implements OnInit {
    * exist — an expected, non-critical state (ADR-0004 §6: the previous rates
    * are kept). `GET /exchange-rates/latest` never reports this on its own — the
    * status is only known as the result of a manual refresh in this session
-   * (П.1 №1) — so this is only ever set from `refresh()`, never from `loadAll()`.
+   * — so this is only ever set from `refresh()`, never from `loadAll()`.
    */
   readonly sourceUnavailable = signal<string | null>(null);
 

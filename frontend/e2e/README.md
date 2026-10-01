@@ -39,6 +39,10 @@ of about a minute between them.
   returns focus to the button that opened it.
 - `reference-data.spec.ts` — the currencies tab: add a currency from the available ones, then remove it
   from the active ones (with the confirmation dialog).
+- `stated-balance.spec.ts` — "Указать баланс" (ADR-0003 §6): the worked example with the correction amounts, replacing a stated
+  value (200), the date range, the live hint "По операциям на конец дня" in its `aria-live` region, the amount format and focus
+  return on Escape, and an adjustment next to a stated balance. It has 3 scenarios and every scenario logs in, so it counts
+  as 3 of the 5 logins per minute: run it alone, with a pause of about a minute before and after it.
 - `wallets.spec.ts` additionally checks that a wallet in a not-yet-active currency activates it.
 - `exchange-rates.spec.ts` additionally checks that without a primary wallet "Обновить сейчас" still loads
   the list of available currencies.

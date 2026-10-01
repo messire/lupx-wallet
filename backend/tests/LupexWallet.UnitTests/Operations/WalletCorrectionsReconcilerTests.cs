@@ -175,6 +175,35 @@ public sealed class WalletCorrectionsReconcilerTests
         change.Should().Be(0m);
     }
 
+    // ---- The ledger is read only up to the last stated date ----
+
+    [Fact]
+    public async Task LedgerRead_IsBoundedByTheLastStatedBalanceDate()
+    {
+        var (_, _, correction) = ArrangeAdrJournal(staleCorrectionAmount: 50m);
+        _journal.PersistedOperation(_walletId, Sep20, 9_999m); // after the only stated date: cannot affect it
+
+        await CreateReconciler().ReconcileAsync(_walletId, [], CancellationToken.None);
+
+        _journal.LedgerBounds.Should().Equal(Sep10);
+        correction.Amount.Amount.Should().Be(50m, "operations after the stated date do not change the correction");
+    }
+
+    [Fact]
+    public async Task LedgerRead_BoundIsTheLatestOfSeveralStatedDatesIncludingAPendingOne()
+    {
+        _journal.ArrangeWallet(_walletId);
+        _journal.PersistedOperation(_walletId, Sep1, 500m);
+        _journal.PersistedOperation(_walletId, Sep20, 400m);
+        _journal.PersistedCorrection(_walletId, Sep10, 350m, 0m);
+        var pending = Operation.CreateCorrection(OperationId.New(), _walletId, OperationJournalFake.Currency, Sep20, 800m);
+
+        await CreateReconciler().ReconcileAsync(_walletId, [pending], CancellationToken.None);
+
+        _journal.LedgerBounds.Should().Equal(Sep20);
+        pending.Amount.Amount.Should().Be(50m, "800 - (500 + 400 - 150 of the correction of the 10th)");
+    }
+
     // ---- Corrections from memory ----
 
     [Fact]

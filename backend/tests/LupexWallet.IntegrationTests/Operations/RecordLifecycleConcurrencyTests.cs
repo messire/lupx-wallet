@@ -165,13 +165,19 @@ public sealed class RecordLifecycleConcurrencyTests(ApiTestFixture fixture) : In
             }),
             "SELECT id FROM operations.operations WHERE id = @id FOR UPDATE", operationId);
 
-        // Serialized by the wallet lock: delete first rejects the edit (409), edit first lets the delete follow (both succeed).
-        responses.Should().OnlyContain(r => r.IsSuccessStatusCode || r.StatusCode == HttpStatusCode.Conflict);
-        responses.Count(r => r.IsSuccessStatusCode).Should().BeGreaterThanOrEqualTo(1);
+        // Serialized by the wallet lock, so exactly one of two outcomes; the delete succeeds in both:
+        //  - delete first: 204, the edit then sees a deleted operation: 409;
+        //  - edit first: 200, the delete then removes the edited operation: 204.
+        var (delete, edit) = (responses[0], responses[1]);
+        delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        edit.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.Conflict);
         var operation = (await (await Client.GetAsync($"/api/v1/operations/{operationId}")).Content.ReadFromJsonAsync<OperationResponse>())!;
-        var expectedBalance = operation.IsDeleted ? 1000m : 1500m;
-        (await Client.GetWalletBalanceAsync(wallet.Id)).Should().Be(expectedBalance,
-            "the balance reflects exactly the state of the winning request");
+        operation.IsDeleted.Should().BeTrue("the delete succeeded in either order");
+        (await Client.GetWalletBalanceAsync(wallet.Id)).Should().Be(1000m,
+            "the operation is deleted and its effect, edited or not, is reversed exactly once");
+        var audit = await Client.GetAuditEntriesAsync("Operation", operationId);
+        audit.Count(e => e.Action == "Deleted").Should().Be(1);
+        audit.Count(e => e.Action == "Updated").Should().Be(edit.StatusCode == HttpStatusCode.OK ? 1 : 0);
     }
 
     [Fact]

@@ -29,6 +29,12 @@ public sealed class RestoreOperationCommandHandler(
         var operation = await repository.GetByIdAsync(operationId, cancellationToken)
             ?? throw new KeyNotFoundException($"Operation {request.Id} не найдена.");
 
+        // Moved to another wallet between the lookup and the lock: the held lock is the wrong one.
+        if (operation.WalletId != walletId)
+        {
+            throw new RecordModifiedConcurrentlyException();
+        }
+
         operation.Restore();
 
         // One net delta: the restored effect plus the change of the wallet's balance corrections.

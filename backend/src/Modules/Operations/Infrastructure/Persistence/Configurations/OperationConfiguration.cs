@@ -51,7 +51,7 @@ public sealed class OperationConfiguration : IEntityTypeConfiguration<Operation>
         builder.Property<decimal>("_appliedDeltaAmount").HasColumnName("applied_delta_amount").HasColumnType("numeric").IsRequired();
         builder.Property<decimal?>("_statedBalanceAmount").HasColumnName("stated_balance_amount").HasColumnType("numeric");
 
-        builder.Property(x => x.IsCorrection).HasColumnName("is_correction").HasDefaultValue(false).IsRequired();
+        builder.Property(x => x.IsCorrection).HasColumnName("is_correction").IsRequired();
 
         builder.Property(x => x.CurrencyId)
             .HasConversion(id => id.Value, value => new CurrencyId(value))

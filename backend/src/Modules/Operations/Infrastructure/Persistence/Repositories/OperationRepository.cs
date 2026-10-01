@@ -92,11 +92,16 @@ public sealed class OperationRepository(OperationsDbContext dbContext) : IOperat
             x => x.WalletId == walletId && x.IsCorrection && x.OperationDate == operationDate, cancellationToken);
 
     public async Task<IReadOnlyList<WalletLedgerEntry>> GetRegularLedgerAsync(
-        WalletId walletId, IReadOnlyCollection<OperationId> excludingIds, CancellationToken cancellationToken)
+        WalletId walletId, IReadOnlyCollection<OperationId> excludingIds, DateOnly? throughDate, CancellationToken cancellationToken)
     {
         var query = dbContext.Operations
             .AsNoTracking()
             .Where(x => x.WalletId == walletId && !x.IsCorrection && x.DeletedAt == null);
+
+        if (throughDate is { } bound)
+        {
+            query = query.Where(x => x.OperationDate <= bound);
+        }
 
         if (excludingIds.Count > 0)
         {

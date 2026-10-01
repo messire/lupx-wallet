@@ -25,6 +25,12 @@ public sealed class DeleteOperationCommandHandler(
         var operation = await repository.GetByIdAsync(operationId, cancellationToken)
             ?? throw new KeyNotFoundException($"Operation {request.Id} не найдена.");
 
+        // Moved to another wallet between the lookup and the lock: the held lock is the wrong one.
+        if (operation.WalletId != walletId)
+        {
+            throw new RecordModifiedConcurrentlyException();
+        }
+
         // Domain invariants (not a correction, not a transfer leg, not already deleted) run before the wallet is touched.
         operation.SoftDelete();
 

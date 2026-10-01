@@ -149,7 +149,7 @@ describe('ExchangeRatesComponent', () => {
     expect(component.rows()).toEqual([{ fromCurrencyCode: 'USD', toCurrencyCode: 'EUR', rate: '0.9123' }]);
   });
 
-  it('shows a dedicated empty state (not fabricated rows) when a 502 hits with no previous data at all (UC-09, П.1 №1)', () => {
+  it('shows a dedicated empty state (not fabricated rows) when a 502 hits with no previous data at all (UC-09)', () => {
     const fixture = TestBed.createComponent(ExchangeRatesComponent);
     fixture.detectChanges();
 
@@ -267,7 +267,7 @@ describe('ExchangeRatesComponent', () => {
     expect(fixture.nativeElement.querySelector('app-toast')).not.toBeNull();
   });
 
-  it('does not show the "source unavailable" status on a normal page load, however stale lastSuccessfulUpdate is (П.1 №1)', () => {
+  it('does not show the "source unavailable" status on a normal page load, however stale lastSuccessfulUpdate is', () => {
     const fixture = TestBed.createComponent(ExchangeRatesComponent);
     fixture.detectChanges();
 

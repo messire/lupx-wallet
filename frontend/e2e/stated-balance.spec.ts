@@ -165,6 +165,11 @@ test('the "Указать баланс" dialog limits the date, rejects a malfor
   await expect(date).toHaveAttribute('max', isoDateDaysAgo(0));
   await expect(date).toHaveValue(isoDateDaysAgo(0));
 
+  // The live hint appears in a polite live region once the wallet and the date are valid.
+  const liveHint = dialog.locator('.balance-lookup');
+  await expect(liveHint).toHaveAttribute('aria-live', 'polite');
+  await expect(liveHint).toContainText('По операциям на конец дня:');
+
   // The hint is linked to the amount through aria-describedby.
   const amount = dialog.locator('input[formcontrolname="amount"]');
   const hint = dialog.locator('.app-field__hint');

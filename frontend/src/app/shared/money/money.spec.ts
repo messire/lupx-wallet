@@ -1,4 +1,4 @@
-import { amountValidator, formatAmount, formatMoney, isValidAmount, parseAmountInput } from './money';
+import { amountValidator, formatAmount, formatMoney, isValidAmount, isZeroAmount, parseAmountInput, subtractAmounts } from './money';
 
 describe('isValidAmount', () => {
   it('accepts a plain integer', () => {
@@ -140,5 +140,50 @@ describe('formatMoney', () => {
 
   it('appends the currency code when provided', () => {
     expect(formatMoney({ amount: '1000.50', currencyId: 'cur-1' }, 'USD')).toBe(`1${NBSP}000.50 USD`);
+  });
+});
+
+describe('isZeroAmount', () => {
+  it('recognises zero in every written form', () => {
+    for (const amount of ['0', '0.00', '-0', '-0.000', '000.0']) {
+      expect(isZeroAmount(amount), amount).toBe(true);
+    }
+  });
+
+  it('rejects non-zero and malformed amounts', () => {
+    for (const amount of ['0.01', '-0.01', '10', '', 'abc', '0.']) {
+      expect(isZeroAmount(amount), amount).toBe(false);
+    }
+  });
+});
+
+describe('subtractAmounts', () => {
+  it('subtracts with the larger number of decimal digits kept', () => {
+    expect(subtractAmounts('350.00', '50')).toBe('300.00');
+    expect(subtractAmounts('100', '0.5')).toBe('99.5');
+    expect(subtractAmounts('0.30', '0.1')).toBe('0.20');
+  });
+
+  it('handles negative operands and negative results', () => {
+    expect(subtractAmounts('100', '-50.00')).toBe('150.00');
+    expect(subtractAmounts('-100.00', '50')).toBe('-150.00');
+    expect(subtractAmounts('10', '350.5')).toBe('-340.5');
+    expect(subtractAmounts('0.5', '0.75')).toBe('-0.25');
+  });
+
+  it('returns a plain zero without a sign when the operands are equal', () => {
+    expect(subtractAmounts('5.00', '5')).toBe('0.00');
+    expect(subtractAmounts('-5', '-5')).toBe('0');
+  });
+
+  it('is exact where a double would lose precision', () => {
+    expect(subtractAmounts('0.3', '0.1')).toBe('0.2');
+    expect(subtractAmounts('12345678901234567890.123456789012345678', '0.000000000000000001')).toBe(
+      '12345678901234567890.123456789012345677',
+    );
+  });
+
+  it('keeps leading zeros of the fraction', () => {
+    expect(subtractAmounts('1', '0.995')).toBe('0.005');
   });
 });

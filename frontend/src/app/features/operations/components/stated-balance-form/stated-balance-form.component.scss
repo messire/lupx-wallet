@@ -8,6 +8,16 @@
   gap: var(--lw-space-4);
 }
 
+/* Живая область всегда в DOM, но без текста не занимает места: отступ задан строкам, а не контейнеру. */
+.balance-lookup {
+  font-size: var(--lw-type-small);
+  color: var(--lw-text-secondary);
+}
+
+.balance-lookup__line {
+  margin: var(--lw-space-2) 0 0;
+}
+
 .form-actions {
   display: flex;
   gap: var(--lw-space-3);

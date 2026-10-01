@@ -30,7 +30,7 @@ public sealed class SetStatedBalanceCommandHandler(
         var wallet = await walletBalanceGateway.GetAsync(walletId, cancellationToken)
             ?? throw new WalletReferenceNotFoundException(request.WalletId);
 
-        OperationDateValidator.EnsureInRange(request.Date, wallet.AccountingStartDate);
+        OperationDateValidator.EnsureStatedBalanceDateInRange(request.Date, wallet.AccountingStartDate);
 
         var statedBalance = new Money(request.Amount, wallet.CurrencyId);
         var correction = await repository.GetCorrectionAsync(walletId, request.Date, cancellationToken);

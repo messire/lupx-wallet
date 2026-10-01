@@ -98,9 +98,11 @@ public static class OperationsEndpointsExtensions
         {
             try
             {
+                // A rejected mode travels with the command, so 404 and 409 (correction, deleted) win over this 400.
+                var adjustmentMode = TryParseAdjustmentMode(request.AdjustmentMode, out var adjustmentModeError);
                 var command = new UpdateOperationCommand(
                     operationId, request.WalletId, request.OperationTypeId, request.Amount, request.OperationDate,
-                    ParseAdjustmentMode(request.AdjustmentMode));
+                    adjustmentMode, adjustmentModeError);
                 var dto = await sender.Send(command, ct);
                 return Results.Ok(ToResponse(dto));
             }
@@ -239,6 +241,17 @@ public static class OperationsEndpointsExtensions
     /// </summary>
     private static AdjustmentMode? ParseAdjustmentMode(string? value)
     {
+        var mode = TryParseAdjustmentMode(value, out var error);
+        return error is null ? mode : throw error;
+    }
+
+    /// <summary>
+    /// Only the names of <see cref="AdjustmentMode"/> are accepted (case-insensitive): numeric
+    /// strings that <c>Enum.Parse</c> would map to a member or an undefined value are rejected.
+    /// </summary>
+    private static AdjustmentMode? TryParseAdjustmentMode(string? value, out OperationsDomainException? error)
+    {
+        error = null;
         if (string.IsNullOrEmpty(value))
         {
             return null;
@@ -246,10 +259,20 @@ public static class OperationsEndpointsExtensions
 
         if (string.Equals(value, "Absolute", StringComparison.OrdinalIgnoreCase))
         {
-            throw new AbsoluteAdjustmentNotSupportedException();
+            error = new AbsoluteAdjustmentNotSupportedException();
+            return null;
         }
 
-        return Enum.Parse<AdjustmentMode>(value, ignoreCase: true);
+        foreach (var mode in Enum.GetValues<AdjustmentMode>())
+        {
+            if (string.Equals(mode.ToString(), value, StringComparison.OrdinalIgnoreCase))
+            {
+                return mode;
+            }
+        }
+
+        error = new AdjustmentModeUnknownException();
+        return null;
     }
 
     private static IResult ValidationProblem(OperationsDomainException ex) => Results.Problem(

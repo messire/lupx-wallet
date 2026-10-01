@@ -33,7 +33,7 @@ public sealed class ReconcileWalletCorrectionsCommandHandler(
 
         // The reconciler updated the tracked corrections; the expected balance follows from them.
         var corrections = await repository.GetCorrectionsAsync(walletId, cancellationToken);
-        var regular = await repository.GetRegularLedgerAsync(walletId, [], cancellationToken);
+        var regular = await repository.GetRegularLedgerAsync(walletId, [], null, cancellationToken);
         var expected = wallet.InitialBalance.Amount
             + regular.Sum(x => x.AppliedDelta)
             + corrections.Sum(x => x.AppliedDelta.Amount);

@@ -51,9 +51,7 @@ namespace LupexWallet.Operations.Infrastructure.Migrations
                         .HasColumnName("deleted_at");
 
                     b.Property<bool>("IsCorrection")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
-                        .HasDefaultValue(false)
                         .HasColumnName("is_correction");
 
                     b.Property<DateOnly>("OperationDate")

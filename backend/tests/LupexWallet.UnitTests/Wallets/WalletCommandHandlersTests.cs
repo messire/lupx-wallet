@@ -466,6 +466,57 @@ public sealed class WalletCommandHandlersTests
         await unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
     }
 
+    // ---- Lock order: the wallet advisory lock precedes the wallet row (its subscribers take the lock again) ----
+
+    private static (IWalletRepository Repository, IWalletsUnitOfWork UnitOfWork, List<string> Calls) RecordedCalls(Wallet? wallet)
+    {
+        var calls = new List<string>();
+        var repository = RepositoryReturning(wallet);
+        repository.When(r => r.GetByIdAsync(Arg.Any<WalletId>(), Arg.Any<CancellationToken>())).Do(_ => calls.Add("read-wallet"));
+        var unitOfWork = Substitute.For<IWalletsUnitOfWork>();
+        unitOfWork.When(u => u.AcquireWalletLockAsync(Arg.Any<WalletId>(), Arg.Any<CancellationToken>())).Do(_ => calls.Add("lock"));
+        unitOfWork.When(u => u.SaveChangesAsync(Arg.Any<CancellationToken>())).Do(_ => calls.Add("save"));
+        return (repository, unitOfWork, calls);
+    }
+
+    [Fact]
+    public async Task DeleteWallet_TakesTheWalletLockBeforeReadingTheWalletAndBeforeSaving()
+    {
+        var wallet = CreateWallet(isFirstWallet: false);
+        var (repository, unitOfWork, calls) = RecordedCalls(wallet);
+        var handler = new DeleteWalletCommandHandler(repository, unitOfWork, HistorySources(false, false));
+
+        await handler.Handle(new DeleteWalletCommand(wallet.Id.Value), CancellationToken.None);
+
+        calls.Should().Equal("lock", "read-wallet", "save");
+        await unitOfWork.Received(1).AcquireWalletLockAsync(wallet.Id, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DeleteWallet_UnknownWallet_StillTakesTheLockFirst()
+    {
+        var (repository, unitOfWork, calls) = RecordedCalls(null);
+        var handler = new DeleteWalletCommandHandler(repository, unitOfWork, HistorySources(false));
+
+        var act = () => handler.Handle(new DeleteWalletCommand(Guid.NewGuid()), CancellationToken.None);
+
+        await act.Should().ThrowAsync<WalletNotFoundException>();
+        calls.Should().Equal("lock", "read-wallet");
+    }
+
+    [Fact]
+    public async Task ChangeWalletCurrency_TakesTheWalletLockBeforeReadingTheWalletAndBeforeSaving()
+    {
+        var wallet = CreateWallet();
+        var (repository, unitOfWork, calls) = RecordedCalls(wallet);
+        var handler = new ChangeWalletCurrencyCommandHandler(repository, unitOfWork, HistorySources(false, false), CurrencyLookupReturning(true));
+
+        await handler.Handle(new ChangeWalletCurrencyCommand(wallet.Id.Value, Guid.NewGuid()), CancellationToken.None);
+
+        calls.Should().Equal("lock", "read-wallet", "save");
+        await unitOfWork.Received(1).AcquireWalletLockAsync(wallet.Id, Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task ChangeWalletCurrency_UnknownWalletAndUnknownCurrency_ReportsTheWalletFirst()
     {

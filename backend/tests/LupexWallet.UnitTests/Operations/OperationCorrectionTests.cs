@@ -319,6 +319,16 @@ public sealed class OperationCorrectionTests
         exception.Message.Should().Contain("корректирующая сумма");
     }
 
+    [Fact]
+    public void CorrectionNotEditableMessage_PointsToMissingOperationsOrRestatingTheBalance()
+    {
+        var message = new CorrectionNotEditableException(Guid.NewGuid()).Message;
+
+        message.Should().Be(
+            "Это корректирующая сумма — её рассчитывает система. Чтобы изменить сумму, добавьте недостающую операцию или исправьте существующую; " +
+            "чтобы заменить заявленный баланс, укажите его на ту же дату заново.");
+    }
+
     // ---- Absolute is gone ----
 
     [Fact]

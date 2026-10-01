@@ -21,6 +21,11 @@ public sealed class DeleteWalletCommandHandler(
     public async Task Handle(DeleteWalletCommand request, CancellationToken cancellationToken)
     {
         var walletId = new WalletId(request.Id);
+
+        // The subscribers take this lock in the same transaction; taking it after the wallet row
+        // would invert the order used by Operations commands (lock, then row) and deadlock.
+        await unitOfWork.AcquireWalletLockAsync(walletId, cancellationToken);
+
         var wallet = await repository.GetByIdAsync(walletId, cancellationToken)
             ?? throw new WalletNotFoundException();
 

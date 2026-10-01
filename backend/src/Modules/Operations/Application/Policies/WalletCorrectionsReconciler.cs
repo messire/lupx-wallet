@@ -35,7 +35,10 @@ public sealed class WalletCorrectionsReconciler(
         }
 
         var changedIds = pendingOperations.Where(x => !x.IsCorrection).Select(x => x.Id).ToList();
-        var ledger = (await repository.GetRegularLedgerAsync(walletId, changedIds, cancellationToken)).ToList();
+
+        // Operations after the last stated balance cannot affect any correction, so they are not read.
+        DateOnly? lastStatedDate = corrections.Count == 0 ? null : corrections.Max(c => c.OperationDate);
+        var ledger = (await repository.GetRegularLedgerAsync(walletId, changedIds, lastStatedDate, cancellationToken)).ToList();
         ledger.AddRange(pendingOperations
             .Where(x => !x.IsCorrection && x.WalletId == walletId && !x.IsDeleted)
             .Select(x => new WalletLedgerEntry(x.OperationDate, x.AppliedDelta.Amount)));

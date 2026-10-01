@@ -349,6 +349,9 @@ describe('OperationsComponent', () => {
     const dialogText = (fixture.nativeElement as HTMLElement).textContent?.replace(/\s+/g, ' ') ?? '';
     expect(dialogText).toContain('Запись останется в списке, исключится из расчётов');
     expect(dialogText).toContain('Операцию можно восстановить');
+    // Stated balances after the date are recalculated too, so the text speaks of balances and history, not of "the balance".
+    expect(dialogText).toContain('балансы и история кошелька «Наличные USD» будут пересчитаны');
+    expect(dialogText).not.toContain('баланс кошелька');
     expect(dialogText).toContain('Наличные USD');
     expect(dialogText).toContain('2026-09-10');
     expect(dialogText).not.toContain('уже учтена в истории баланса');
@@ -561,17 +564,15 @@ describe('OperationsComponent', () => {
     expect(cells[4].textContent?.trim()).toBe('Изменение на сумму');
   });
 
-  it('never offers edit, delete or restore for a correction, even if its menu is opened', () => {
+  it('never offers edit, delete or restore for a correction: its "···" menu does not open at all', () => {
     const fixture = createComponent([negativeCorrection]);
     const component = fixture.componentInstance;
 
+    // The row has only the history link; the menu is refused even when opened programmatically.
     component.openRowActions(negativeCorrection);
     fixture.detectChanges();
-    const text = rowActionsText(fixture);
-    expect(text).toContain('История изменений');
-    expect(text).not.toContain('Изменить');
-    expect(text).not.toContain('Удалить');
-    expect(text).not.toContain('Восстановить');
+    expect(component.pendingRowActionsOperation()).toBeNull();
+    expect(rowActionsText(fixture)).toBe('');
 
     component.openEditForm(negativeCorrection);
     component.requestDeleteConfirm(negativeCorrection);
@@ -680,7 +681,9 @@ describe('OperationsComponent', () => {
     httpMock
       .expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2025-01-01`)
       .flush(null, { status: 409, statusText: 'Conflict' });
-    expect(component.statedBalanceError()).toBe('Запись изменена параллельно. Повторите ввод.');
+    expect(component.statedBalanceError()).toBe('Запись изменена параллельно — обновите список и повторите действие.');
+    // 409 means the list on screen is stale: it is reloaded (the text asks to refresh it).
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`).flush({ data: [], ...emptyPage });
   });
 
   it('ignores a repeated submit while the first PUT is in flight', () => {
@@ -813,12 +816,38 @@ describe('OperationsComponent', () => {
     input.dispatchEvent(new Event(eventName));
   }
 
-  function fillStatedBalanceForm(fixture: ComponentFixture<OperationsComponent>, date: string, amount: string): void {
+  /**
+   * Fills the "Указать баланс" form like a user: the date, then the wallet (which starts the live-hint lookup, answered
+   * here with `lookup`), then the amount. The date goes first so that exactly one lookup is made.
+   */
+  function fillStatedBalanceForm(
+    fixture: ComponentFixture<OperationsComponent>,
+    date: string,
+    amount: string,
+    lookup: { balance?: string; operations?: Operation[] } = {},
+  ): void {
     const form = (fixture.nativeElement as HTMLElement).querySelector('app-stated-balance-form') as HTMLElement;
-    typeInto(form.querySelector('select') as HTMLSelectElement, 'wallet-1', 'change');
     typeInto(form.querySelector('input[type="date"]') as HTMLInputElement, date, 'input');
-    typeInto(form.querySelector('input[inputmode="decimal"]') as HTMLInputElement, amount, 'input');
+    typeInto(form.querySelector('select') as HTMLSelectElement, 'wallet-1', 'change');
+
+    httpMock
+      .expectOne((r) => r.url === `${environment.apiBaseUrl}/wallets/wallet-1/balance` && r.params.get('date') === date)
+      .flush({ walletId: 'wallet-1', date, balance: { amount: lookup.balance ?? '0', currencyId: 'c-usd' } });
+    httpMock
+      .expectOne(
+        (r) =>
+          r.url === `${environment.apiBaseUrl}/operations` &&
+          r.params.get('walletId') === 'wallet-1' &&
+          r.params.get('dateFrom') === date &&
+          r.params.get('dateTo') === date,
+      )
+      .flush({ data: lookup.operations ?? [], ...emptyPage });
     fixture.detectChanges();
+
+    if (amount) {
+      typeInto(form.querySelector('input[inputmode="decimal"]') as HTMLInputElement, amount, 'input');
+      fixture.detectChanges();
+    }
   }
 
   function submitStatedBalanceForm(fixture: ComponentFixture<OperationsComponent>): void {
@@ -889,7 +918,7 @@ describe('OperationsComponent', () => {
     expect(toast().textContent).toContain('Баланс на 2026-09-10 заменён');
   });
 
-  it('shows the 409 and 404 details of the server inside the dialog and keeps what the user typed', () => {
+  it('shows the 409 detail of the server inside the dialog, reloads the list and keeps what the user typed', () => {
     const fixture = createComponent([operation1]);
     const component = fixture.componentInstance;
     openStatedBalanceDialog(fixture);
@@ -907,17 +936,50 @@ describe('OperationsComponent', () => {
     );
     expect((root.querySelector('app-stated-balance-form input[inputmode="decimal"]') as HTMLInputElement).value).toBe('350');
     expect((root.querySelector('app-stated-balance-form input[inputmode="decimal"]') as HTMLInputElement).disabled).toBe(false);
+    expect(component.isStatedBalanceFormOpen()).toBe(true);
+    // 409: the list on screen is stale, so it is reloaded (the wallets are not).
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`).flush({ data: [operation1], ...emptyPage });
+    httpMock.expectNone((r) => r.url === `${environment.apiBaseUrl}/wallets`);
+  });
+
+  it('answers a 404 (empty body, as the server sends it) with its own text, keeps the dialog open and reloads the wallets', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+    openStatedBalanceDialog(fixture);
+    fillStatedBalanceForm(fixture, '2026-02-10', '350');
+    const root = fixture.nativeElement as HTMLElement;
 
     submitStatedBalanceForm(fixture);
     httpMock
       .expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-02-10`)
-      .flush({ status: 404, detail: 'Кошелек не найден.' }, { status: 404, statusText: 'Not Found' });
+      .flush(null, { status: 404, statusText: 'Not Found' });
+    // The wallet list is read again; the wallet is gone from it.
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/wallets`).flush({ data: [], ...emptyPage });
     fixture.detectChanges();
 
+    expect(component.statedBalanceError()).toBe('Кошелек не найден — возможно, удалён. Обновите страницу.');
     expect(component.isStatedBalanceFormOpen()).toBe(true);
-    expect(root.querySelector('app-stated-balance-form p.form-error[role="alert"]')?.textContent).toContain('Кошелек не найден.');
-    // Nothing was reloaded: the list on screen is still valid after a failed PUT.
+    expect(root.querySelector('app-stated-balance-form p.form-error[role="alert"]')?.textContent).toContain(
+      'Кошелек не найден — возможно, удалён. Обновите страницу.',
+    );
+    // The vanished wallet no longer stays selected in the form.
+    expect((root.querySelector('app-stated-balance-form select') as HTMLSelectElement).value).toBe('');
+    expect(component.walletOptions()).toEqual([]);
+    // A failed PUT is not a reason to reload the operations.
     httpMock.expectNone((r) => r.url === `${environment.apiBaseUrl}/operations`);
+  });
+
+  it('uses the fixed 404 text even if a proxy answers with a problem body in another language', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+
+    component.saveStatedBalance({ walletId: 'wallet-1', date: '2026-02-10', amount: '1' });
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-02-10`)
+      .flush({ title: 'Not Found', status: 404 }, { status: 404, statusText: 'Not Found' });
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/wallets`).flush({ data: [wallet], ...emptyPage });
+
+    expect(component.statedBalanceError()).toBe('Кошелек не найден — возможно, удалён. Обновите страницу.');
   });
 
   it('falls back to a generic text for an error without details and clears the error on the next attempt', () => {
@@ -952,6 +1014,113 @@ describe('OperationsComponent', () => {
     openStatedBalanceDialog(fixture);
     expect((root.querySelector('app-stated-balance-form input[inputmode="decimal"]') as HTMLInputElement).value).toBe('');
     expect(root.querySelector('app-stated-balance-form p.form-error')).toBeNull();
+  });
+
+  // ---- Zero correction: the stated balance matches the operations ----
+
+  it('says "совпадает с операциями" when the correction amount is zero, for both 201 and 200', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+    const zeroCorrection = { ...positiveCorrection, amount: { amount: '0.00', currencyId: 'c-usd' } };
+
+    component.saveStatedBalance({ walletId: 'wallet-1', date: '2026-09-10', amount: '350' });
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-09-10`)
+      .flush(zeroCorrection, { status: 201, statusText: 'Created' });
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`).flush({ data: [], ...emptyPage });
+    expect(component.successMessage()).toBe('Баланс на 2026-09-10 указан: совпадает с операциями');
+
+    component.saveStatedBalance({ walletId: 'wallet-1', date: '2026-09-10', amount: '350' });
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-09-10`)
+      .flush({ ...zeroCorrection, amount: { amount: '-0', currencyId: 'c-usd' } }, { status: 200, statusText: 'OK' });
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`).flush({ data: [], ...emptyPage });
+    expect(component.successMessage()).toBe('Баланс на 2026-09-10 заменён: совпадает с операциями');
+  });
+
+  it('keeps the usual toast texts for a non-zero correction, including a tiny one', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+
+    component.saveStatedBalance({ walletId: 'wallet-1', date: '2026-09-10', amount: '350' });
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-09-10`)
+      .flush({ ...positiveCorrection, amount: { amount: '0.01', currencyId: 'c-usd' } }, { status: 200, statusText: 'OK' });
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`).flush({ data: [], ...emptyPage });
+
+    expect(component.successMessage()).toBe('Баланс на 2026-09-10 заменён: прежнее значение обновлено');
+  });
+
+  // ---- Escape / "Отмена" during the PUT ----
+
+  it('refuses to close the "Указать баланс" dialog (Escape, backdrop, Отмена, native close) while the PUT is in flight', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+    openStatedBalanceDialog(fixture);
+    fillStatedBalanceForm(fixture, '2026-02-10', '350');
+    submitStatedBalanceForm(fixture);
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-02-10`);
+
+    const escape = new Event('cancel', { cancelable: true });
+    component.onStatedBalanceDismissRequested(escape);
+    component.cancelStatedBalanceForm();
+
+    expect(escape.defaultPrevented).toBe(true);
+    expect(component.isStatedBalanceFormOpen()).toBe(true);
+    // The "Отмена" button of the form is disabled meanwhile.
+    const cancelButton = (fixture.nativeElement as HTMLElement).querySelector(
+      'app-stated-balance-form .form-actions button[type="button"]',
+    ) as HTMLButtonElement;
+    expect(cancelButton.disabled).toBe(true);
+
+    req.flush(negativeCorrection, { status: 200, statusText: 'OK' });
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`).flush({ data: [], ...emptyPage });
+    expect(component.isStatedBalanceFormOpen()).toBe(false);
+  });
+
+  it('closes the "Указать баланс" dialog on Escape when no request is in flight', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+    openStatedBalanceDialog(fixture);
+
+    const escape = new Event('cancel', { cancelable: true });
+    component.onStatedBalanceDismissRequested(escape);
+
+    expect(escape.defaultPrevented).toBe(false);
+    expect(component.isStatedBalanceFormOpen()).toBe(false);
+  });
+
+  // ---- Live hint and prefill through the dialog ----
+
+  it('shows "По операциям на конец дня" in the live region and prefills the stated value of an already stated date', () => {
+    const fixture = createComponent([operation1]);
+    openStatedBalanceDialog(fixture);
+    const root = fixture.nativeElement as HTMLElement;
+
+    fillStatedBalanceForm(fixture, '2026-09-12', '', {
+      balance: '350.00',
+      operations: [positiveCorrection], // +50.00 of the correction is inside the 350.00 of the endpoint
+    });
+
+    const live = root.querySelector('app-stated-balance-form .balance-lookup') as HTMLElement;
+    expect(live.getAttribute('aria-live')).toBe('polite');
+    expect(live.textContent?.replace(/\s+/g, ' ')).toContain('По операциям на конец дня: 300.00 USD');
+    expect(live.textContent).toContain('На эту дату баланс уже указан: 350.00 USD. Новое значение заменит прежнее');
+    expect((root.querySelector('app-stated-balance-form input[inputmode="decimal"]') as HTMLInputElement).value).toBe('350.00');
+  });
+
+  it('submits the prefilled value as it is, and replaces it with a typed one', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+    openStatedBalanceDialog(fixture);
+    fillStatedBalanceForm(fixture, '2026-09-12', '', { balance: '350.00', operations: [positiveCorrection] });
+
+    submitStatedBalanceForm(fixture);
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-09-12`);
+    expect(req.request.body).toEqual({ amount: '350.00' });
+    req.flush(positiveCorrection, { status: 200, statusText: 'OK' });
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`).flush({ data: [], ...emptyPage });
+    expect(component.successMessage()).toContain('заменён');
   });
 
   // ---- The operation form: only the signed change ----

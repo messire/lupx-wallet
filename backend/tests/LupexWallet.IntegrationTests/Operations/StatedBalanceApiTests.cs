@@ -424,6 +424,96 @@ public sealed class StatedBalanceApiTests(ApiTestFixture fixture) : IntegrationT
     }
 
     [Fact]
+    public async Task PatchOfACorrectionWithAbsoluteAdjustmentMode_Returns409NotTheModeError()
+    {
+        var setup = await CreateWalletAsync();
+        var day = Today.AddDays(-10);
+        await Client.CreateOperationReturningIdAsync(setup.Wallet.Id, setup.IncomeTypeId, 300m, day);
+        var (_, correction) = await Client.SetStatedBalanceAsync(setup.Wallet.Id, day, 350m);
+
+        var response = await Client.PatchAsJsonAsync($"/api/v1/operations/{correction.Id}", new
+        {
+            WalletId = setup.Wallet.Id, OperationTypeId = setup.IncomeTypeId, Amount = 1m, OperationDate = day, AdjustmentMode = "Absolute",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "the correction check goes before the check of the mode");
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("detail").GetString().Should().Contain("корректирующая сумма");
+    }
+
+    [Fact]
+    public async Task PatchOfAMissingOperationWithAbsoluteAdjustmentMode_Returns404()
+    {
+        var setup = await CreateWalletAsync();
+
+        var response = await Client.PatchAsJsonAsync($"/api/v1/operations/{Guid.NewGuid()}", new
+        {
+            WalletId = setup.Wallet.Id, OperationTypeId = setup.IncomeTypeId, Amount = 1m, OperationDate = Today, AdjustmentMode = "Absolute",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("1")]
+    [InlineData("5")]
+    [InlineData("-1")]
+    [InlineData("Delta, Delta")]
+    [InlineData("Bogus")]
+    public async Task NonNamedOrUnknownAdjustmentMode_IsRejectedWith400OnCreateAndUpdate(string mode)
+    {
+        var setup = await CreateWalletAsync(initialBalance: 1000m);
+        var adjustmentTypeId = await Client.CreateOperationTypeIdAsync("Adjustment");
+        var existing = await Client.CreateOperationReturningIdAsync(setup.Wallet.Id, adjustmentTypeId, 10m, Today.AddDays(-1), "Delta");
+
+        var create = await Client.PostAsJsonAsync("/api/v1/operations", new
+        {
+            WalletId = setup.Wallet.Id, OperationTypeId = adjustmentTypeId, Amount = 500m, OperationDate = Today, AdjustmentMode = mode,
+        });
+        var update = await Client.PatchAsJsonAsync($"/api/v1/operations/{existing}", new
+        {
+            WalletId = setup.Wallet.Id, OperationTypeId = adjustmentTypeId, Amount = 500m, OperationDate = Today.AddDays(-1), AdjustmentMode = mode,
+        });
+
+        create.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        update.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await Client.GetWalletBalanceAsync(setup.Wallet.Id)).Should().Be(1010m, "the rejected requests changed nothing");
+        await Fixture.AssertWalletInvariantAsync(setup.Wallet.Id);
+    }
+
+    [Theory]
+    [InlineData("Delta")]
+    [InlineData("delta")]
+    public async Task AdjustmentModeByName_IsAcceptedCaseInsensitively(string mode)
+    {
+        var setup = await CreateWalletAsync(initialBalance: 1000m);
+        var adjustmentTypeId = await Client.CreateOperationTypeIdAsync("Adjustment");
+
+        var create = await Client.PostAsJsonAsync("/api/v1/operations", new
+        {
+            WalletId = setup.Wallet.Id, OperationTypeId = adjustmentTypeId, Amount = -50m, OperationDate = Today, AdjustmentMode = mode,
+        });
+
+        create.StatusCode.Should().Be(HttpStatusCode.Created);
+        (await Client.GetWalletBalanceAsync(setup.Wallet.Id)).Should().Be(950m);
+    }
+
+    [Fact]
+    public async Task Put_DateOutOfRange_Returns400WithMessageAboutTheBalanceDate()
+    {
+        var setup = await CreateWalletAsync(startDaysAgo: 10);
+
+        foreach (var date in new[] { Today.AddDays(-11), Today.AddDays(1) })
+        {
+            var response = await Client.PutAsJsonAsync($"/api/v1/wallets/{setup.Wallet.Id}/stated-balances/{date:yyyy-MM-dd}", new { Amount = 1m });
+
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            var detail = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("detail").GetString()!;
+            detail.Should().Contain("Дата баланса").And.NotContain("Дата операции");
+        }
+    }
+
+    [Fact]
     public async Task AdjustmentModeDelta_StillWorksAndIsRecalculatedAgainstALaterStatedBalance()
     {
         var setup = await CreateWalletAsync();

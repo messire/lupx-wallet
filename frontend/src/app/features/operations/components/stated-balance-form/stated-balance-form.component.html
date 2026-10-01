@@ -10,6 +10,27 @@
 
   <app-field label="Дата" [error]="dateError()" [required]="true">
     <input appFieldControl type="date" formControlName="date" [attr.min]="minDate()" [attr.max]="today" />
+
+    <!-- Живая подсказка. Область присутствует всегда (иначе скринридер не объявит появление текста);
+         ошибка запроса не блокирует форму — это не role="alert". -->
+    <div class="balance-lookup" aria-live="polite" aria-atomic="true">
+      @switch (lookup().status) {
+        @case ('loading') {
+          <p class="balance-lookup__line">Считаем баланс по операциям…</p>
+        }
+        @case ('error') {
+          <p class="balance-lookup__line">
+            Не удалось получить баланс по операциям на эту дату. Баланс можно указать и без подсказки
+          </p>
+        }
+        @case ('ready') {
+          <p class="balance-lookup__line">По операциям на конец дня: {{ operationsBalanceText() }}</p>
+          @if (existingStatedBalanceText(); as existing) {
+            <p class="balance-lookup__line balance-lookup__line--stated">{{ existing }}</p>
+          }
+        }
+      }
+    </div>
   </app-field>
 
   <app-field label="Баланс на конец дня" [hint]="amountHint" [error]="amountError()" [required]="true">
@@ -27,6 +48,6 @@
 
   <div class="form-actions">
     <app-button type="submit" variant="primary" [loading]="isSubmitting()" loadingText="Сохранение…">Указать баланс</app-button>
-    <app-button type="button" variant="secondary" (click)="onCancel()">Отмена</app-button>
+    <app-button type="button" variant="secondary" [disabled]="isSubmitting()" (click)="onCancel()">Отмена</app-button>
   </div>
 </form>

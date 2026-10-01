@@ -154,9 +154,16 @@ export class OperationFormComponent {
     });
   }
 
-  /** Hint under the amount of an adjustment: the sign carries the direction of the change. */
+  /**
+   * Hint under the amount of an adjustment (the label is "Изменение на сумму (+/−)"): the sign carries the direction
+   * of the change, and the way to state the actual balance for a date is the separate "Указать баланс" action
+   * (ADR-0003 §6, p.9; the hint is plain text, as a link would have to close this dialog and open the other one).
+   */
   readonly amountHint = computed(() =>
-    this.isAdjustment() ? 'Изменение баланса: плюс увеличивает баланс, минус уменьшает' : null,
+    this.isAdjustment()
+      ? 'Изменение на сумму: плюс увеличивает баланс, минус уменьшает. ' +
+        'Чтобы задать фактический баланс на дату, используйте «Указать баланс»'
+      : null,
   );
 
   private updateSelectedBehaviorKind(typeId: string | null): void {

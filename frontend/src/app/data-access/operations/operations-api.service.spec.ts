@@ -99,6 +99,92 @@ describe('OperationsApiService', () => {
     expect(status).toBe(400);
   });
 
+  it('setStatedBalance propagates 404 (unknown wallet) and 409 (changed concurrently) with their problem details', () => {
+    const failures: Array<{ status: number; detail: string }> = [];
+    for (const [walletId, status, detail] of [
+      ['unknown', 404, 'Кошелек не найден.'],
+      ['wallet-1', 409, 'Запись изменена параллельно.'],
+    ] as const) {
+      service
+        .setStatedBalance(walletId, '2026-09-10', '1')
+        .subscribe({ error: (error) => failures.push({ status: error.status, detail: error.error.detail }) });
+      httpMock
+        .expectOne(`${environment.apiBaseUrl}/wallets/${walletId}/stated-balances/2026-09-10`)
+        .flush({ title: 'Problem', status, detail }, { status, statusText: 'Error' });
+    }
+
+    expect(failures).toEqual([
+      { status: 404, detail: 'Кошелек не найден.' },
+      { status: 409, detail: 'Запись изменена параллельно.' },
+    ]);
+  });
+
+  it('setStatedBalance does not emit a value on an error response', () => {
+    const emitted: unknown[] = [];
+    service.setStatedBalance('wallet-1', '2026-09-10', '1').subscribe({ next: (value) => emitted.push(value), error: () => undefined });
+
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-09-10`)
+      .flush({ status: 400 }, { status: 400, statusText: 'Bad Request' });
+
+    expect(emitted).toEqual([]);
+  });
+
+  it('setStatedBalance sends the amount as a string, keeping the precision and the sign', () => {
+    service.setStatedBalance('wallet-1', '2026-09-10', '-0.123456789012345678').subscribe();
+
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-09-10`);
+    expect(req.request.body).toEqual({ amount: '-0.123456789012345678' });
+    expect(typeof req.request.body.amount).toBe('string');
+    req.flush(correction, { status: 200, statusText: 'OK' });
+  });
+
+  it('list passes a correction amount through unchanged (null type, isCorrection, statedBalance)', () => {
+    let result: Operation | undefined;
+    service.list().subscribe((page) => (result = page.data[0]));
+
+    httpMock
+      .expectOne((request) => request.url === `${environment.apiBaseUrl}/operations`)
+      .flush({ data: [correction], pagination: { nextCursor: null, hasMore: false } });
+
+    expect(result).toEqual(correction);
+    expect(result?.operationTypeId).toBeNull();
+    expect(result?.isCorrection).toBe(true);
+  });
+
+  it('create sends adjustmentMode Delta for a signed change and PATCH keeps it', () => {
+    service
+      .create({ walletId: 'wallet-1', operationTypeId: 'ot-adj', amount: '-25', operationDate: '2026-09-10', adjustmentMode: 'Delta' })
+      .subscribe();
+    const create = httpMock.expectOne(`${environment.apiBaseUrl}/operations`);
+    expect(create.request.method).toBe('POST');
+    expect(create.request.body).toEqual({
+      walletId: 'wallet-1',
+      operationTypeId: 'ot-adj',
+      amount: '-25',
+      operationDate: '2026-09-10',
+      adjustmentMode: 'Delta',
+    });
+    create.flush(restored);
+
+    service.update('op-1', { walletId: 'wallet-1', amount: '5', adjustmentMode: 'Delta' }).subscribe();
+    const update = httpMock.expectOne(`${environment.apiBaseUrl}/operations/op-1`);
+    expect(update.request.method).toBe('PATCH');
+    expect(update.request.body).toEqual({ walletId: 'wallet-1', amount: '5', adjustmentMode: 'Delta' });
+    update.flush(restored);
+  });
+
+  it('update propagates a 409 for a correction amount (calculated by the system)', () => {
+    let detail: string | undefined;
+    service.update('op-corr', { walletId: 'wallet-1', amount: '1' }).subscribe({ error: (error) => (detail = error.error.detail) });
+
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/operations/op-corr`)
+      .flush({ status: 409, detail: 'Это корректирующая сумма — её рассчитывает система.' }, { status: 409, statusText: 'Conflict' });
+
+    expect(detail).toContain('корректирующая сумма');
+  });
+
   it('delete sends DELETE /operations/{id}', () => {
     service.delete('op-1').subscribe();
 

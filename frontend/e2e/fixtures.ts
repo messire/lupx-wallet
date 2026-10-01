@@ -364,3 +364,76 @@ export async function ensureTransferOperationType(page: Page): Promise<void> {
 
   expect(['exists', 'created']).toContain(result);
 }
+
+/** Opens the Operations screen unless it is already open (a repeated `goto` would drop the list filter). */
+async function ensureOperationsPage(page: Page): Promise<void> {
+  if (new URL(page.url()).pathname !== '/operations') {
+    await page.goto('/operations');
+  }
+}
+
+/**
+ * Narrows the Operations list to one wallet through the filter card, so a scenario sees only its own rows
+ * regardless of what other scenarios left in the shared database. The filter survives the list reloads that
+ * follow `createOperation` / `setStatedBalance` (they stay on the same page without a new `goto`).
+ */
+export async function filterOperationsByWallet(page: Page, walletName: string): Promise<void> {
+  await ensureOperationsPage(page);
+  await page.locator('.filters select[formcontrolname="walletId"]').selectOption({ label: walletName });
+  await page.locator('.filters').getByRole('button', { name: 'Применить' }).click();
+}
+
+/**
+ * Creates an operation of the named type through the "Добавить операцию" dialog, dated `date` (yyyy-MM-dd;
+ * defaults to today). The type must already exist (`ensureOperationType`). Returns once the dialog is closed
+ * and the "Операция создана" toast is shown. Stays on the Operations screen.
+ */
+export async function createOperation(
+  page: Page,
+  options: { walletName: string; typeName: string; amount: string; date?: string },
+): Promise<void> {
+  await ensureOperationsPage(page);
+  await page.locator('.page-heading').getByRole('button', { name: 'Добавить операцию' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Новая операция' });
+  await expect(dialog).toBeVisible();
+  await dialog.locator('select[formcontrolname="walletId"]').selectOption({ label: options.walletName });
+  await dialog.locator('select[formcontrolname="operationTypeId"]').selectOption({ label: options.typeName });
+  await dialog.locator('input[formcontrolname="amount"]').fill(options.amount);
+  if (options.date) {
+    await dialog.locator('input[formcontrolname="operationDate"]').fill(options.date);
+  }
+  await dialog.getByRole('button', { name: 'Создать', exact: true }).click();
+
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText('Операция создана')).toBeVisible();
+}
+
+/**
+ * States the wallet balance at the end of `date` through the "Указать баланс" dialog (ADR-0003 §6) and waits
+ * for the `PUT /wallets/{id}/stated-balances/{date}` response. Returns its status: 201 when the balance was
+ * stated for the first time, 200 when a previous value was replaced. Stays on the Operations screen with the
+ * dialog closed.
+ */
+export async function setStatedBalance(
+  page: Page,
+  options: { walletName: string; date: string; amount: string },
+): Promise<number> {
+  await ensureOperationsPage(page);
+  await page.locator('.page-heading').getByRole('button', { name: 'Указать баланс' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Указать баланс на дату' });
+  await expect(dialog).toBeVisible();
+  await dialog.locator('select[formcontrolname="walletId"]').selectOption({ label: options.walletName });
+  await dialog.locator('input[formcontrolname="date"]').fill(options.date);
+  await dialog.locator('input[formcontrolname="amount"]').fill(options.amount);
+
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (res) => res.request().method() === 'PUT' && new URL(res.url()).pathname.includes('/stated-balances/'),
+    ),
+    dialog.getByRole('button', { name: 'Указать баланс', exact: true }).click(),
+  ]);
+  await expect(dialog).toBeHidden();
+  return response.status();
+}

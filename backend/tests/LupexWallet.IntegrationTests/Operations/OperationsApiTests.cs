@@ -10,9 +10,9 @@ namespace LupexWallet.IntegrationTests.Operations;
 // DTO для десериализации ответов Operations API (docs/api/openapi.yaml).
 public sealed record OperationMoneyResponse(string Amount, Guid CurrencyId);
 public sealed record OperationResponse(
-    Guid Id, Guid WalletId, Guid OperationTypeId, OperationMoneyResponse Amount, DateOnly OperationDate,
-    string? AdjustmentMode, Guid? TransferId, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt,
-    bool IsDeleted, DateTimeOffset? DeletedAt);
+    Guid Id, Guid WalletId, Guid? OperationTypeId, OperationMoneyResponse Amount, DateOnly OperationDate,
+    string? AdjustmentMode, bool IsCorrection, OperationMoneyResponse? StatedBalance, Guid? TransferId,
+    DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, bool IsDeleted, DateTimeOffset? DeletedAt);
 
 /// <summary>
 /// Operations API (docs/api/openapi.yaml, тег Operations) — UC-11/UC-12/UC-13/UC-14/UC-24.

@@ -68,7 +68,7 @@ public sealed class AuditApiTests(ApiTestFixture fixture) : IntegrationTestBase(
         // защита неизменяемости журнала на уровне БД, не только на уровне приложения (AuditEntry
         // не имеет методов изменения/удаления). Проверяем напрямую raw SQL — через HTTP API
         // модуль Audit вообще не выставляет мутирующих эндпоинтов.
-        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await using var connection = new NpgsqlConnection(Fixture.ConnectionString);
         await connection.OpenAsync();
 
         await using (var updateCommand = connection.CreateCommand())
@@ -332,7 +332,7 @@ public sealed class AuditApiTests(ApiTestFixture fixture) : IntegrationTestBase(
         await Client.CreateWalletAsync(name: "Затравка (основной)");
         var wallet = await Client.CreateWalletAsync(name: "Кошелек для теста коллизии occurred_at");
 
-        using var scope = fixture.Factory.Services.CreateScope();
+        using var scope = Fixture.Factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
 
         var collisionTimestamp = DateTimeOffset.UtcNow;
@@ -366,5 +366,116 @@ public sealed class AuditApiTests(ApiTestFixture fixture) : IntegrationTestBase(
 
         collected.Should().HaveCount(expectedTotal, "коллизия occurred_at не должна приводить к потере записей курсорной пагинацией");
         collected.Select(e => e.Id).Should().OnlyHaveUniqueItems("курсорная пагинация не должна возвращать дубли даже при коллизии occurred_at");
+    }
+
+    // ---- Balance corrections (ADR-0003, §6; ADR-0006) ----
+
+    [Fact]
+    public async Task StatedBalance_RecordsCreatedUpdatedAndRecalculatedEntriesWithAmountDiffsAndUserActor()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 0m, accountingStartDate: Today.AddDays(-20));
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var day = Today.AddDays(-5);
+        var incomeId = await CreateIncomeAsync(wallet.Id, incomeTypeId, 300m, Today.AddDays(-10));
+
+        var (_, correction) = await Client.SetStatedBalanceAsync(wallet.Id, day, 350m);
+        await Client.SetStatedBalanceAsync(wallet.Id, day, 400m);
+        (await Client.PatchAsJsonAsync($"/api/v1/operations/{incomeId}", new
+        {
+            WalletId = wallet.Id, OperationTypeId = incomeTypeId, Amount = 320m, OperationDate = Today.AddDays(-10),
+        })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var entries = (await Client.GetAuditEntriesAsync("Operation", correction.Id)).OrderBy(e => e.OccurredAt).ToList();
+
+        entries.Select(e => e.Action).Should().Equal("Created", "Updated", "Recalculated");
+        entries.Should().OnlyContain(e => e.ActorKind == "User");
+        var created = entries[0];
+        created.Changes.Should().Contain(c => c.NewValue == "350", "the first statement records the full row, the stated balance included");
+        created.Changes.Should().Contain(c => c.NewValue == "50", "and the calculated amount");
+        var updated = entries[1];
+        updated.Changes.Should().Contain(c => c.OldValue == "350" && c.NewValue == "400");
+        var recalculated = entries[2];
+        recalculated.Changes.Should().Contain(c => c.OldValue == "100" && c.NewValue == "80", "the amount shrank by the +20 edit");
+        recalculated.Changes.Should().NotContain(c => c.OldValue == "400" || c.NewValue == "400", "the stated balance is untouched by the system");
+    }
+
+    [Fact]
+    public async Task OneCommandChangingCorrections_RecordsExactlyOneRecalculatedEntryPerChangedCorrection()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 0m, accountingStartDate: Today.AddDays(-20));
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var (_, first) = await Client.SetStatedBalanceAsync(wallet.Id, Today.AddDays(-10), 100m);
+        var (_, second) = await Client.SetStatedBalanceAsync(wallet.Id, Today.AddDays(-5), 500m);
+
+        // +30 before both dates: the first correction drops from 100 to 70, the second one stays 400 (the first absorbs the whole +30).
+        await CreateIncomeAsync(wallet.Id, incomeTypeId, 30m, Today.AddDays(-15));
+
+        (await Client.GetAuditEntriesAsync("Operation", first.Id)).Count(e => e.Action == "Recalculated").Should().Be(1);
+        (await Client.GetAuditEntriesAsync("Operation", second.Id)).Count(e => e.Action == "Recalculated").Should().Be(0,
+            "the second correction is unchanged: the first one absorbs the whole +30");
+        await Fixture.AssertWalletInvariantAsync(wallet.Id);
+    }
+
+    [Fact]
+    public async Task ReplacingAStatedBalance_RecordsASingleUpdatedEntryNotAnAdditionalRecalculatedOne()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 0m, accountingStartDate: Today.AddDays(-20));
+
+        var (_, correction) = await Client.SetStatedBalanceAsync(wallet.Id, Today.AddDays(-5), 350m);
+        await Client.SetStatedBalanceAsync(wallet.Id, Today.AddDays(-5), 360m);
+
+        (await Client.GetAuditEntriesAsync("Operation", correction.Id)).Select(e => e.Action)
+            .Should().BeEquivalentTo("Created", "Updated");
+    }
+
+    [Fact]
+    public async Task ReconciliationOfAStaleCorrection_RecordsRecalculatedUnderTheSystemActor()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 0m, accountingStartDate: Today.AddDays(-20));
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        await CreateIncomeAsync(wallet.Id, incomeTypeId, 300m, Today.AddDays(-10));
+        var (_, correction) = await Client.SetStatedBalanceAsync(wallet.Id, Today.AddDays(-5), 350m);
+        await using (var connection = await Fixture.OpenConnectionAsync())
+        {
+            // The state an older format leaves behind: a stale amount and a stale wallet balance.
+            await connection.ExecuteAsync(
+                $"UPDATE operations.operations SET amount = 0, applied_delta_amount = 0 WHERE id = '{correction.Id}'");
+            await connection.ExecuteAsync($"UPDATE wallets.wallets SET current_balance_amount = 300 WHERE id = '{wallet.Id}'");
+        }
+
+        await Fixture.RunCorrectionsReconciliationAsync(wallet.Id);
+
+        var recalculated = (await Client.GetAuditEntriesAsync("Operation", correction.Id)).Single(e => e.Action == "Recalculated");
+        recalculated.ActorKind.Should().Be("System");
+        recalculated.ActorSystemProcess.Should().Be("StatedBalanceTestReconciliation");
+        recalculated.Changes.Should().Contain(c => c.OldValue == "0" && c.NewValue == "50");
+        (await Client.GetWalletBalanceAsync(wallet.Id)).Should().Be(350m);
+    }
+
+    [Fact]
+    public async Task DeletingAWalletWithStatedBalances_RecordsADeletedEntryWithTheFullSnapshotForEachCorrection()
+    {
+        await AuthenticateAsync();
+        await Client.CreateWalletAsync(name: "Основной");
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 0m, accountingStartDate: Today.AddDays(-20), name: "С заявленными балансами");
+        var (_, first) = await Client.SetStatedBalanceAsync(wallet.Id, Today.AddDays(-10), 350m);
+        var (_, second) = await Client.SetStatedBalanceAsync(wallet.Id, Today.AddDays(-5), 600m);
+
+        (await Client.DeleteAsync($"/api/v1/wallets/{wallet.Id}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        foreach (var (correction, stated) in new[] { (first, "350"), (second, "600") })
+        {
+            var entries = await Client.GetAuditEntriesAsync("Operation", correction.Id);
+            var deleted = entries.Should().ContainSingle(e => e.Action == "Deleted").Subject;
+            deleted.ActorKind.Should().Be("User");
+            deleted.Changes.Should().Contain(c => c.OldValue == stated && c.NewValue == null, "the snapshot holds the stated balance");
+            deleted.Changes.Count.Should().BeGreaterThan(3, "a full snapshot of the row, not a single field");
+        }
+
+        (await Client.GetAuditEntriesAsync("Wallet", wallet.Id)).Should().Contain(e => e.Action == "Deleted");
     }
 }

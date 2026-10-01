@@ -184,6 +184,76 @@ describe('OperationFormComponent', () => {
     ]);
   });
 
+  it('keeps adjustmentMode Delta and the signed amount when an existing adjustment is edited', () => {
+    const adjustment: Operation = {
+      id: 'op-adj',
+      walletId: 'wallet-1',
+      operationTypeId: 'type-adjustment',
+      amount: { amount: '-40.00', currencyId: 'currency-1' },
+      operationDate: '2026-09-01',
+      adjustmentMode: 'Delta',
+      isCorrection: false,
+      statedBalance: null,
+      transferId: null,
+      isDeleted: false,
+      deletedAt: null,
+      createdAt: '2026-09-01T00:00:00Z',
+      updatedAt: '2026-09-01T00:00:00Z',
+    };
+    fixture.componentRef.setInput('editingOperation', adjustment);
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(component.isAdjustment()).toBe(true);
+    expect(text).toContain('Изменение на сумму (+/−)');
+    expect(fixture.nativeElement.querySelector('app-radio-group')).toBeNull();
+
+    const emitted: unknown[] = [];
+    component.save.subscribe((value) => emitted.push(value));
+    component.form.controls.amount.setValue('-45.50');
+    component.submit();
+
+    expect(emitted).toEqual([
+      {
+        walletId: 'wallet-1',
+        operationTypeId: 'type-adjustment',
+        amount: '-45.50',
+        operationDate: '2026-09-01',
+        adjustmentMode: 'Delta',
+      },
+    ]);
+  });
+
+  it('drops adjustmentMode and the adjustment wording when the type is switched from an adjustment to an income', () => {
+    component.form.controls.operationTypeId.setValue('type-adjustment');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Изменение на сумму (+/−)');
+
+    component.form.controls.operationTypeId.setValue('type-income');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('Изменение на сумму (+/−)');
+
+    const emitted: unknown[] = [];
+    component.save.subscribe((value) => emitted.push(value));
+    component.form.patchValue({ walletId: 'wallet-1', amount: '10', operationDate: '2026-09-01' });
+    component.submit();
+
+    expect(emitted).toEqual([
+      { walletId: 'wallet-1', operationTypeId: 'type-income', amount: '10', operationDate: '2026-09-01' },
+    ]);
+  });
+
+  it('offers no "Absolute"-style choice anywhere: no radio, no "Новое значение", no "Новый баланс"', () => {
+    for (const typeId of ['type-income', 'type-adjustment']) {
+      component.form.controls.operationTypeId.setValue(typeId);
+      fixture.detectChanges();
+      const root = fixture.nativeElement as HTMLElement;
+      expect(root.querySelector('input[type="radio"]')).toBeNull();
+      expect(root.textContent).not.toContain('Новое значение');
+      expect(root.textContent).not.toContain('Новый баланс');
+    }
+  });
+
   it('emits cancel', () => {
     const emitted: unknown[] = [];
     component.cancel.subscribe(() => emitted.push(true));

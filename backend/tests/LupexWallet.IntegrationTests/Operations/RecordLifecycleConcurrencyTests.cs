@@ -91,14 +91,19 @@ public sealed class RecordLifecycleConcurrencyTests(ApiTestFixture fixture) : In
         throw new TimeoutException($"Fewer than {expected} backends blocked on the row lock within 30 s.");
     }
 
-    private static async Task AssertOneWinnerAsync(HttpResponseMessage[] responses, HttpStatusCode winnerStatus)
+    /// <summary>
+    /// Exactly one request wins. The loser must be rejected by the lifecycle rule it can only evaluate on the committed
+    /// state (<paramref name="loserDetailPart"/>): that proves the wallet lock serialized the two commands. Without the
+    /// lock the loser would load the aggregate as still active and fail later with the generic "changed concurrently" 409.
+    /// </summary>
+    private static async Task AssertOneWinnerAsync(HttpResponseMessage[] responses, HttpStatusCode winnerStatus, string loserDetailPart)
     {
         responses.Select(r => r.StatusCode).Should().BeEquivalentTo(
             new[] { winnerStatus, HttpStatusCode.Conflict }, "exactly one request wins, the other is rejected as a conflict");
 
         var loser = responses.Single(r => r.StatusCode == HttpStatusCode.Conflict);
         var problem = await loser.Content.ReadFromJsonAsync<JsonElement>();
-        problem.GetProperty("detail").GetString().Should().NotBeNullOrWhiteSpace();
+        problem.GetProperty("detail").GetString().Should().Contain(loserDetailPart);
     }
 
     [Fact]
@@ -114,7 +119,7 @@ public sealed class RecordLifecycleConcurrencyTests(ApiTestFixture fixture) : In
             c => c.DeleteAsync($"/api/v1/operations/{operationId}"),
             "SELECT id FROM operations.operations WHERE id = @id FOR UPDATE", operationId);
 
-        await AssertOneWinnerAsync(responses, HttpStatusCode.NoContent);
+        await AssertOneWinnerAsync(responses, HttpStatusCode.NoContent, "уже удалена");
         (await Client.GetWalletBalanceAsync(wallet.Id)).Should().Be(1000m, "the reversal of 300 is applied once, not twice");
         var audit = await Client.GetAuditEntriesAsync("Operation", operationId);
         audit.Count(e => e.Action == "Deleted").Should().Be(1);
@@ -134,7 +139,7 @@ public sealed class RecordLifecycleConcurrencyTests(ApiTestFixture fixture) : In
             c => c.PostAsync($"/api/v1/operations/{operationId}/restore", null),
             "SELECT id FROM operations.operations WHERE id = @id FOR UPDATE", operationId);
 
-        await AssertOneWinnerAsync(responses, HttpStatusCode.OK);
+        await AssertOneWinnerAsync(responses, HttpStatusCode.OK, "не удалена");
         (await Client.GetWalletBalanceAsync(wallet.Id)).Should().Be(1300m, "the delta of 300 is re-applied once, not twice");
         var audit = await Client.GetAuditEntriesAsync("Operation", operationId);
         audit.Count(e => e.Action == "Restored").Should().Be(1);
@@ -194,7 +199,7 @@ public sealed class RecordLifecycleConcurrencyTests(ApiTestFixture fixture) : In
             c => c.DeleteAsync($"/api/v1/transfers/{transferId}"),
             "SELECT id FROM operations.transfers WHERE id = @id FOR UPDATE", transferId);
 
-        await AssertOneWinnerAsync(responses, HttpStatusCode.NoContent);
+        await AssertOneWinnerAsync(responses, HttpStatusCode.NoContent, "уже удалён");
         (await Client.GetWalletBalanceAsync(source.Id)).Should().Be(500m);
         (await Client.GetWalletBalanceAsync(target.Id)).Should().Be(100m);
         var audit = await Client.GetAuditEntriesAsync("Transfer", transferId);

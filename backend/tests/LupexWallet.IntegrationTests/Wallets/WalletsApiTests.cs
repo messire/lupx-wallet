@@ -525,4 +525,97 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
 
     private sealed record CursorPageMeta(string? NextCursor, bool HasMore);
     private sealed record WalletPageResponse(IReadOnlyList<WalletResponse> Data, CursorPageMeta Pagination);
+
+    // ---- Stated balances are not wallet history (ADR-0002, §1-§2; ADR-0003, §6) ----
+
+    private async Task<long> CountCorrectionsAsync(Guid walletId)
+    {
+        await using var connection = await Fixture.OpenConnectionAsync();
+        return await connection.CountAsync(
+            "SELECT count(*) FROM operations.operations WHERE wallet_id = @walletId AND is_correction", ("walletId", walletId));
+    }
+
+    private async Task<StatedBalanceCorrectionResponse> GetCorrectionRowAsync(Guid id)
+    {
+        var response = await Client.GetAsync($"/api/v1/operations/{id}");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsync<StatedBalanceCorrectionResponse>())!;
+    }
+
+    [Fact]
+    public async Task DeleteWallet_WithOnlyStatedBalances_ReturnsNoContentRemovesTheCorrectionsAndAuditsEachOne()
+    {
+        await AuthenticateAsync();
+        await Client.CreateWalletAsync(name: "Основной");
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 0m, accountingStartDate: Today.AddDays(-20), name: "Только заявленные");
+        var (_, first) = await Client.SetStatedBalanceAsync(wallet.Id, Today.AddDays(-10), 350m);
+        var (_, second) = await Client.SetStatedBalanceAsync(wallet.Id, Today.AddDays(-5), 600m);
+        (await CountCorrectionsAsync(wallet.Id)).Should().Be(2);
+
+        var response = await Client.DeleteAsync($"/api/v1/wallets/{wallet.Id}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent, "a stated balance is not a fact entered by the user, so the wallet has no history");
+        (await Client.GetAsync($"/api/v1/wallets/{wallet.Id}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await CountCorrectionsAsync(wallet.Id)).Should().Be(0, "the corrections are removed physically in the same transaction");
+        (await CountSnapshotsAsync(wallet.Id)).Should().Be(0);
+        foreach (var correction in new[] { first, second })
+        {
+            (await Client.GetAuditEntriesAsync("Operation", correction.Id)).Should().Contain(e => e.Action == "Deleted");
+            (await Client.GetAsync($"/api/v1/operations/{correction.Id}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteWallet_WithOperationAndStatedBalance_ReturnsConflictKeepsTheCorrectionAndArchiveStillWorks()
+    {
+        await AuthenticateAsync();
+        await Client.CreateWalletAsync(name: "Основной");
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 0m, accountingStartDate: Today.AddDays(-20), name: "С историей");
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        await Client.CreateOperationReturningIdAsync(wallet.Id, incomeTypeId, 300m, Today.AddDays(-10));
+        await Client.SetStatedBalanceAsync(wallet.Id, Today.AddDays(-5), 350m);
+
+        var deleteResponse = await Client.DeleteAsync($"/api/v1/wallets/{wallet.Id}");
+
+        deleteResponse.StatusCode.Should().Be(HttpStatusCode.Conflict, "the real operation is history (ADR-0002, §2)");
+        (await CountCorrectionsAsync(wallet.Id)).Should().Be(1, "a rejected deletion removes nothing");
+        (await Client.GetWalletBalanceAsync(wallet.Id)).Should().Be(350m);
+
+        var archiveResponse = await Client.PostAsync($"/api/v1/wallets/{wallet.Id}/archive", content: null);
+
+        archiveResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await CountCorrectionsAsync(wallet.Id)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ChangeWalletCurrency_WithStatedBalancesButNoOperations_FollowsTheCorrectionsToTheNewCurrencyAndNewOperationsWork()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 0m, accountingStartDate: Today.AddDays(-20), name: "Заявленные");
+        var (_, correction) = await Client.SetStatedBalanceAsync(wallet.Id, Today.AddDays(-5), 350m);
+        var newCurrency = await Client.CreateCurrencyAsync("NC" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant(), "Новая валюта");
+
+        var response = await Client.PutAsJsonAsync($"/api/v1/wallets/{wallet.Id}/currency", new { CurrencyId = newCurrency.Id });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, "stated balances do not block a currency change");
+        var row = await GetCorrectionRowAsync(correction.Id);
+        row.Amount.CurrencyId.Should().Be(newCurrency.Id);
+        row.StatedBalance!.CurrencyId.Should().Be(newCurrency.Id);
+        row.Amount.Amount.Should().Be("350", "the numbers do not change");
+        row.StatedBalance.Amount.Should().Be("350");
+        (await Client.GetAuditEntriesAsync("Operation", correction.Id)).Should().Contain(e => e.Action == "Updated" && e.ActorKind == "User");
+        (await Client.GetSnapshotsAsync(wallet.Id, Today.AddDays(-5), Today)).Should().OnlyContain(s => s.Balance.CurrencyId == newCurrency.Id);
+
+        // A new operation is accepted and recalculates the correction in the new currency (a currency mismatch would be a 500).
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var created = await Client.PostAsJsonAsync("/api/v1/operations", new
+        {
+            WalletId = wallet.Id, OperationTypeId = incomeTypeId, Amount = 100m, OperationDate = Today.AddDays(-8),
+        });
+        created.StatusCode.Should().Be(HttpStatusCode.Created);
+        (await Client.GetWalletBalanceAsync(wallet.Id)).Should().Be(350m, "the stated balance later in time absorbs the +100");
+        (await Client.GetWalletBalanceOnDateAsync(wallet.Id, Today.AddDays(-5))).Should().Be(350m);
+        await Fixture.AssertWalletInvariantAsync(wallet.Id);
+        (await GetCorrectionRowAsync(correction.Id)).Amount.Amount.Should().Be("250");
+    }
 }

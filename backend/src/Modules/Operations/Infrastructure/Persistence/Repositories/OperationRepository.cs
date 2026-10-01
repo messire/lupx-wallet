@@ -100,7 +100,9 @@ public sealed class OperationRepository(OperationsDbContext dbContext) : IOperat
 
         if (excludingIds.Count > 0)
         {
-            var excluded = excludingIds.ToArray();
+            // A List, not an array: with C# 14 (SDK 10+) Contains on an array binds to the ReadOnlySpan overload, which
+            // EF Core cannot evaluate as a query parameter; List<T>.Contains is an instance method and is unaffected.
+            var excluded = excludingIds.ToList();
             query = query.Where(x => !excluded.Contains(x.Id));
         }
 

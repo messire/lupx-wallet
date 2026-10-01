@@ -27,7 +27,11 @@ public sealed record OperationCreateRequest(
 public sealed record OperationUpdateRequest(
     Guid WalletId, Guid OperationTypeId, decimal Amount, DateOnly OperationDate, string? AdjustmentMode);
 
-public sealed record StatedBalanceRequest(decimal Amount);
+/// <summary>
+/// Nullable on purpose: "amount" is required by the contract, and a missing field must be answered with 400 instead of
+/// silently stating a zero balance (the default of a non-nullable decimal).
+/// </summary>
+public sealed record StatedBalanceRequest(decimal? Amount);
 
 public sealed record OperationPageResponse(IReadOnlyList<OperationResponse> Data, CursorPageMeta Pagination);
 

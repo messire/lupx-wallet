@@ -1,6 +1,10 @@
 using FluentAssertions;
+using LupexWallet.BuildingBlocks.Infrastructure;
+using LupexWallet.Operations.Domain;
 using LupexWallet.ReferenceData.Application;
 using LupexWallet.Wallets.Application;
+using LupexWallet.Wallets.Domain;
+using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -79,5 +83,48 @@ public sealed class CrossModuleContractsRegistrationTests(ApiTestFixture fixture
             "ADR-0004 §7: активация валюты при создании кошелька — один порт (c) ReferenceData");
         scope.ServiceProvider.GetServices<IAvailableCurrencyCatalog>().Should().ContainSingle(
             "ADR-0004 §7: замена списка доступных валют — один порт (c) ReferenceData");
+    }
+
+    /// <summary>
+    /// ADR-0002, §2; ADR-0003, §6: Operations subscribes to the Wallets events by hand (its handlers live in
+    /// Infrastructure, MediatR scans only *.Application): a forgotten registration would leave the corrections of a
+    /// deleted wallet behind or in the old currency, and nothing but a delete / currency-change request would show it.
+    /// Both modules react to the same event; each handler is registered exactly once.
+    /// </summary>
+    [Fact]
+    public void WalletEvents_AreHandledByOperationsAndBalanceHistoryExactlyOnceEach()
+    {
+        using var scope = Fixture.Factory.Services.CreateScope();
+
+        var deleted = scope.ServiceProvider
+            .GetServices<INotificationHandler<DomainEventNotification<WalletDeleted>>>().Select(h => h.GetType()).ToList();
+        var currencyChanged = scope.ServiceProvider
+            .GetServices<INotificationHandler<DomainEventNotification<WalletCurrencyChanged>>>().Select(h => h.GetType()).ToList();
+
+        deleted.Should().ContainSingle(t => t == typeof(LupexWallet.Operations.Infrastructure.WalletDeletedHandler));
+        deleted.Should().ContainSingle(t => t == typeof(LupexWallet.BalanceHistory.Infrastructure.WalletDeletedHandler));
+        currencyChanged.Should().ContainSingle(t => t == typeof(LupexWallet.Operations.Infrastructure.WalletCurrencyChangedHandler));
+        currencyChanged.Should().ContainSingle(t => t == typeof(LupexWallet.BalanceHistory.Infrastructure.WalletCurrencyChangedHandler));
+    }
+
+    /// <summary>
+    /// ADR-0003, §6, ADR-0006: a system recalculation of a correction reaches BalanceHistory (cascade) and Audit
+    /// (Recalculated); a removal and a currency change reach Audit only and must not start a cascade.
+    /// </summary>
+    [Fact]
+    public void CorrectionEvents_AreHandledByTheExpectedModulesOnly()
+    {
+        using var scope = Fixture.Factory.Services.CreateScope();
+
+        var recalculated = scope.ServiceProvider
+            .GetServices<INotificationHandler<DomainEventNotification<CorrectionRecalculated>>>().Select(h => h.GetType().Namespace).ToList();
+        var removed = scope.ServiceProvider
+            .GetServices<INotificationHandler<DomainEventNotification<CorrectionRemoved>>>().Select(h => h.GetType().Namespace).ToList();
+        var currencyChanged = scope.ServiceProvider
+            .GetServices<INotificationHandler<DomainEventNotification<CorrectionCurrencyChanged>>>().Select(h => h.GetType().Namespace).ToList();
+
+        recalculated.Should().BeEquivalentTo(["LupexWallet.Audit.Infrastructure", "LupexWallet.BalanceHistory.Infrastructure"]);
+        removed.Should().BeEquivalentTo(["LupexWallet.Audit.Infrastructure"], "snapshots are removed by BalanceHistory's own WalletDeleted handler");
+        currencyChanged.Should().BeEquivalentTo(["LupexWallet.Audit.Infrastructure"], "a currency change must not start a snapshot cascade");
     }
 }

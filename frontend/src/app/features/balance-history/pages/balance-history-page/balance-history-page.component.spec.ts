@@ -186,6 +186,48 @@ describe('BalanceHistoryComponent', () => {
     expect(component.historyLoadError()).toBe('Диапазон дат некорректен.');
   });
 
+  // ADR-0003 §6: a stated balance only changes the numbers the server returns (the correction amount is part
+  // of the daily balance); the screen shows them as they are, with no extra marking of such dates.
+  it('shows the stated-balance day as an ordinary row with the exact balance and no extra badge', () => {
+    const fixture = createComponent();
+    selectWallet(fixture);
+    const component = fixture.componentInstance;
+    component.rangeForm.setValue({ from: '2026-09-09', to: '2026-09-11' });
+    component.showHistory();
+
+    httpMock
+      .expectOne((r) => r.url === `${environment.apiBaseUrl}/wallets/wallet-1/balance-history`)
+      .flush({
+        data: [
+          { walletId: 'wallet-1', date: '2026-09-09', balance: { amount: '300.00', currencyId: 'currency-1' } },
+          { walletId: 'wallet-1', date: '2026-09-10', balance: { amount: '350.00', currencyId: 'currency-1' } },
+          { walletId: 'wallet-1', date: '2026-09-11', balance: { amount: '-50.00', currencyId: 'currency-1' } },
+        ],
+        pagination: { nextCursor: null, hasMore: false },
+      });
+    fixture.detectChanges();
+
+    const rows = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('.history-table tbody tr'));
+    expect(rows.map((row) => row.querySelectorAll('td')[1].textContent?.trim())).toEqual(['300.00 USD', '350.00 USD', '-50.00 USD']);
+    expect(rows.every((row) => row.querySelector('app-badge') === null)).toBe(true);
+  });
+
+  it('shows the balance on a stated-balance date as returned by the server', () => {
+    const fixture = createComponent();
+    selectWallet(fixture);
+    const component = fixture.componentInstance;
+    component.balanceDateForm.controls.date.setValue('2026-09-10');
+    component.showBalanceOnDate();
+
+    httpMock
+      .expectOne((r) => r.url === `${environment.apiBaseUrl}/wallets/wallet-1/balance` && r.params.get('date') === '2026-09-10')
+      .flush({ walletId: 'wallet-1', date: '2026-09-10', balance: { amount: '350.00', currencyId: 'currency-1' } });
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('.balance-result')?.textContent).toContain('350.00');
+    expect((fixture.nativeElement as HTMLElement).querySelector('.balance-result app-badge')).toBeNull();
+  });
+
   it('resets results when the selected wallet changes', () => {
     const fixture = createComponent();
     selectWallet(fixture);

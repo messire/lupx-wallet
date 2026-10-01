@@ -25,9 +25,18 @@ public static class OperationsEndpointsExtensions
         app.MapPut("/wallets/{walletId:guid}/stated-balances/{date}", async (
             Guid walletId, DateOnly date, [FromBody] StatedBalanceRequest request, ISender sender, CancellationToken ct) =>
         {
+            if (request.Amount is not { } amount)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "Operation validation failed",
+                    detail: "Укажите баланс на конец дня.",
+                    type: "https://lupexwallet/errors/operation-validation-error");
+            }
+
             try
             {
-                var result = await sender.Send(new SetStatedBalanceCommand(walletId, date, request.Amount), ct);
+                var result = await sender.Send(new SetStatedBalanceCommand(walletId, date, amount), ct);
                 var response = ToResponse(result.Operation);
                 return result.Created
                     ? Results.Created($"/api/v1/operations/{response.Id}", response)

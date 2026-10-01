@@ -705,4 +705,292 @@ describe('OperationsComponent', () => {
     expect(row.classList.contains('is-deleted')).toBe(false);
     expect(row.textContent).not.toContain('Удалена');
   });
+
+  // ---- Correction rows in the list: order, badges, actions ----
+
+  const sameDayOperation: Operation = { ...operation1, id: 'op-same-day', operationDate: '2026-09-12' };
+
+  function rowsOf(fixture: ComponentFixture<OperationsComponent>): HTMLElement[] {
+    return Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('tbody tr')) as HTMLElement[];
+  }
+
+  it('keeps the order the server sent: the correction amount comes last inside its day', () => {
+    const fixture = createComponent([operation1, sameDayOperation, negativeCorrection]);
+    const rows = rowsOf(fixture);
+
+    expect(rows.map((row) => row.classList.contains('is-system'))).toEqual([false, false, true]);
+    expect(rows.map((row) => row.querySelector('td.date-col')?.textContent?.trim().slice(0, 10))).toEqual([
+      '2026-09-10',
+      '2026-09-12',
+      '2026-09-12',
+    ]);
+    expect(rows[2].textContent).toContain('Неизвестные траты');
+  });
+
+  it('does not reorder the rows itself (a client-side sort would hide a server ordering defect)', () => {
+    const fixture = createComponent([negativeCorrection, sameDayOperation]);
+
+    expect(rowsOf(fixture).map((row) => row.classList.contains('is-system'))).toEqual([true, false]);
+  });
+
+  it('appends a correction amount from the next page after the rows of the first page', () => {
+    const fixture = TestBed.createComponent(OperationsComponent);
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/wallets`).flush({ data: [wallet], ...emptyPage });
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/currencies`).flush({ data: currencies, ...emptyPage });
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operation-types`).flush({ data: operationTypes, ...emptyPage });
+    httpMock.expectOne(`${environment.apiBaseUrl}/operation-behavior-kinds`).flush(behaviorKinds);
+    httpMock
+      .expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`)
+      .flush({ data: [operation1, sameDayOperation], pagination: { nextCursor: 'cursor-1', hasMore: true } });
+    fixture.detectChanges();
+
+    fixture.componentInstance.loadMore();
+    const next = httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`);
+    expect(next.request.params.get('cursor')).toBe('cursor-1');
+    next.flush({ data: [negativeCorrection], ...emptyPage });
+    fixture.detectChanges();
+
+    expect(rowsOf(fixture).map((row) => row.classList.contains('is-system'))).toEqual([false, false, true]);
+  });
+
+  it('marks the "Система" badge and the title as text, so the italic row style is not the only cue', () => {
+    const fixture = createComponent([negativeCorrection]);
+    const row = rowsOf(fixture)[0];
+
+    const systemBadge = row.querySelector('td.date-col app-badge') as HTMLElement;
+    expect(systemBadge.textContent?.trim()).toBe('Система');
+    expect(systemBadge.getAttribute('title')).toBe('Рассчитано системой по указанному балансу');
+    expect(row.querySelector('td:nth-child(3) app-badge')?.textContent?.trim()).toBe('Неизвестные траты');
+    // No "доход"/"расход" side label for a correction and no deletion badge.
+    expect(row.querySelector('.amount-category')).toBeNull();
+    expect(row.textContent).not.toContain('Удалена');
+  });
+
+  it('colours a correction by its sign: expense style for a negative, income style for a positive amount', () => {
+    const fixture = createComponent([negativeCorrection, positiveCorrection]);
+    const [negative, positive] = rowsOf(fixture).map((row) => row.querySelector('.amount') as HTMLElement);
+
+    expect(negative.classList.contains('amount--expense')).toBe(true);
+    expect(negative.classList.contains('amount--income')).toBe(false);
+    expect(positive.classList.contains('amount--income')).toBe(true);
+    expect(positive.classList.contains('amount--expense')).toBe(false);
+  });
+
+  it('uses the wallet name and currency of the correction row and the "Баланс на конец дня" text in the adjustment column', () => {
+    const fixture = createComponent([positiveCorrection]);
+    const cells = rowsOf(fixture)[0].querySelectorAll('td');
+
+    expect(cells[1].textContent).toBe('Наличные USD');
+    expect(cells[3].textContent).toContain('USD');
+    expect(cells[4].textContent?.trim()).toBe('Баланс на конец дня: 350.00 USD');
+  });
+
+  it('keeps the "···" button and the full menu for the regular rows next to a correction', () => {
+    const fixture = createComponent([sameDayOperation, negativeCorrection]);
+    const [regular, correction] = rowsOf(fixture);
+
+    expect(regular.querySelector('td.actions button')).not.toBeNull();
+    expect(correction.querySelector('td.actions button')).toBeNull();
+    expect(correction.querySelector('td.actions')?.textContent).not.toContain('···');
+  });
+
+  it('shows the adjustment column per row: stated balance, signed change, or nothing', () => {
+    const adjustment: Operation = { ...operation1, id: 'op-adj', adjustmentMode: 'Delta' };
+    const fixture = createComponent([operation1, adjustment, negativeCorrection]);
+
+    expect(rowsOf(fixture).map((row) => row.querySelectorAll('td')[4].textContent?.trim())).toEqual([
+      '',
+      'Изменение на сумму',
+      'Баланс на конец дня: 350.00 USD',
+    ]);
+  });
+
+  // ---- "Указать баланс": the whole flow through the dialog ----
+
+  function typeInto(input: HTMLInputElement | HTMLSelectElement, value: string, eventName: 'input' | 'change'): void {
+    input.value = value;
+    input.dispatchEvent(new Event(eventName));
+  }
+
+  function fillStatedBalanceForm(fixture: ComponentFixture<OperationsComponent>, date: string, amount: string): void {
+    const form = (fixture.nativeElement as HTMLElement).querySelector('app-stated-balance-form') as HTMLElement;
+    typeInto(form.querySelector('select') as HTMLSelectElement, 'wallet-1', 'change');
+    typeInto(form.querySelector('input[type="date"]') as HTMLInputElement, date, 'input');
+    typeInto(form.querySelector('input[inputmode="decimal"]') as HTMLInputElement, amount, 'input');
+    fixture.detectChanges();
+  }
+
+  function submitStatedBalanceForm(fixture: ComponentFixture<OperationsComponent>): void {
+    ((fixture.nativeElement as HTMLElement).querySelector('app-stated-balance-form button[type="submit"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+  }
+
+  it('sends PUT with the typed date in the path and the typed amount in the body when the form is submitted', () => {
+    const fixture = createComponent([operation1]);
+    openStatedBalanceDialog(fixture);
+    fillStatedBalanceForm(fixture, '2026-02-10', '-350.00');
+
+    submitStatedBalanceForm(fixture);
+
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-02-10`);
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ amount: '-350.00' });
+    req.flush(negativeCorrection, { status: 201, statusText: 'Created' });
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`).flush({ data: [operation1, negativeCorrection], ...emptyPage });
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.isStatedBalanceFormOpen()).toBe(false);
+    expect((fixture.nativeElement as HTMLElement).querySelector('app-stated-balance-form')).toBeNull();
+  });
+
+  it('blocks the form while the PUT is in flight and sends nothing for an invalid form', () => {
+    const fixture = createComponent([operation1]);
+    openStatedBalanceDialog(fixture);
+    const root = fixture.nativeElement as HTMLElement;
+
+    submitStatedBalanceForm(fixture); // nothing typed
+    httpMock.expectNone((r) => r.url.includes('/stated-balances/'));
+
+    fillStatedBalanceForm(fixture, '2026-02-10', '350');
+    submitStatedBalanceForm(fixture);
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-02-10`);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.isStatedBalanceSubmitting()).toBe(true);
+    const submit = root.querySelector('app-stated-balance-form button[type="submit"]') as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    expect((root.querySelector('app-stated-balance-form input[inputmode="decimal"]') as HTMLInputElement).disabled).toBe(true);
+
+    req.flush(positiveCorrection, { status: 200, statusText: 'OK' });
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`).flush({ data: [], ...emptyPage });
+  });
+
+  it('shows the success toast as a status message for 201 and for 200', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+    const toast = () => (fixture.nativeElement as HTMLElement).querySelector('app-toast .app-toast') as HTMLElement;
+
+    component.saveStatedBalance({ walletId: 'wallet-1', date: '2026-09-10', amount: '350' });
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-09-10`)
+      .flush(positiveCorrection, { status: 201, statusText: 'Created' });
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`).flush({ data: [], ...emptyPage });
+    fixture.detectChanges();
+    expect(toast().textContent).toContain('Баланс на 2026-09-10 указан');
+    expect(toast().getAttribute('role')).toBe('status');
+
+    component.saveStatedBalance({ walletId: 'wallet-1', date: '2026-09-10', amount: '350' });
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-09-10`)
+      .flush(positiveCorrection, { status: 200, statusText: 'OK' });
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`).flush({ data: [], ...emptyPage });
+    fixture.detectChanges();
+    expect(toast().textContent).toContain('Баланс на 2026-09-10 заменён');
+  });
+
+  it('shows the 409 and 404 details of the server inside the dialog and keeps what the user typed', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+    openStatedBalanceDialog(fixture);
+    fillStatedBalanceForm(fixture, '2026-02-10', '350');
+    const root = fixture.nativeElement as HTMLElement;
+
+    submitStatedBalanceForm(fixture);
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-02-10`)
+      .flush({ status: 409, detail: 'Запись изменена параллельно, повторите запрос.' }, { status: 409, statusText: 'Conflict' });
+    fixture.detectChanges();
+
+    expect(root.querySelector('app-stated-balance-form p.form-error[role="alert"]')?.textContent).toContain(
+      'Запись изменена параллельно, повторите запрос.',
+    );
+    expect((root.querySelector('app-stated-balance-form input[inputmode="decimal"]') as HTMLInputElement).value).toBe('350');
+    expect((root.querySelector('app-stated-balance-form input[inputmode="decimal"]') as HTMLInputElement).disabled).toBe(false);
+
+    submitStatedBalanceForm(fixture);
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-02-10`)
+      .flush({ status: 404, detail: 'Кошелек не найден.' }, { status: 404, statusText: 'Not Found' });
+    fixture.detectChanges();
+
+    expect(component.isStatedBalanceFormOpen()).toBe(true);
+    expect(root.querySelector('app-stated-balance-form p.form-error[role="alert"]')?.textContent).toContain('Кошелек не найден.');
+    // Nothing was reloaded: the list on screen is still valid after a failed PUT.
+    httpMock.expectNone((r) => r.url === `${environment.apiBaseUrl}/operations`);
+  });
+
+  it('falls back to a generic text for an error without details and clears the error on the next attempt', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+
+    component.saveStatedBalance({ walletId: 'wallet-1', date: '2026-09-10', amount: '1' });
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-09-10`)
+      .flush(null, { status: 500, statusText: 'Server Error' });
+    expect(component.statedBalanceError()).toBe('Не удалось указать баланс.');
+
+    component.saveStatedBalance({ walletId: 'wallet-1', date: '2026-09-10', amount: '1' });
+    expect(component.statedBalanceError()).toBeNull();
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/wallets/wallet-1/stated-balances/2026-09-10`)
+      .flush(positiveCorrection, { status: 200, statusText: 'OK' });
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`).flush({ data: [], ...emptyPage });
+  });
+
+  it('reopens an empty form after cancel (no values or error of the previous attempt)', () => {
+    const fixture = createComponent([operation1]);
+    const root = fixture.nativeElement as HTMLElement;
+    openStatedBalanceDialog(fixture);
+    fillStatedBalanceForm(fixture, '2026-02-10', '350');
+    fixture.componentInstance.statedBalanceError.set('Старая ошибка.');
+
+    fixture.componentInstance.cancelStatedBalanceForm();
+    fixture.detectChanges();
+    expect(root.querySelector('app-stated-balance-form')).toBeNull();
+
+    openStatedBalanceDialog(fixture);
+    expect((root.querySelector('app-stated-balance-form input[inputmode="decimal"]') as HTMLInputElement).value).toBe('');
+    expect(root.querySelector('app-stated-balance-form p.form-error')).toBeNull();
+  });
+
+  // ---- The operation form: only the signed change ----
+
+  it('sends adjustmentMode Delta with the signed amount when an adjustment is created', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+
+    component.saveOperation({
+      walletId: 'wallet-1',
+      operationTypeId: 'ot-adj',
+      amount: '-25.00',
+      operationDate: '2026-09-10',
+      adjustmentMode: 'Delta',
+    });
+
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/operations`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body.adjustmentMode).toBe('Delta');
+    expect(req.request.body.amount).toBe('-25.00');
+    req.flush(operation1, { status: 201, statusText: 'Created' });
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/operations`).flush({ data: [], ...emptyPage });
+  });
+
+  it('shows a server 409 about a correction amount as the operation form error, with no mode choice in the form', () => {
+    const fixture = createComponent([operation1]);
+    const component = fixture.componentInstance;
+    component.openEditForm(operation1);
+    fixture.detectChanges();
+
+    component.saveOperation({ walletId: 'wallet-1', amount: '1' });
+    httpMock
+      .expectOne(`${environment.apiBaseUrl}/operations/op-1`)
+      .flush({ status: 409, detail: 'Это корректирующая сумма — её рассчитывает система.' }, { status: 409, statusText: 'Conflict' });
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('app-operation-form p.form-error[role="alert"]')?.textContent).toContain('корректирующая сумма');
+    expect(root.querySelector('app-operation-form app-radio-group')).toBeNull();
+    expect(root.querySelector('app-operation-form')?.textContent).not.toContain('Новое значение баланса');
+  });
 });

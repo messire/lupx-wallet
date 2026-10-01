@@ -216,4 +216,35 @@ public sealed class ReportingApiTests(ApiTestFixture fixture) : IntegrationTestB
             w => w.WalletId == usdWallet.Id && w.Reason == $"Курс валюты USD на дату {today.AddDays(-10):yyyy-MM-dd} недоступен.");
         _fake.TotalCalls.Should().Be(0, "дозагрузка истории — работа фонового сервиса, не чтения (ADR-0004 §8, §9)");
     }
+
+    [Fact]
+    public async Task GetTotalAmount_WithStatedBalance_CurrentAndHistoricalTotalsFollowTheStatedBalance()
+    {
+        // ADR-0003, §6: the correction is part of the wallet balance: the total of the stated day is the stated one,
+        // the current total is the CurrentBalance (initial + all effects, corrections included).
+        await AuthenticateAsync();
+        var currency = await Client.CreateCurrencyAsync("EUR");
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var wallet = await Client.CreateWalletAsync(
+            initialBalanceAmount: 100m, currencyId: currency.Id, accountingStartDate: today.AddDays(-10), name: "Основной");
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var operationDate = today.AddDays(-6);
+        var statedDate = today.AddDays(-3);
+        await Client.CreateOperationReturningIdAsync(wallet.Id, incomeTypeId, 50m, operationDate);
+        decimal Parse(TotalAmountResponse r) => decimal.Parse(r.Amount.Amount, CultureInfo.InvariantCulture);
+        Parse(await GetTotalAmountAsync()).Should().Be(150m);
+
+        await Client.SetStatedBalanceAsync(wallet.Id, statedDate, 130m); // correction -20
+
+        Parse(await GetTotalAmountAsync()).Should().Be(130m, "the current total includes the correction");
+        Parse(await GetTotalAmountAsync(statedDate)).Should().Be(130m);
+        Parse(await GetTotalAmountAsync(today)).Should().Be(130m);
+        Parse(await GetTotalAmountAsync(statedDate.AddDays(-1))).Should().Be(150m, "before the stated date the correction does not apply");
+        Parse(await GetTotalAmountAsync(operationDate.AddDays(-1))).Should().Be(100m);
+
+        // A later operation is not absorbed: it moves the current total again.
+        await Client.CreateOperationReturningIdAsync(wallet.Id, incomeTypeId, 10m, today.AddDays(-1));
+        Parse(await GetTotalAmountAsync()).Should().Be(140m);
+        Parse(await GetTotalAmountAsync(statedDate)).Should().Be(130m);
+    }
 }

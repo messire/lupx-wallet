@@ -355,4 +355,65 @@ public sealed class BalanceHistoryApiTests(ApiTestFixture fixture) : Integration
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
+
+    // ---- Stated balances (ADR-0003, §6): the snapshot of the stated date is the stated balance ----
+
+    [Fact]
+    public async Task StatedBalance_SnapshotOfTheStatedDateStaysEqualToItAfterEveryEditBeforeIt()
+    {
+        await AuthenticateAsync();
+        var start = Today.AddDays(-20);
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 0m, accountingStartDate: start);
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var statedDate = Today.AddDays(-8);
+        var firstId = await CreateOperationAsync(wallet.Id, incomeTypeId, 500m, Today.AddDays(-15));
+        await Client.SetStatedBalanceAsync(wallet.Id, statedDate, 350m);
+        decimal SnapshotOn(IReadOnlyList<BalanceSnapshotResponse> snapshots, DateOnly date) => Amount(snapshots.Single(s => s.Date == date));
+
+        // A retroactive operation before the stated date, an edit and a deletion: the stated date keeps 350 each time.
+        var secondId = await CreateOperationAsync(wallet.Id, incomeTypeId, 70m, Today.AddDays(-12));
+        var snapshots = await Client.GetSnapshotsAsync(wallet.Id, start, Today);
+        SnapshotOn(snapshots, statedDate).Should().Be(350m);
+        SnapshotOn(snapshots, Today.AddDays(-12)).Should().Be(570m, "the days before the stated one do include the new operation");
+        SnapshotOn(snapshots, Today).Should().Be(350m);
+
+        await Client.PatchAsJsonAsync($"/api/v1/operations/{firstId}", new
+        {
+            WalletId = wallet.Id, OperationTypeId = incomeTypeId, Amount = 800m, OperationDate = Today.AddDays(-15),
+        });
+        snapshots = await Client.GetSnapshotsAsync(wallet.Id, start, Today);
+        SnapshotOn(snapshots, Today.AddDays(-15)).Should().Be(800m);
+        SnapshotOn(snapshots, statedDate).Should().Be(350m);
+
+        (await Client.DeleteAsync($"/api/v1/operations/{secondId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        snapshots = await Client.GetSnapshotsAsync(wallet.Id, start, Today);
+        SnapshotOn(snapshots, Today.AddDays(-12)).Should().Be(800m);
+        SnapshotOn(snapshots, statedDate).Should().Be(350m);
+        SnapshotOn(snapshots, Today).Should().Be(350m);
+        (await Client.GetWalletBalanceOnDateAsync(wallet.Id, statedDate)).Should().Be(350m);
+    }
+
+    [Fact]
+    public async Task StatedBalance_ScheduledSnapshotPass_ChangesNothing()
+    {
+        await AuthenticateAsync();
+        var start = Today.AddDays(-12);
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 0m, accountingStartDate: start);
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        await CreateOperationAsync(wallet.Id, incomeTypeId, 100m, Today.AddDays(-10));
+        await Client.SetStatedBalanceAsync(wallet.Id, Today.AddDays(-5), 250m);
+        await Client.SetStatedBalanceAsync(wallet.Id, Today.AddDays(-2), 240m);
+        var before = (await Client.GetSnapshotsAsync(wallet.Id, start, Today)).ToDictionary(s => s.Date, Amount);
+        await using var connection = await Fixture.OpenConnectionAsync();
+        var auditBefore = await connection.CountAsync("SELECT count(*) FROM audit.audit_entries");
+
+        await Fixture.BackfillSnapshotsAsync(wallet.Id);
+
+        var after = (await Client.GetSnapshotsAsync(wallet.Id, start, Today)).ToDictionary(s => s.Date, Amount);
+        after.Should().BeEquivalentTo(before);
+        after[Today.AddDays(-5)].Should().Be(250m);
+        after[Today.AddDays(-2)].Should().Be(240m);
+        after[Today].Should().Be(240m);
+        (await connection.CountAsync("SELECT count(*) FROM audit.audit_entries")).Should().Be(auditBefore, "an unchanged pass writes no audit entries");
+    }
 }

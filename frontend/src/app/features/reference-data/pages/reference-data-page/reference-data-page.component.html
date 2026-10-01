@@ -9,6 +9,10 @@
     (selectedIdChange)="selectTab($event)"
   />
 
+  @if (successMessage(); as message) {
+    <app-toast class="page-toast" [message]="message" tone="success" (dismissed)="successMessage.set(null)" />
+  }
+
   @if (actionError()) {
     <p class="form-error" role="alert">{{ actionError() }}</p>
   }
@@ -153,22 +157,28 @@
       [attr.aria-labelledby]="tabsRef.tabElementId('currencies')"
       [hidden]="activeTab() !== 'currencies'"
     >
-      @if (availableCurrencies().length === 0) {
+      @if (availableCurrenciesError(); as error) {
+        <app-error-state [message]="error" (retry)="retryAvailableCurrencies()" />
+      } @else if (availableCurrenciesLoading() && availableCurrencies().length === 0) {
+        <app-loading-state label="Загрузка списка доступных валют…">
+          <app-skeleton height="48px" />
+        </app-loading-state>
+      } @else if (availableCurrencies().length === 0) {
         <app-empty-state
           title="Список доступных валют пуст"
           description="Список доступных валют загружается вместе с курсами — нажмите «Обновить сейчас» на экране курсов."
-        />
+        >
+          <a routerLink="/exchange-rates">Перейти к курсам валют</a>
+        </app-empty-state>
       } @else {
         <form class="quick-form" [formGroup]="currencyForm" (ngSubmit)="submitCurrency()">
-          <div class="quick-form__field">
-            <label class="app-field__label" for="currencyQuickAddControl">Добавить в активные</label>
-            <app-currency-select
-              [id]="currencyControlId"
-              [currencies]="addableCurrencies()"
-              emptyListText="Все доступные валюты уже добавлены"
-              formControlName="code"
-            />
-          </div>
+          <app-field
+            label="Добавить в активные"
+            class="quick-form__field"
+            [hint]="addableCurrencies().length === 0 ? allCurrenciesAddedHint : null"
+          >
+            <app-currency-select [currencies]="addableCurrencies()" [emptyListText]="allCurrenciesAddedHint" formControlName="code" />
+          </app-field>
           <app-button
             type="submit"
             variant="primary"
@@ -183,7 +193,14 @@
       }
 
       @if (currencies().length === 0) {
-        <app-empty-state title="Активных валют пока нет" description="Валюта становится активной при создании кошелька или при добавлении из списка выше." />
+        <app-empty-state
+          title="Активных валют пока нет"
+          [description]="
+            availableCurrencies().length === 0
+              ? 'Валюта становится активной при создании кошелька.'
+              : 'Валюта становится активной при создании кошелька или при добавлении из списка выше.'
+          "
+        />
       } @else {
           <table class="app-table ref-table">
             <thead>

@@ -51,7 +51,7 @@ public sealed class WalletType : AggregateRoot<WalletTypeId>
     {
         if (isUsed)
         {
-            throw new ReferenceItemInUseException(nameof(WalletType), Id.Value);
+            throw new ReferenceItemInUseException("Тип кошелька", Id.Value, Name);
         }
     }
 

@@ -72,7 +72,7 @@ public sealed class LupexWalletApiFactory : WebApplicationFactory<Program>
 
     /// <summary>
     /// Единственная точка подмены реального HTTP-вызова к Frankfurter в интеграционных
-    /// тестах (docs/PROGRESS.md, W1.1 DoD) — тот же Singleton-экземпляр, что использует
+    /// тестах (ADR-0004, §1) — тот же Singleton-экземпляр, что использует
     /// именованный HttpClient "Frankfurter" внутри приложения (ExchangeRatesModuleExtensions).
     /// </summary>
     public FrankfurterTestableHandler GetFrankfurterTestableHandler() =>

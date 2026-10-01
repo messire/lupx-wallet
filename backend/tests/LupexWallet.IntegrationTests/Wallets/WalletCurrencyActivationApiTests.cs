@@ -10,9 +10,9 @@ using Xunit;
 namespace LupexWallet.IntegrationTests.Wallets;
 
 /// <summary>
-/// POST /wallets by currencyCode (ADR-0004 §7, PROGRESS R6): a code that is available but not active becomes active in
+/// POST /wallets by currencyCode (ADR-0004 §7): a code that is available but not active becomes active in
 /// the same transaction as the wallet, an active code is reused, an unknown code is a 400, and a rejected wallet rolls the
-/// activation back. After the commit (and only then) the background service is asked for a pass (§9, R13);
+/// activation back. After the commit (and only then) the background service is asked for a pass (ADR-0004 §9);
 /// PUT /wallets/{id}/currency accepts only an active currency.
 /// </summary>
 public sealed class WalletCurrencyActivationApiTests(ApiTestFixture fixture) : IntegrationTestBase(fixture)

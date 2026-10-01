@@ -45,6 +45,10 @@
   border-radius: var(--lw-radius-sm);
   background: var(--lw-glass-strong);
 
+  &__note {
+    margin-left: var(--lw-space-2);
+  }
+
   ul {
     margin: var(--lw-space-2) 0 0;
     padding-left: var(--lw-space-6);

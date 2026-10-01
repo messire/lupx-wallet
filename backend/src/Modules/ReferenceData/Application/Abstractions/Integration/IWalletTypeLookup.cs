@@ -3,11 +3,9 @@ using LupexWallet.SharedKernel;
 namespace LupexWallet.ReferenceData.Application;
 
 /// <summary>
-/// Narrow read-only contract published by ReferenceData for Wallets (W2.5, case d —
-/// top-down direction, like ICurrencyLookup/IOperationTypeLookup, ADR-0001) — resolves
-/// wallet type existence and active status, needed to validate walletTypeId when creating/
-/// updating a Wallet (CreateWalletCommand/UpdateWalletCommand; previously not validated at
-/// all, see docs/PROGRESS.md, "Known simplifications").
+/// Narrow read-only contract published by ReferenceData for Wallets (top-down direction, like
+/// ICurrencyLookup/IOperationTypeLookup, ADR-0001) — resolves wallet type existence and active
+/// status, needed to validate walletTypeId when creating/updating a Wallet.
 /// </summary>
 public interface IWalletTypeLookup
 {

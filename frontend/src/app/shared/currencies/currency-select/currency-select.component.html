@@ -1,29 +1,36 @@
 <div class="currency-select">
   <input
+    #inputElement
     type="text"
     role="combobox"
-    [attr.id]="id()"
+    [attr.id]="field?.controlId() ?? null"
     autocomplete="off"
-    [attr.aria-expanded]="isOpen()"
-    [attr.aria-controls]="isOpen() ? listboxId : null"
+    [attr.aria-expanded]="listVisible()"
+    [attr.aria-controls]="listVisible() ? listboxId : null"
     [attr.aria-label]="ariaLabel()"
+    [attr.aria-describedby]="field?.describedBy() ?? null"
+    [attr.aria-invalid]="field?.invalid() ? 'true' : null"
+    [attr.aria-required]="field?.required() ? 'true' : null"
     [attr.aria-activedescendant]="activeOptionId()"
     aria-autocomplete="list"
     [placeholder]="placeholder()"
     [value]="inputValue()"
     [disabled]="disabled()"
     (focus)="onFocus()"
+    (click)="onClick()"
+    (blur)="onBlur()"
     (input)="onInput($any($event.target).value)"
     (keydown)="onKeydown($event)"
   />
 
-  @if (isOpen()) {
-    <ul class="options" [id]="listboxId" role="listbox" [attr.aria-label]="ariaLabel() ?? 'Валюты'">
-      @if (currencies().length === 0) {
-        <li class="empty" role="presentation">{{ emptyListText() }}</li>
-      } @else if (filteredCurrencies().length === 0) {
-        <li class="empty" role="presentation">Ничего не найдено</li>
-      }
+  @if (listVisible()) {
+    <ul
+      class="options"
+      [id]="listboxId"
+      role="listbox"
+      [attr.aria-label]="ariaLabel() ?? 'Валюты'"
+      (mousedown)="$event.preventDefault()"
+    >
       @for (currency of filteredCurrencies(); track currency.code; let i = $index) {
         <li
           [id]="listboxId + '-option-' + i"
@@ -37,4 +44,7 @@
       }
     </ul>
   }
+
+  <!-- Always in the DOM so that the text appearing in it is announced (a live region inserted together with its text often is not). -->
+  <p class="options empty" aria-live="polite" [hidden]="!emptyMessage()" (mousedown)="$event.preventDefault()">{{ emptyMessage() }}</p>
 </div>

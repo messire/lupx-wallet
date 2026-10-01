@@ -69,6 +69,10 @@ public sealed class DeleteCurrencyCommandHandler(
         var currency = await repository.GetByIdAsync(new CurrencyId(request.Id), cancellationToken)
             ?? throw new KeyNotFoundException($"Currency {request.Id} не найдена.");
 
+        // Wallet creation takes the same lock before using an active currency, so a wallet cannot
+        // appear between the usage check and the removal (ADR-0004 §7).
+        await unitOfWork.LockCurrencyCodeAsync(currency.Code, cancellationToken);
+
         // ADR-0002 §4: use = wallets (archived included) and operations (soft-deleted included)
         // via the two port implementations; exchange rates are not usage — the ExchangeRates
         // CurrencyDeletedHandler removes them in this command's transaction.

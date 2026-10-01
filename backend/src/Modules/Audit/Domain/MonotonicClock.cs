@@ -5,7 +5,7 @@ namespace LupexWallet.Audit.Domain;
 /// GET /audit-entries can use occurred_at as the sole cursor field without duplicates or gaps
 /// between pages. Without this, several AuditEntry records created faster than system clock
 /// resolution (e.g. a cascading balance history recalculation raising many BalanceSnapshotUpdated
-/// events in one command, docs/PROGRESS.md, plan risk #3) would get the same occurred_at, and
+/// events in one command, ADR-0003, ADR-0006 §3) would get the same occurred_at, and
 /// cursor pagination could not unambiguously continue the page. In practice the drift from real
 /// time is a fraction of a microsecond.
 /// </summary>

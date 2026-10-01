@@ -8,15 +8,16 @@ using LupexWallet.SharedKernel;
 using LupexWallet.Wallets.Application;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using Xunit;
 
 namespace LupexWallet.UnitTests.ExchangeRates;
 
 /// <summary>
-/// BackfillExchangeRateHistoryCommandHandler (ADR-0004 §9, PROGRESS R11) on test doubles of the ports:
-/// chunking (at most ChunkDays, left edge from new dates to old, right edge from old to new, 7 days of
-/// margin), per-pair coverage, the meaning of an empty chunk, 422 / Unavailable / concurrent-delete
+/// BackfillExchangeRateHistoryCommandHandler (ADR-0004 §9) on test doubles of the ports:
+/// chunking (at most HistoryChunkDays, left edge from new dates to old, right edge from old to new, 7 days of
+/// margin), per-pair coverage, empty chunks (they never end the left walk), 422 / Unavailable / concurrent-delete
 /// handling, cleanup of stale pairs, the ExchangeRateHistoryLoaded event and the "no primary wallet" exit.
 /// </summary>
 public sealed class BackfillExchangeRateHistoryCommandHandlerTests
@@ -62,7 +63,7 @@ public sealed class BackfillExchangeRateHistoryCommandHandlerTests
 
     private BackfillExchangeRateHistoryCommandHandler CreateHandler(int chunkDays = ExchangeRateHistoryOptions.DefaultChunkDays) => new(
         _history, _coverageRepository, _unitOfWork, _client, _walletCurrencySet, _currencyLookup, _eventDispatcher,
-        new ExchangeRateHistoryOptions(chunkDays), NullLogger<BackfillExchangeRateHistoryCommandHandler>.Instance);
+        Options.Create(new ExchangeRateHistoryOptions { HistoryChunkDays = chunkDays }), NullLogger<BackfillExchangeRateHistoryCommandHandler>.Instance);
 
     private static string CodeOf(CurrencyId id) => id == Eur ? "EUR" : id == Usd ? "USD" : id == Gbp ? "GBP" : "XXX";
 
@@ -275,7 +276,7 @@ public sealed class BackfillExchangeRateHistoryCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_EmptyLeftChunkWithExistingCoverage_ClosesTheLeftBorderAndStops()
+    public async Task Handle_EmptyLeftChunksWithExistingCoverage_WalkToRequiredFromInsteadOfStopping()
     {
         SetWallets(Eur, Today.AddDays(-300)); // required from = today − 307
         Seed(Coverage(Usd, Today.AddDays(-100), Today));
@@ -283,36 +284,56 @@ public sealed class BackfillExchangeRateHistoryCommandHandlerTests
 
         await CreateHandler(chunkDays: 100).Handle(new BackfillExchangeRateHistoryCommand(), CancellationToken.None);
 
-        _client.Requests.Should().ContainSingle("an empty chunk means the service has nothing older: the left border is reached");
-        CoverageOf(Usd).CoveredFrom.Should().Be(Today.AddDays(-307));
-        await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
+        _client.Requests.Should().Equal(
+            new ClientRequest("USD", "EUR", Today.AddDays(-200), Today.AddDays(-101)),
+            new ClientRequest("USD", "EUR", Today.AddDays(-300), Today.AddDays(-201)),
+            new ClientRequest("USD", "EUR", Today.AddDays(-307), Today.AddDays(-301)));
+        CoverageOf(Usd).CoveredFrom.Should().Be(Today.AddDays(-307), "a gap in the data is not the end of the data");
+        await _unitOfWork.Received(3).SaveChangesAsync(Arg.Any<CancellationToken>());
+        _addedRates.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task Handle_LeftChunkThenAnEmptyOne_CoverageReachesRequiredFromAndLaterChunksAreNotRequested()
+    public async Task Handle_DataOnlyInOlderChunks_NewestEmptyChunksStillCreateCoverageAndOlderDataIsLoaded()
+    {
+        SetWallets(Eur, Today.AddDays(-250)); // required from = today − 257, chunks of 100
+        _client.Respond = request => request.To <= Today.AddDays(-100) ? [(request.To, 1.2m)] : [];
+
+        var result = await CreateHandler(chunkDays: 100).Handle(new BackfillExchangeRateHistoryCommand(), CancellationToken.None);
+
+        _client.Requests.Should().HaveCount(3, "the walk goes on to requiredFrom after an empty first chunk");
+        CoverageOf(Usd).CoveredFrom.Should().Be(Today.AddDays(-257));
+        CoverageOf(Usd).CoveredTo.Should().Be(Today, "the first (empty) chunk created the coverage up to today");
+        _addedRates.Select(r => r.RateDate).Should().BeEquivalentTo([Today.AddDays(-100), Today.AddDays(-200)]);
+        result.Loaded.Should().ContainSingle().Which.Should().Be(new HistoryRangeLoaded(Usd, Eur, Today.AddDays(-257), Today.AddDays(-100)));
+    }
+
+    [Fact]
+    public async Task Handle_NewestChunkHasDataThenEmptyOnes_CoverageReachesRequiredFromAndAllChunksAreAsked()
     {
         SetWallets(Eur, Today.AddDays(-250)); // required from = today − 257, chunks of 100
         _client.Respond = request => request.To == Today ? [(Today, 1.2m)] : [];
 
         var result = await CreateHandler(chunkDays: 100).Handle(new BackfillExchangeRateHistoryCommand(), CancellationToken.None);
 
-        _client.Requests.Should().HaveCount(2, "the second chunk was empty — the third is never asked");
-        CoverageOf(Usd).CoveredFrom.Should().Be(Today.AddDays(-257), "an empty chunk means the data starts later: the left border is reached");
+        _client.Requests.Should().HaveCount(3);
+        CoverageOf(Usd).CoveredFrom.Should().Be(Today.AddDays(-257));
         CoverageOf(Usd).CoveredTo.Should().Be(Today);
         result.Loaded.Should().ContainSingle().Which.Should().Be(new HistoryRangeLoaded(Usd, Eur, Today.AddDays(-99), Today));
     }
 
     [Fact]
-    public async Task Handle_FirstChunkEmptyForNewPair_StoresNothingAndCreatesNoCoverage()
+    public async Task Handle_FirstChunkEmptyForNewPair_CreatesCoverageWithoutRatesAndReportsNothingLoaded()
     {
         _client.Respond = _ => [];
 
         var result = await CreateHandler().Handle(new BackfillExchangeRateHistoryCommand(), CancellationToken.None);
 
         _client.Requests.Should().ContainSingle();
-        _coverageStore.Should().BeEmpty("the service has no data for the currency at all; the next pass asks again");
+        CoverageOf(Usd).CoveredFrom.Should().Be(Today.AddDays(-37));
+        CoverageOf(Usd).CoveredTo.Should().Be(Today);
         _addedRates.Should().BeEmpty();
-        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+        await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
         result.Loaded.Should().BeEmpty();
         await _eventDispatcher.DidNotReceiveWithAnyArgs().DispatchAsync(default!, default);
     }

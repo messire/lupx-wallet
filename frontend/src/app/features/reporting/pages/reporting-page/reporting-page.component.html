@@ -59,12 +59,12 @@
       <p class="amount-widget amount-widget--secondary money">
         {{ formatMoney(total.amount, currencyCode(total.amount.currencyId)) }}
       </p>
-      @if (ratesNote(total); as note) {
-        <p class="hint">Курс по состоянию на {{ note }}.</p>
-      }
+      <!-- UC-21: the applied rate date is always shown for a historical total, even when it equals the requested date. -->
+      <p class="hint">Курс по состоянию на {{ total.ratesAsOfDate }}.</p>
       @if (total.excludedWallets.length > 0) {
         <div class="excluded-wallets">
           <app-badge tone="warning">Не учтено кошельков: {{ total.excludedWallets.length }}</app-badge>
+          <span class="hint excluded-wallets__note">Сумма неполная: история курсов ещё загружается, повторите позже</span>
           <ul>
             @for (excluded of total.excludedWallets; track excluded.walletId) {
               <li>{{ walletName(excluded.walletId) }} — {{ excluded.reason }}</li>

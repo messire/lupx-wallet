@@ -21,24 +21,21 @@
 
 .wallet-form-card__title {
   margin: 0 0 var(--lw-space-4);
-  font-size: var(--lw-type-section);
-  font-weight: 500;
-  color: var(--lw-text);
 }
 
-.quick-add {
+.quick-add,
+.form-actions {
   display: flex;
-  /* flex-end выравнивал по нижнему краю app-field (резервирует место под
-     hint/error даже без них), а не по видимому инпуту — кнопка "плавала"
-     ниже поля. Выравнивание по верху + .app-field-align на кнопке. */
-  align-items: flex-start;
   flex-wrap: wrap;
   gap: var(--lw-space-3);
   margin-top: var(--lw-space-2);
 }
 
-app-currency-select {
-  display: block;
+.quick-add {
+  /* flex-end выравнивал по нижнему краю app-field (резервирует место под
+     hint/error даже без них), а не по видимому инпуту — кнопка "плавала"
+     ниже поля. Выравнивание по верху + .app-field-align на кнопке. */
+  align-items: flex-start;
 }
 
 .quick-add__field {
@@ -78,13 +75,6 @@ app-currency-select {
   &[open] > summary {
     margin-bottom: var(--lw-space-2);
   }
-}
-
-.form-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--lw-space-3);
-  margin-top: var(--lw-space-2);
 }
 
 .wallets-grid {
@@ -128,16 +118,26 @@ app-currency-select {
   min-width: 0;
 }
 
-.wallet-card__name {
+.wallet-card__name,
+.wallet-card__balance {
   margin: 0;
-  font-size: var(--lw-type-section);
-  font-weight: 500;
   color: var(--lw-text);
   overflow-wrap: anywhere;
 }
 
+.wallet-card__name,
+.wallet-form-card__title {
+  font-size: var(--lw-type-section);
+  font-weight: 500;
+  color: var(--lw-text);
+}
+
+.wallet-card__menu,
 .wallet-card__selected-flag {
   flex: none;
+}
+
+.wallet-card__selected-flag {
   font-size: var(--lw-type-badge);
   font-weight: 500;
   color: var(--lw-accent);
@@ -146,10 +146,6 @@ app-currency-select {
 /* Card actions (ui-kit §5 "Карточка кошелька") collapsed under "···" in the
    card's top-right corner (docs/design/wallets.html .wallet-menu) instead of
    six always-visible buttons competing with the balance for space. */
-.wallet-card__menu {
-  flex: none;
-}
-
 .wallet-card__menu-trigger {
   display: inline-flex;
   align-items: center;
@@ -166,17 +162,9 @@ app-currency-select {
   cursor: pointer;
   transition: background var(--lw-motion-fast) ease-out;
 
-  &:hover {
-    background: var(--lw-accent-soft);
-  }
-
   &:focus-visible {
     outline: 2px solid var(--lw-accent);
     outline-offset: 2px;
-  }
-
-  &[aria-expanded='true'] {
-    background: var(--lw-accent-soft);
   }
 }
 
@@ -218,14 +206,16 @@ app-currency-select {
   text-decoration: none;
   cursor: pointer;
 
-  &:hover {
-    background: var(--lw-accent-soft);
-  }
-
   &:focus-visible {
     outline: 2px solid var(--lw-accent);
     outline-offset: -2px;
   }
+}
+
+.wallet-card__menu-trigger:hover,
+.wallet-card__menu-trigger[aria-expanded='true'],
+.wallet-card__menu-item:hover {
+  background: var(--lw-accent-soft);
 }
 
 .wallet-card__menu-item--danger {
@@ -247,13 +237,10 @@ app-currency-select {
    место в приложении с этой ролью текста; заголовки карточек/секций — другая
    роль, --lw-type-section, 22px, и её не путать с балансом). */
 .wallet-card__balance {
-  margin: 0;
   font-size: var(--lw-type-display);
   line-height: 48px;
   font-weight: 400;
-  color: var(--lw-text);
   font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
 }
 
 /* Длинные суммы в узкой карточке адаптивно уменьшаются вместо переполнения —

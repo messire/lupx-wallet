@@ -27,8 +27,17 @@ public sealed class ReferenceDataUnitOfWork(ReferenceDataDbContext dbContext) : 
 
     public async Task LockCurrencyCodeAsync(string code, CancellationToken cancellationToken)
     {
-        var lockKey = "currency:" + code.Trim().ToUpperInvariant();
+        var lockKey = LockKey(code);
         await dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"SELECT pg_advisory_xact_lock(hashtext({lockKey}))", cancellationToken);
     }
+
+    public async Task LockCurrencyCodeSharedAsync(string code, CancellationToken cancellationToken)
+    {
+        var lockKey = LockKey(code);
+        await dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock_shared(hashtext({lockKey}))", cancellationToken);
+    }
+
+    private static string LockKey(string code) => "currency:" + code.Trim().ToUpperInvariant();
 }

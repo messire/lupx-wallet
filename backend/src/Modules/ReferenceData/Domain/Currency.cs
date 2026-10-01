@@ -68,7 +68,7 @@ public sealed class Currency : AggregateRoot<CurrencyId>
     {
         if (isUsed)
         {
-            throw new CurrencyInUseException(Id.Value);
+            throw new CurrencyInUseException(Id.Value, Code);
         }
     }
 

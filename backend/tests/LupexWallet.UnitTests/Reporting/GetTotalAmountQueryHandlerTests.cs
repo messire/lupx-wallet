@@ -1,6 +1,7 @@
 using FluentAssertions;
 using LupexWallet.BalanceHistory.Application;
 using LupexWallet.ExchangeRates.Application;
+using LupexWallet.ReferenceData.Application;
 using LupexWallet.Reporting.Application;
 using LupexWallet.SharedKernel;
 using LupexWallet.Wallets.Application;
@@ -10,9 +11,8 @@ using Xunit;
 namespace LupexWallet.UnitTests.Reporting;
 
 /// <summary>
-/// GetTotalAmountQueryHandler на моках портов (без БД/HTTP) — риск №6 (docs/PROGRESS.md,
-/// П.5.1): кошелек без курса исключается из суммы с явной причиной, это основной путь,
-/// не 409 и не курс 1:1.
+/// GetTotalAmountQueryHandler на моках портов (без БД/HTTP): кошелек без курса исключается
+/// из суммы с явной причиной (ADR-0004 §9), это основной путь, не 409 и не курс 1:1.
 /// </summary>
 public sealed class GetTotalAmountQueryHandlerTests
 {
@@ -25,7 +25,14 @@ public sealed class GetTotalAmountQueryHandlerTests
     private readonly IWalletBalanceOnDateLookup _balanceOnDateLookup = Substitute.For<IWalletBalanceOnDateLookup>();
     private readonly IExchangeRateLookup _exchangeRateLookup = Substitute.For<IExchangeRateLookup>();
 
-    private GetTotalAmountQueryHandler CreateHandler() => new(_walletTotalsSource, _balanceOnDateLookup, _exchangeRateLookup);
+    private readonly ICurrencyLookup _currencyLookup = Substitute.For<ICurrencyLookup>();
+
+    public GetTotalAmountQueryHandlerTests()
+    {
+        _currencyLookup.GetAsync(Secondary, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(Secondary, "USD"));
+    }
+
+    private GetTotalAmountQueryHandler CreateHandler() => new(_walletTotalsSource, _balanceOnDateLookup, _exchangeRateLookup, _currencyLookup);
 
     private void SetupWallets(decimal primaryBalance, decimal secondaryBalance, bool secondaryIncludedInTotal = true) =>
         _walletTotalsSource.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<WalletTotalInfo>
@@ -78,7 +85,33 @@ public sealed class GetTotalAmountQueryHandlerTests
         var result = await CreateHandler().Handle(new GetTotalAmountQuery(Date: null), CancellationToken.None);
 
         result!.Amount.Should().Be(100m, "кошелек без курса исключается из суммы (решение по риску №6), а не блокирует ответ 409 и не считается по курсу 1:1");
-        result.ExcludedWallets.Should().ContainSingle(w => w.WalletId == SecondaryWalletId.Value && !string.IsNullOrWhiteSpace(w.Reason));
+        result.ExcludedWallets.Should().ContainSingle(w => w.WalletId == SecondaryWalletId.Value && w.Reason == "Курс валюты USD недоступен.");
+    }
+
+    [Fact]
+    public async Task Handle_HistoricalDateWithoutRate_ExcludesWalletWithCurrencyCodeAndDateInReason()
+    {
+        var date = new DateOnly(2026, 1, 1);
+        SetupWallets(primaryBalance: 0m, secondaryBalance: 0m);
+        _balanceOnDateLookup.GetBalanceOnDateAsync(Arg.Any<WalletId>(), date, Arg.Any<CancellationToken>()).Returns(10m);
+        _exchangeRateLookup.GetHistoricalRateAsync(Secondary, Primary, date, Arg.Any<CancellationToken>())
+            .Returns(((decimal Rate, DateOnly RatesAsOfDate)?)null);
+
+        var result = await CreateHandler().Handle(new GetTotalAmountQuery(date), CancellationToken.None);
+
+        result!.ExcludedWallets.Should().ContainSingle().Which.Reason.Should().Be("Курс валюты USD на дату 2026-01-01 недоступен.");
+    }
+
+    [Fact]
+    public async Task Handle_CurrencyCodeNotResolved_ReasonFallsBackToTheCurrencyId()
+    {
+        SetupWallets(primaryBalance: 100m, secondaryBalance: 30m);
+        _currencyLookup.GetAsync(Secondary, Arg.Any<CancellationToken>()).Returns((CurrencyLookupResult?)null);
+        _exchangeRateLookup.GetRateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns((decimal?)null);
+
+        var result = await CreateHandler().Handle(new GetTotalAmountQuery(Date: null), CancellationToken.None);
+
+        result!.ExcludedWallets.Should().ContainSingle().Which.Reason.Should().Be($"Курс валюты {Secondary.Value} недоступен.");
     }
 
     [Fact]

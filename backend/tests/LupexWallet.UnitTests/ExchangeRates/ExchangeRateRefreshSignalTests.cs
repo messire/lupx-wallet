@@ -6,7 +6,7 @@ using Xunit;
 namespace LupexWallet.UnitTests.ExchangeRates;
 
 /// <summary>
-/// ExchangeRateRefreshSignal (ADR-0001 §7, PROGRESS R13): event subscribers run inside the publisher's
+/// ExchangeRateRefreshSignal (ADR-0001 §7): event subscribers run inside the publisher's
 /// TransactionScope, so inside a transaction the "refresh requested" signal is written to the channel
 /// only after the commit and never on a rollback; without a transaction it is written at once.
 /// </summary>

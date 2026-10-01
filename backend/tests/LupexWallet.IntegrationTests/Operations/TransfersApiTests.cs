@@ -121,8 +121,8 @@ public sealed class TransfersApiTests(ApiTestFixture fixture) : IntegrationTestB
         var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
 
         // Прямое редактирование операции — части перевода — через /operations должно быть отклонено
-        // (ddd-model.md §5: "редактируется/удаляется только как часть Transfer целиком"). W2.6:
-        // унифицировано с DELETE /operations/{id} — оба возвращают 409 (явный catch
+        // (ddd-model.md §5: "редактируется/удаляется только как часть Transfer целиком"). Как и
+        // DELETE /operations/{id}, возвращает 409 (явный catch
         // OperationPartOfTransferException в обоих эндпоинтах, docs/api/openapi.yaml).
         var updateResponse = await Client.PatchAsJsonAsync($"/api/v1/operations/{transfer.SourceOperationId}", new
         {

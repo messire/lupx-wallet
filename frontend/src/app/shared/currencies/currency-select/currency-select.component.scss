@@ -1,6 +1,9 @@
+:host {
+  display: block;
+}
+
 .currency-select {
   position: relative;
-  display: inline-block;
   width: 100%;
 }
 
@@ -70,10 +73,11 @@ input {
       background: var(--lw-accent-soft);
       color: var(--lw-accent);
     }
+  }
 
-    &.empty {
-      color: var(--lw-text-muted);
-      cursor: default;
-    }
+  &.empty {
+    padding: var(--lw-space-2) var(--lw-space-4);
+    color: var(--lw-text-muted);
+    font-size: var(--lw-type-small);
   }
 }

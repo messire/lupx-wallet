@@ -12,7 +12,7 @@ using Xunit;
 namespace LupexWallet.UnitTests.ExchangeRates;
 
 /// <summary>
-/// ExchangeRateLookup (ADR-0004 §8, PROGRESS R15) reads the database only: no rate service, no writes.
+/// ExchangeRateLookup (ADR-0004 §8) reads the database only: no rate service, no writes.
 /// The class has no IFrankfurterClient dependency at all (checked by the constructor shape below).
 /// </summary>
 public sealed class ExchangeRateLookupTests

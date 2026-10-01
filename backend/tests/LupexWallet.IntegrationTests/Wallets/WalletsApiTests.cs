@@ -36,7 +36,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
         second.IsPrimary.Should().BeFalse();
     }
 
-    // ---- W2.5, случай d: валидация walletTypeId/currencyCode ----
+    // ---- walletTypeId/currencyCode validation ----
 
     [Fact]
     public async Task CreateWallet_UnknownWalletTypeId_ReturnsBadRequest()

@@ -26,8 +26,8 @@ public sealed record FrankfurterRatesRequest(string Base, string Quote, DateOnly
 /// <summary>
 /// Stand-in for the Frankfurter v2 service, installed as <see cref="FrankfurterTestableHandler.TestOverride"/>
 /// (no network). Routes by path: <c>currencies</c> → the configured catalog; <c>rates</c> with
-/// <c>from</c>/<c>to</c> → a daily series without weekends (like the ECB-based history), <c>rates</c>
-/// without a period → the latest rate (the last weekday not after today). Counts calls and can fail
+/// <c>from</c>/<c>to</c> → a daily series (without weekends unless <see cref="IncludeWeekends"/>), <c>rates</c>
+/// without a period → the latest rate (the last served day not after today). Counts calls and can fail
 /// per endpoint or per source currency. Creating an instance replaces the override and starts from
 /// the defaults, so every test gets a clean fake (the handler is a singleton for the whole run).
 /// </summary>
@@ -48,6 +48,7 @@ public sealed class FrankfurterFake
     private readonly List<FrankfurterRatesRequest> _ratesRequests = [];
     private readonly Dictionary<(string Base, string Quote), decimal> _pairRates = [];
     private readonly Dictionary<string, DateOnly> _dataStart = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DateOnly> _dataEnd = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, FrankfurterFakeFailure> _ratesFailureByBase = new(StringComparer.OrdinalIgnoreCase);
     private List<(string Code, string Name)> _catalog = [.. DefaultCatalog];
     private int _currenciesCalls;
@@ -66,6 +67,12 @@ public sealed class FrankfurterFake
     /// day (e.g. to see which day an upsert or a "closest earlier" lookup picked).
     /// </summary>
     public Func<string, string, DateOnly, decimal>? RateForDate { get; set; }
+
+    /// <summary>
+    /// Serve Saturdays and Sundays too (recent live data does); off by default, which mimics the older
+    /// ECB-only series.
+    /// </summary>
+    public bool IncludeWeekends { get; set; }
 
     /// <summary>Failure mode of <c>GET currencies</c>.</summary>
     public FrankfurterFakeFailure CurrenciesFailure { get; set; }
@@ -120,6 +127,15 @@ public sealed class FrankfurterFake
         lock (_gate)
         {
             _dataStart[baseCode] = firstDate;
+        }
+    }
+
+    /// <summary>The service has no data for <paramref name="baseCode"/> after <paramref name="lastDate"/> (a currency that ceased to exist).</summary>
+    public void SetDataEnd(string baseCode, DateOnly lastDate)
+    {
+        lock (_gate)
+        {
+            _dataEnd[baseCode] = lastDate;
         }
     }
 
@@ -189,12 +205,13 @@ public sealed class FrankfurterFake
         }
 
         var dataStart = _dataStart.TryGetValue(baseCode, out var start) ? start : DateOnly.MinValue;
+        var dataEnd = _dataEnd.TryGetValue(baseCode, out var end) && end < Today ? end : Today;
         var elements = new List<string>();
         if (from is { } periodFrom && to is { } periodTo)
         {
-            for (var date = periodFrom < dataStart ? dataStart : periodFrom; date <= periodTo && date <= Today; date = date.AddDays(1))
+            for (var date = periodFrom < dataStart ? dataStart : periodFrom; date <= periodTo && date <= dataEnd; date = date.AddDays(1))
             {
-                if (IsWeekend(date))
+                if (IsSkipped(date))
                 {
                     continue;
                 }
@@ -204,14 +221,14 @@ public sealed class FrankfurterFake
         }
         else
         {
-            // The latest rate: the last weekday not after today (never before the data start).
+            // The latest rate: the last served day not after today, if it lies within the data.
             var date = Today;
-            while (IsWeekend(date))
+            while (IsSkipped(date))
             {
                 date = date.AddDays(-1);
             }
 
-            if (date >= dataStart)
+            if (date >= dataStart && date <= dataEnd)
             {
                 elements.Add(Element(date, baseCode, quote));
             }
@@ -228,6 +245,8 @@ public sealed class FrankfurterFake
     }
 
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
+
+    private bool IsSkipped(DateOnly date) => !IncludeWeekends && IsWeekend(date);
 
     private static bool IsWeekend(DateOnly date) => date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
 

@@ -27,6 +27,13 @@ public sealed class CurrencyActivationPolicy(ICurrencyRepository currencies, IAv
             ?? throw new CurrencyNotAvailableException(normalized);
     }
 
+    /// <summary>The active currency with this code, or <c>null</c>; does not activate anything.</summary>
+    public async Task<Currency?> FindActiveAsync(string? code, CancellationToken cancellationToken)
+    {
+        var normalized = Normalize(code);
+        return normalized is null ? null : await currencies.GetByCodeAsync(normalized, cancellationToken);
+    }
+
     /// <summary>
     /// The active currency with this code; activated from the available list if needed.
     /// <c>null</c> if the code is neither active nor available. An active currency that the

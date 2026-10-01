@@ -1,5 +1,6 @@
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { environment } from '../../../../../environments/environment';
 import { OperationBehaviorKind } from '../../../../data-access/reference-data/reference-data-api.models';
 import { ReferenceDataComponent } from './reference-data-page.component';
@@ -49,6 +50,7 @@ describe('ReferenceDataComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [ReferenceDataComponent, HttpClientTestingModule],
+      providers: [provideRouter([])],
     }).compileComponents();
 
     httpMock = TestBed.inject(HttpTestingController);
@@ -297,14 +299,15 @@ describe('ReferenceDataComponent', () => {
     it('the add combobox is labelled "Добавить в активные" for assistive technology', () => {
       const fixture = createComponent();
       const root = fixture.nativeElement as HTMLElement;
-      const label = root.querySelector('label[for="currencyQuickAddControl"]');
       const combobox = root.querySelector('app-currency-select input') as HTMLInputElement;
+      const label = root.querySelector(`label[for="${combobox.id}"]`);
 
+      // The id comes from the surrounding app-field (no manual id), and the label targets it.
       expect(label?.textContent?.trim()).toBe('Добавить в активные');
-      expect(combobox.id).toBe('currencyQuickAddControl');
+      expect(combobox.id).toBeTruthy();
       // The id must be unique: a duplicate on the <app-currency-select> host would capture the label
       // (it points at the first element with that id) and leave the combobox without an accessible name.
-      expect(root.querySelectorAll('#currencyQuickAddControl').length).toBe(1);
+      expect(root.querySelectorAll(`#${combobox.id}`).length).toBe(1);
       expect(root.querySelector('app-currency-select')!.hasAttribute('id')).toBe(false);
     });
 
@@ -318,8 +321,29 @@ describe('ReferenceDataComponent', () => {
 
       expect(fixture.componentInstance.addableCurrencies()).toEqual([]);
       expect(root.querySelector('app-currency-select')).not.toBeNull();
-      expect(root.querySelector('app-currency-select [role="listbox"]')?.textContent).toContain('Все доступные валюты уже добавлены');
+      expect(root.querySelector('app-currency-select [aria-live="polite"]')?.textContent).toContain('Все доступные валюты уже добавлены');
       expect(root.textContent).not.toContain('Список доступных валют пуст');
+    });
+
+    it('shows "Все доступные валюты уже добавлены" as a permanent hint under the field, linked to the combobox, not only in the popup', () => {
+      const fixture = createComponent([
+        { code: 'EUR', name: 'Euro', isActive: true },
+        { code: 'USD', name: 'US Dollar', isActive: true },
+      ]);
+      const root = fixture.nativeElement as HTMLElement;
+      const combobox = root.querySelector('app-currency-select input') as HTMLInputElement;
+      const hint = root.querySelector('app-field .app-field__hint') as HTMLElement;
+
+      // Popup is closed: the hint is still there.
+      expect(hint.textContent?.trim()).toBe('Все доступные валюты уже добавлены');
+      expect(combobox.getAttribute('aria-describedby')).toBe(hint.id);
+    });
+
+    it('has no hint while there is something to add', () => {
+      const fixture = createComponent();
+      const root = fixture.nativeElement as HTMLElement;
+
+      expect(root.querySelector('app-field .app-field__hint')).toBeNull();
     });
 
     it('with an empty available list shows the hint and no add form, but still lists the active currencies', () => {
@@ -329,6 +353,31 @@ describe('ReferenceDataComponent', () => {
       expect(root.querySelector('app-currency-select')).toBeNull();
       expect(root.textContent).toContain('Список доступных валют пуст');
       expect(currencyTableCodes(fixture)).toEqual(['USD']);
+    });
+
+    it('the empty available-list state links to the exchange-rates screen', () => {
+      const fixture = createComponent([]);
+      const link = (fixture.nativeElement as HTMLElement).querySelector('app-empty-state a') as HTMLAnchorElement;
+
+      expect(link.getAttribute('href')).toBe('/exchange-rates');
+      expect(link.textContent?.trim()).toBe('Перейти к курсам валют');
+    });
+
+    it('does not mention "the list above" in the empty active-currencies text when there is no list above', () => {
+      const emptyActive = (available: unknown[]) => {
+        const fixture = TestBed.createComponent(ReferenceDataComponent);
+        fixture.detectChanges();
+        httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/wallet-types`).flush(emptyPage);
+        httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/operation-types`).flush(emptyPage);
+        httpMock.expectOne(currencyListUrl).flush(emptyPage);
+        httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush(available);
+        httpMock.expectOne(`${environment.apiBaseUrl}/operation-behavior-kinds`).flush(behaviorKinds);
+        fixture.detectChanges();
+        return (fixture.nativeElement as HTMLElement).textContent ?? '';
+      };
+
+      expect(emptyActive([])).not.toContain('из списка выше');
+      expect(emptyActive(availableCurrencies)).toContain('из списка выше');
     });
 
     it('the Добавить button is disabled until a currency is picked; a pick from the list is sent as code only', () => {
@@ -409,11 +458,57 @@ describe('ReferenceDataComponent', () => {
       httpMock.expectOne(`${environment.apiBaseUrl}/currencies`).flush({ id: 'c-2', code: 'EUR', name: 'Euro' }, { status: 201, statusText: 'Created' });
 
       httpMock.expectOne(currencyListUrl).flush('boom', { status: 500, statusText: 'Server Error' });
-      // forkJoin cancels the sibling request on the first error.
-      httpMock.match(`${environment.apiBaseUrl}/currencies/available`);
+      // The available list is an independent stream and still completes.
+      httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush(availableCurrencies);
 
       expect(component.actionError()).toBe('Не удалось обновить список валют.');
       expect(component.currencies().length).toBe(1);
+    });
+
+    it('a successful add shows a toast that rates and history load in the background', () => {
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+      component.currencyForm.patchValue({ code: 'EUR' });
+      component.submitCurrency();
+      httpMock.expectOne(`${environment.apiBaseUrl}/currencies`).flush({ id: 'c-2', code: 'EUR', name: 'Euro' }, { status: 201, statusText: 'Created' });
+      flushReload([{ id: 'c-2', code: 'EUR', name: 'Euro' }], availableCurrencies);
+      fixture.detectChanges();
+
+      const toast = (fixture.nativeElement as HTMLElement).querySelector('app-toast');
+      expect(toast?.textContent).toContain('Валюта добавлена; курсы и история загружаются в фоне');
+    });
+
+    it('shows no success toast when the add fails', () => {
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+      component.currencyForm.patchValue({ code: 'EUR' });
+      component.submitCurrency();
+      httpMock.expectOne(`${environment.apiBaseUrl}/currencies`).flush('boom', { status: 500, statusText: 'Server Error' });
+      fixture.detectChanges();
+
+      expect(component.successMessage()).toBeNull();
+      expect((fixture.nativeElement as HTMLElement).querySelector('app-toast')).toBeNull();
+    });
+
+    it('a 409 on add re-reads both lists (they were stale) and clears the now-invalid chosen code', () => {
+      const fixture = createComponent();
+      const component = fixture.componentInstance;
+      component.currencyForm.patchValue({ code: 'EUR' });
+      component.submitCurrency();
+
+      httpMock.expectOne(`${environment.apiBaseUrl}/currencies`).flush(null, { status: 409, statusText: 'Conflict' });
+      flushReload(
+        [
+          { id: 'c-1', code: 'USD', name: 'US Dollar' },
+          { id: 'c-2', code: 'EUR', name: 'Euro' },
+        ],
+        availableCurrencies.map((currency) => ({ ...currency, isActive: true })),
+      );
+
+      expect(component.actionError()).toBe('Валюта уже добавлена в активные.');
+      expect(component.currencies().length).toBe(2);
+      expect(component.addableCurrencies()).toEqual([]);
+      expect(component.currencyForm.getRawValue().code).toBe('');
     });
 
     it('409 on add without a server message falls back to "already added"', () => {
@@ -423,6 +518,7 @@ describe('ReferenceDataComponent', () => {
       component.submitCurrency();
 
       httpMock.expectOne(`${environment.apiBaseUrl}/currencies`).flush(null, { status: 409, statusText: 'Conflict' });
+      flushReload([{ id: 'c-1', code: 'USD', name: 'US Dollar' }], availableCurrencies);
 
       expect(component.actionError()).toBe('Валюта уже добавлена в активные.');
       expect(component.isSubmittingCurrency()).toBe(false);
@@ -611,12 +707,114 @@ describe('ReferenceDataComponent', () => {
       const fixture = TestBed.createComponent(ReferenceDataComponent);
       fixture.detectChanges();
 
-      httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush('boom', { status: 500, statusText: 'Server Error' });
+      httpMock.expectOne(currencyListUrl).flush('boom', { status: 500, statusText: 'Server Error' });
       httpMock.match(() => true);
       fixture.detectChanges();
 
       expect(fixture.componentInstance.loadError()).toBe('Не удалось загрузить справочники.');
       expect((fixture.nativeElement as HTMLElement).querySelector('app-error-state')).not.toBeNull();
+    });
+
+    describe('the available-currencies list is its own stream', () => {
+      function createWithAvailableFailure() {
+        const fixture = TestBed.createComponent(ReferenceDataComponent);
+        fixture.detectChanges();
+        httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/wallet-types`).flush({
+          data: [{ id: 'wt-1', name: 'Наличные', isActive: true }],
+          pagination: { nextCursor: null, hasMore: false },
+        });
+        httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/operation-types`).flush(emptyPage);
+        httpMock.expectOne(currencyListUrl).flush({
+          data: [{ id: 'c-1', code: 'USD', name: 'US Dollar' }],
+          pagination: { nextCursor: null, hasMore: false },
+        });
+        httpMock.expectOne(`${environment.apiBaseUrl}/operation-behavior-kinds`).flush(behaviorKinds);
+        httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush('boom', { status: 500, statusText: 'Server Error' });
+        fixture.detectChanges();
+        return fixture;
+      }
+
+      it('a failure of /currencies/available does not block the other tabs or the active-currencies table', () => {
+        const fixture = createWithAvailableFailure();
+        const root = fixture.nativeElement as HTMLElement;
+
+        expect(fixture.componentInstance.loadError()).toBeNull();
+        expect(fixture.componentInstance.isLoading()).toBe(false);
+        expect(root.textContent).toContain('Наличные');
+        expect(currencyTableCodes(fixture)).toEqual(['USD']);
+      });
+
+      it('shows its own error with a retry inside the currencies tab, instead of the add form', () => {
+        const fixture = createWithAvailableFailure();
+        const root = fixture.nativeElement as HTMLElement;
+        const errorState = root.querySelector('[role="tabpanel"]:last-of-type app-error-state') as HTMLElement;
+
+        expect(fixture.componentInstance.availableCurrenciesError()).toBe('Не удалось загрузить список доступных валют.');
+        expect(errorState.textContent).toContain('Не удалось загрузить список доступных валют.');
+        expect(root.querySelector('app-currency-select')).toBeNull();
+        expect(root.textContent).not.toContain('Список доступных валют пуст');
+      });
+
+      it('the retry re-requests only /currencies/available, shows a loading state and moves focus to the tab panel', () => {
+        const fixture = createWithAvailableFailure();
+        const root = fixture.nativeElement as HTMLElement;
+        document.body.appendChild(root);
+        const retry = root.querySelector('[role="tabpanel"]:last-of-type app-error-state button') as HTMLButtonElement;
+        retry.focus();
+
+        retry.click();
+        fixture.detectChanges();
+
+        const panel = root.querySelector('[role="tabpanel"]:last-of-type') as HTMLElement;
+        expect(document.activeElement).toBe(panel);
+        expect(panel.querySelector('app-loading-state')).not.toBeNull();
+        httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush(availableCurrencies);
+        fixture.detectChanges();
+
+        expect(fixture.componentInstance.availableCurrenciesError()).toBeNull();
+        expect(root.querySelector('app-currency-select')).not.toBeNull();
+        root.remove();
+      });
+    });
+
+    it('after a confirmed removal focus moves to the "Валюты" tab, not to the body', () => {
+      const fixture = createComponent();
+      const root = fixture.nativeElement as HTMLElement;
+      const component = fixture.componentInstance;
+      document.body.appendChild(root);
+      const removeButton = Array.from(root.querySelectorAll('table.ref-table button')).find(
+        (b) => b.textContent?.trim() === 'Убрать из активных',
+      ) as HTMLButtonElement;
+      removeButton.focus();
+
+      component.requestCurrencyRemoval({ id: 'c-1', code: 'USD', name: 'US Dollar' });
+      component.confirmCurrencyRemoval();
+      httpMock.expectOne(`${environment.apiBaseUrl}/currencies/c-1`).flush(null, { status: 204, statusText: 'No Content' });
+      flushReload([], availableCurrencies.map((currency) => ({ ...currency, isActive: false })));
+      fixture.detectChanges();
+
+      const tab = root.querySelector('[role="tab"]:last-of-type') as HTMLElement;
+      expect(tab.textContent?.trim()).toBe('Валюты');
+      expect(document.activeElement).toBe(tab);
+      root.remove();
+    });
+
+    it('does not move focus when the removal fails (the row and its button are still there)', () => {
+      const fixture = createComponent();
+      const root = fixture.nativeElement as HTMLElement;
+      document.body.appendChild(root);
+      const removeButton = Array.from(root.querySelectorAll('table.ref-table button')).find(
+        (b) => b.textContent?.trim() === 'Убрать из активных',
+      ) as HTMLButtonElement;
+      removeButton.focus();
+
+      fixture.componentInstance.requestCurrencyRemoval({ id: 'c-1', code: 'USD', name: 'US Dollar' });
+      fixture.componentInstance.confirmCurrencyRemoval();
+      httpMock.expectOne(`${environment.apiBaseUrl}/currencies/c-1`).flush(null, { status: 409, statusText: 'Conflict' });
+      fixture.detectChanges();
+
+      expect(document.activeElement).toBe(removeButton);
+      root.remove();
     });
   });
 });

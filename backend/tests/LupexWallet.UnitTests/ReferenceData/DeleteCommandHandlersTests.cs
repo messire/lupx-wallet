@@ -8,7 +8,7 @@ using Xunit;
 namespace LupexWallet.UnitTests.ReferenceData;
 
 /// <summary>
-/// W2.5, §4 (ADR-0002) — Delete{WalletType|OperationType|Currency}CommandHandler
+/// ADR-0002 §4 — Delete{WalletType|OperationType|Currency}CommandHandler
 /// агрегируют IEnumerable&lt;IReferenceItemUsageProbe&gt; вместо захардкоженного isUsed:
 /// false. Точечная маршрутизация (NotFound/isUsed/успех) — сами доменные инварианты
 /// (EnsureCanBeDeleted) уже покрыты WalletTypeTests/OperationTypeTests/CurrencyTests.
@@ -115,6 +115,59 @@ public sealed class DeleteCommandHandlersTests
         var act = () => handler.Handle(new DeleteCurrencyCommand(currency.Id.Value), CancellationToken.None);
 
         await act.Should().ThrowAsync<ReferenceItemInUseException>();
+    }
+
+    [Fact]
+    public async Task DeleteCurrency_TakesTheCodeLockBeforeTheUsageCheck()
+    {
+        var currency = Currency.Create(CurrencyId.New(), "USD", "Доллар США");
+        var repository = Substitute.For<ICurrencyRepository>();
+        repository.GetByIdAsync(Arg.Any<CurrencyId>(), Arg.Any<CancellationToken>()).Returns(currency);
+        var unitOfWork = Substitute.For<IReferenceDataUnitOfWork>();
+        var probe = Substitute.For<IReferenceItemUsageProbe>();
+        probe.IsUsedAsync(Arg.Any<ReferenceItemKind>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(false);
+        var handler = new DeleteCurrencyCommandHandler(repository, unitOfWork, new[] { probe });
+
+        await handler.Handle(new DeleteCurrencyCommand(currency.Id.Value), CancellationToken.None);
+
+        Received.InOrder(() =>
+        {
+            unitOfWork.LockCurrencyCodeAsync("USD", Arg.Any<CancellationToken>());
+            probe.IsUsedAsync(ReferenceItemKind.Currency, currency.Id.Value, Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Fact]
+    public async Task DeleteCurrency_Used_MessageNamesTheCodeAndHasNoIdentifiers()
+    {
+        var currency = Currency.Create(CurrencyId.New(), "USD", "Доллар США");
+        var repository = Substitute.For<ICurrencyRepository>();
+        repository.GetByIdAsync(Arg.Any<CurrencyId>(), Arg.Any<CancellationToken>()).Returns(currency);
+        var handler = new DeleteCurrencyCommandHandler(
+            repository, Substitute.For<IReferenceDataUnitOfWork>(), Probes(true));
+
+        var act = () => handler.Handle(new DeleteCurrencyCommand(currency.Id.Value), CancellationToken.None);
+
+        var exception = (await act.Should().ThrowAsync<CurrencyInUseException>()).Which;
+        exception.Message.Should().Be("Валюта USD используется кошельком или операцией (включая удалённые) — убрать её из активных нельзя.");
+        exception.Message.Should().NotContain(currency.Id.Value.ToString());
+        exception.ItemId.Should().Be(currency.Id.Value);
+    }
+
+    [Fact]
+    public async Task DeleteWalletType_Used_MessageNamesTheTypeAndHasNoIdentifiers()
+    {
+        var walletType = WalletType.Create(WalletTypeId.New(), "Наличные");
+        var repository = Substitute.For<IWalletTypeRepository>();
+        repository.GetByIdAsync(Arg.Any<WalletTypeId>(), Arg.Any<CancellationToken>()).Returns(walletType);
+        var handler = new DeleteWalletTypeCommandHandler(
+            repository, Substitute.For<IReferenceDataUnitOfWork>(), Probes(true));
+
+        var act = () => handler.Handle(new DeleteWalletTypeCommand(walletType.Id.Value), CancellationToken.None);
+
+        var exception = (await act.Should().ThrowAsync<ReferenceItemInUseException>()).Which;
+        exception.Message.Should().Be("Тип кошелька «Наличные» уже используется — удаление невозможно, используйте деактивацию.");
+        exception.ItemId.Should().Be(walletType.Id.Value);
     }
 
     [Fact]

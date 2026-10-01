@@ -116,13 +116,14 @@ public sealed class AvailableCurrenciesApiTests(ApiTestFixture fixture) : Integr
         var response = await Client.PostAsJsonAsync("/api/v1/currencies", new { Code = "EUR" });
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Валюта EUR уже добавлена в активные.");
         (await GetActiveCodesAsync()).Should().Equal("EUR");
     }
 
     [Fact]
     public async Task PostCurrency_SixParallelRequestsForOneCode_OneCreatedTheRestConflict()
     {
-        // The pre-check passes for several requests at once; the unique index (23505) decides, and the loser is a 409, not a 500.
+        // The activation takes an advisory lock per code, so the later requests see the winner's currency and get a 409, not a 500.
         await AuthenticateAsync();
         await TestDataBuilder.SeedAvailableCurrencyAsync("CHF", "Swiss Franc");
 
@@ -146,7 +147,8 @@ public sealed class AvailableCurrenciesApiTests(ApiTestFixture fixture) : Integr
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
         var body = await response.Content.ReadAsStringAsync();
-        body.Should().Contain("используется");
+        body.Should().Contain("Валюта EUR используется");
+        body.Should().NotContain(currency.Id.ToString(), "the message is for the user, identifiers stay out of it");
         body.ToLowerInvariant().Should().NotContain("деактивац", "a currency has no deactivated state (ADR-0004 §7)");
         (await GetActiveCodesAsync()).Should().Contain("EUR");
     }
@@ -208,7 +210,7 @@ public sealed class AvailableCurrenciesApiTests(ApiTestFixture fixture) : Integr
 }
 
 /// <summary>
-/// IAvailableCurrencyCatalog (ADR-0004 §7, PROGRESS R4/R5) against the real database: upsert, removal of codes
+/// IAvailableCurrencyCatalog (ADR-0004 §7) against the real database: upsert, removal of codes
 /// the service no longer offers, an empty list as a failed load, normalisation, and renaming of active
 /// currencies to the service name with a CurrencyRenamed event and an audit "Updated" record.
 /// </summary>

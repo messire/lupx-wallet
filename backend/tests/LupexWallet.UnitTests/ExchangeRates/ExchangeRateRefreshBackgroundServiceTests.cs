@@ -13,7 +13,8 @@ namespace LupexWallet.UnitTests.ExchangeRates;
 /// <summary>
 /// ExchangeRateRefreshBackgroundService (ADR-0004 p.3/9, ADR-0001 §7): a pass is Refresh, then Backfill,
 /// each in its own scope with the System actor; signals queued before the loop reads them are drained,
-/// a refresh request wins over a manual-refresh notification, a burst gives one pass. Signals are queued
+/// a refresh request wins over a manual-refresh notification (which runs only the history load), a burst
+/// gives one pass. Signals are queued
 /// before StartAsync and the doubles complete synchronously, so the whole run up to "waiting for the next
 /// signal" happens inside StartAsync — no sleeps.
 /// </summary>
@@ -97,11 +98,12 @@ public sealed class ExchangeRateRefreshBackgroundServiceTests
     }
 
     [Fact]
-    public async Task QueuedManualRefreshNotification_OnlyRestartsTheCountdownWithoutAPass()
+    public async Task QueuedManualRefreshNotification_RunsOnlyTheHistoryLoadInTheSystemScope()
     {
         var sent = await RunAsync(ExchangeRateRefreshSignalKind.ManualRefreshCompleted);
 
-        sent.Should().Equal(Refresh, Backfill);
+        sent.Should().Equal(Refresh, Backfill, Backfill);
+        _actorAccessor.Received(3).SetSystemActor(nameof(ExchangeRateRefreshBackgroundService));
     }
 
     [Fact]

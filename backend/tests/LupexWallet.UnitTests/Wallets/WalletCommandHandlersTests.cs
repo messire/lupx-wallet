@@ -9,7 +9,7 @@ using Xunit;
 namespace LupexWallet.UnitTests.Wallets;
 
 /// <summary>
-/// Обработчики команд W1.2 (UC-02…UC-06): UpdateWallet/ArchiveWallet/SetPrimaryWallet/
+/// Обработчики команд UC-02…UC-06: UpdateWallet/ArchiveWallet/SetPrimaryWallet/
 /// DeleteWallet/ChangeWalletCurrency. Доменные инварианты уже покрыты WalletTests —
 /// здесь проверяется маршрутизация (NotFound, делегирование в Wallet/PrimaryWalletPolicy,
 /// вызов SaveChangesAsync, агрегация IWalletHistorySource).

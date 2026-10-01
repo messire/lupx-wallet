@@ -1,6 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { FormControl, ReactiveFormsModule } from '@angular/forms';
+import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FieldComponent } from '../../ui/field/field.component';
 import { CurrencyOption } from '../currency-option';
 import { CurrencySelectComponent } from './currency-select.component';
 
@@ -29,6 +30,22 @@ class HostComponent {
   emptyText = 'Нет доступных валют';
 }
 
+@Component({
+  standalone: true,
+  imports: [CurrencySelectComponent, FieldComponent, ReactiveFormsModule],
+  template: `
+    <app-field label="Валюта" [required]="true" [hint]="hint()" [error]="error()">
+      <app-currency-select [currencies]="currencies" [formControl]="control" />
+    </app-field>
+  `,
+})
+class FieldHostComponent {
+  readonly currencies = options;
+  readonly control = new FormControl<string | null>(null, Validators.required);
+  readonly hint = signal<string | null>(null);
+  readonly error = signal<string | null>(null);
+}
+
 describe('CurrencySelectComponent', () => {
   let fixture: ComponentFixture<HostComponent>;
   let host: HostComponent;
@@ -43,6 +60,7 @@ describe('CurrencySelectComponent', () => {
   const root = () => fixture.nativeElement as HTMLElement;
   const input = () => root().querySelector('input') as HTMLInputElement;
   const listbox = () => root().querySelector('[role="listbox"]') as HTMLElement | null;
+  const liveRegion = () => root().querySelector('[aria-live="polite"]') as HTMLElement;
   const optionTexts = () =>
     Array.from(root().querySelectorAll('[role="option"]')).map((el) => el.textContent?.replace(/\s+/g, ' ').trim());
 
@@ -128,8 +146,8 @@ describe('CurrencySelectComponent', () => {
     type('zzz');
 
     expect(optionTexts()).toEqual([]);
-    expect(listbox()!.textContent).toContain('Ничего не найдено');
-    expect(listbox()!.textContent).not.toContain('Нет доступных валют');
+    expect(liveRegion().textContent).toContain('Ничего не найдено');
+    expect(liveRegion().textContent).not.toContain('Нет доступных валют');
     expect(input().hasAttribute('aria-activedescendant')).toBe(false);
   });
 
@@ -138,9 +156,36 @@ describe('CurrencySelectComponent', () => {
     fixture.detectChanges();
     open();
 
-    expect(listbox()!.textContent).toContain('Нет доступных валют');
-    expect(listbox()!.textContent).not.toContain('Ничего не найдено');
+    expect(liveRegion().textContent).toContain('Нет доступных валют');
+    expect(liveRegion().textContent).not.toContain('Ничего не найдено');
     expect(root().querySelectorAll('[role="option"]').length).toBe(0);
+  });
+
+  it('keeps the empty/nothing-found message out of the listbox, in a polite live region that is always in the DOM', () => {
+    const region = liveRegion();
+    expect(region.getAttribute('aria-live')).toBe('polite');
+    expect(region.hidden).toBe(true);
+
+    host.currencies.set([]);
+    fixture.detectChanges();
+    open();
+
+    expect(liveRegion()).toBe(region);
+    expect(region.hidden).toBe(false);
+    // No listbox (and no role="presentation" children) when there is nothing to pick; aria-expanded follows the visible list.
+    expect(listbox()).toBeNull();
+    expect(input().getAttribute('aria-expanded')).toBe('false');
+    expect(input().hasAttribute('aria-controls')).toBe(false);
+    expect(root().querySelector('[role="presentation"]')).toBeNull();
+  });
+
+  it('hides the live region again when the popup closes', () => {
+    host.currencies.set([]);
+    fixture.detectChanges();
+    open();
+    press('Escape');
+
+    expect(liveRegion().hidden).toBe(true);
   });
 
   it('ArrowDown/ArrowUp move the highlight and aria-activedescendant follows it', () => {
@@ -279,5 +324,167 @@ describe('CurrencySelectComponent', () => {
 
     expect(host.control.value).toBe('EUR');
     expect(input().value).toBe('EUR — Euro');
+  });
+
+  it('has no aria-activedescendant while the popup is closed', () => {
+    open();
+    expect(input().hasAttribute('aria-activedescendant')).toBe(true);
+
+    press('Escape');
+
+    expect(input().hasAttribute('aria-activedescendant')).toBe(false);
+  });
+
+  it('Home and End jump to the first and last option', () => {
+    open();
+    const ids = Array.from(root().querySelectorAll('[role="option"]')).map((el) => el.id);
+
+    expect(press('End').defaultPrevented).toBe(true);
+    expect(input().getAttribute('aria-activedescendant')).toBe(ids[ids.length - 1]);
+    expect(press('Home').defaultPrevented).toBe(true);
+    expect(input().getAttribute('aria-activedescendant')).toBe(ids[0]);
+  });
+
+  it('Home and End are left to the caret when there is no option to highlight', () => {
+    open();
+    type('zzz');
+
+    expect(press('Home').defaultPrevented).toBe(false);
+    expect(press('End').defaultPrevented).toBe(false);
+  });
+
+  it('blur closes the popup, marks the control touched and keeps the selected value visible', () => {
+    host.control.setValue('EUR');
+    fixture.detectChanges();
+    open();
+    expect(host.control.touched).toBe(false);
+
+    input().dispatchEvent(new Event('blur'));
+    fixture.detectChanges();
+
+    expect(listbox()).toBeNull();
+    expect(host.control.touched).toBe(true);
+    expect(host.control.value).toBe('EUR');
+    expect(input().value).toBe('EUR — Euro');
+  });
+
+  it('blur discards unfinished search text without changing the value', () => {
+    host.control.setValue('EUR');
+    fixture.detectChanges();
+    open();
+    type('usd');
+
+    input().dispatchEvent(new Event('blur'));
+    fixture.detectChanges();
+
+    expect(host.control.value).toBe('EUR');
+    expect(input().value).toBe('EUR — Euro');
+  });
+
+  it('clicking the already focused input re-opens a popup closed with Escape', () => {
+    open();
+    press('Escape');
+    expect(listbox()).toBeNull();
+
+    input().click();
+    fixture.detectChanges();
+
+    expect(listbox()).not.toBeNull();
+  });
+
+  it('clicking an input whose popup is already open leaves it (and the highlight) alone', () => {
+    open();
+    press('ArrowDown');
+
+    input().click();
+    fixture.detectChanges();
+
+    expect(input().getAttribute('aria-activedescendant')).toBe(root().querySelectorAll('[role="option"]')[1].id);
+  });
+
+  it('keeps focus in the input on mousedown inside the popup (so blur does not close it before the pick)', () => {
+    open();
+
+    const optionEvent = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    (root().querySelectorAll('[role="option"]')[1] as HTMLElement).dispatchEvent(optionEvent);
+    expect(optionEvent.defaultPrevented).toBe(true);
+
+    open();
+    const listEvent = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    listbox()!.dispatchEvent(listEvent);
+    expect(listEvent.defaultPrevented).toBe(true);
+  });
+
+  it('focus() moves keyboard focus into the input without opening the popup; a later click or ArrowDown opens it', () => {
+    document.body.appendChild(root());
+    fixture.debugElement.query((d) => d.name === 'app-currency-select').componentInstance.focus();
+    fixture.detectChanges();
+
+    expect(document.activeElement).toBe(input());
+    expect(listbox()).toBeNull();
+
+    press('ArrowDown');
+    expect(listbox()).not.toBeNull();
+    root().remove();
+  });
+
+  it('a regular focus after a programmatic focus() still opens the popup', () => {
+    document.body.appendChild(root());
+    const select = fixture.debugElement.query((d) => d.name === 'app-currency-select').componentInstance;
+    select.focus();
+    input().blur();
+
+    input().focus();
+    fixture.detectChanges();
+
+    expect(listbox()).not.toBeNull();
+    root().remove();
+  });
+
+  it('has no id and no field-derived ARIA state outside an app-field', () => {
+    expect(input().hasAttribute('id')).toBe(false);
+    expect(input().hasAttribute('aria-describedby')).toBe(false);
+    expect(input().hasAttribute('aria-invalid')).toBe(false);
+    expect(input().hasAttribute('aria-required')).toBe(false);
+    expect(root().querySelector('app-currency-select')!.hasAttribute('id')).toBe(false);
+  });
+
+  describe('inside an app-field', () => {
+    let fieldFixture: ComponentFixture<FieldHostComponent>;
+    const fieldRoot = () => fieldFixture.nativeElement as HTMLElement;
+    const fieldInput = () => fieldRoot().querySelector('app-currency-select input') as HTMLInputElement;
+
+    beforeEach(() => {
+      fieldFixture = TestBed.createComponent(FieldHostComponent);
+      fieldFixture.detectChanges();
+    });
+
+    it('takes its id from the field, so the field label targets the inner input', () => {
+      const label = fieldRoot().querySelector('label') as HTMLLabelElement;
+
+      expect(fieldInput().id).toBeTruthy();
+      expect(label.htmlFor).toBe(fieldInput().id);
+      expect(fieldRoot().querySelector('app-currency-select')!.hasAttribute('id')).toBe(false);
+    });
+
+    it('is aria-required when the field is required', () => {
+      expect(fieldInput().getAttribute('aria-required')).toBe('true');
+    });
+
+    it('is described by the field hint, and by the field error (aria-invalid) when there is one', () => {
+      expect(fieldInput().hasAttribute('aria-describedby')).toBe(false);
+      expect(fieldInput().hasAttribute('aria-invalid')).toBe(false);
+
+      fieldFixture.componentInstance.hint.set('Подсказка');
+      fieldFixture.detectChanges();
+      const hint = fieldRoot().querySelector('.app-field__hint') as HTMLElement;
+      expect(fieldInput().getAttribute('aria-describedby')).toBe(hint.id);
+
+      fieldFixture.componentInstance.error.set('Ошибка');
+      fieldFixture.detectChanges();
+      const error = fieldRoot().querySelector('.app-field__error') as HTMLElement;
+      expect(fieldInput().getAttribute('aria-describedby')).toBe(error.id);
+      expect(fieldInput().getAttribute('aria-invalid')).toBe('true');
+    });
   });
 });

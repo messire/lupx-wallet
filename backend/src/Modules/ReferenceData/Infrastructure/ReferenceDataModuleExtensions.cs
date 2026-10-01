@@ -39,7 +39,7 @@ public static class ReferenceDataModuleExtensions
         services.AddScoped<IAvailableCurrencyCatalog, AvailableCurrencyCatalog>();
         services.AddScoped<ICurrencyActivation, CurrencyActivation>();
 
-        // W2.5, случай d: разрешение типа кошелька для CreateWalletCommand/UpdateWalletCommand.
+        // Wallet type resolution for the Wallets create/update commands.
         services.AddScoped<IWalletTypeLookup, WalletTypeLookup>();
 
         return services;

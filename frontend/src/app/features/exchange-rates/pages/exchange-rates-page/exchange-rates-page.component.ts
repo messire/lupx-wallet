@@ -40,7 +40,7 @@ interface ExchangeRateRow {
  * primary wallet's currency) is resolved from GET /wallets (`isPrimary`) → its
  * `currencyId` → the code via the already-loaded /currencies reference data —
  * not guessed from a row's `toCurrencyId`, which would be unavailable while the
- * rates list is empty (docs/PROGRESS.md, plan C3 / П.1 №2).
+ * rates list is empty.
  */
 @Component({
   selector: 'app-exchange-rates',
@@ -137,6 +137,24 @@ export class ExchangeRatesComponent implements OnInit {
     return value ? new Date(value).toLocaleString('ru-RU') : 'Ещё не было';
   });
 
+  /**
+   * Empty rates list without a source failure. "Ещё не было" is only true when no update has ever
+   * succeeded; once there is a `lastSuccessfulUpdate` an empty list means only the primary currency is
+   * active (rates are quoted for the other active currencies), which needs a different explanation.
+   */
+  readonly emptyRates = computed(() =>
+    this.lastSuccessfulUpdate() === null
+      ? {
+          title: 'Ещё не было',
+          description: 'Нажмите «Обновить сейчас», чтобы получить актуальные курсы и список доступных валют.',
+        }
+      : {
+          title: 'Нет курсов: активна только основная валюта',
+          description:
+            'Курсы загружаются для активных валют, отличных от основной. Добавьте валюту на экране «Справочники» (вкладка «Валюты») или создайте кошелёк в другой валюте.',
+        },
+  );
+
   ngOnInit(): void {
     this.loadAll();
   }
@@ -199,7 +217,11 @@ export class ExchangeRatesComponent implements OnInit {
             this.applyLatest(body);
           }
 
-          if (this.lastSuccessfulUpdate() !== null) {
+          if (this.primaryWalletMissing()) {
+            // Without a primary wallet only the list of available currencies is refreshed — there are no
+            // rates on screen, so "last known rates are shown" would be false.
+            this.sourceUnavailableEmpty.set(extractErrorMessage(error, 'Не удалось обновить список доступных валют.'));
+          } else if (this.lastSuccessfulUpdate() !== null) {
             this.sourceUnavailable.set(
               'Курсы или список доступных валют обновить не удалось. Показаны последние известные курсы.',
             );

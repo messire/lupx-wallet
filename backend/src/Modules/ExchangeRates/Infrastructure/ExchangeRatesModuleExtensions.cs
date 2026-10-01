@@ -6,6 +6,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace LupexWallet.ExchangeRates.Infrastructure;
 
@@ -54,7 +55,10 @@ public static class ExchangeRatesModuleExtensions
             .ConfigurePrimaryHttpMessageHandler(provider => provider.GetRequiredService<FrankfurterTestableHandler>());
         services.AddScoped<IFrankfurterClient, FrankfurterClient>();
 
-        services.AddSingleton(ReadHistoryOptions(configuration));
+        services.AddOptions<ExchangeRateHistoryOptions>()
+            .Bind(configuration.GetSection(ExchangeRateHistoryOptions.SectionName))
+            .Validate(o => o.HistoryChunkDays >= 1, "ExchangeRates:HistoryChunkDays must be an integer not less than 1.")
+            .ValidateOnStart();
 
         services.AddSingleton<ExchangeRateRefreshSignal>();
         services.AddSingleton<IExchangeRateRefreshSignal>(provider => provider.GetRequiredService<ExchangeRateRefreshSignal>());
@@ -74,28 +78,6 @@ public static class ExchangeRatesModuleExtensions
         services.AddHostedService<ExchangeRateRefreshBackgroundService>();
 
         return services;
-    }
-
-    /// <summary>
-    /// <c>ExchangeRates:HistoryChunkDays</c> (default 366) — fails fast at startup on a non-positive or
-    /// non-numeric value instead of silently loading the history in a wrong chunk size.
-    /// </summary>
-    private static ExchangeRateHistoryOptions ReadHistoryOptions(IConfiguration configuration)
-    {
-        var raw = configuration["ExchangeRates:HistoryChunkDays"];
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            return new ExchangeRateHistoryOptions();
-        }
-
-        if (!int.TryParse(raw, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var chunkDays)
-            || chunkDays < 1)
-        {
-            throw new InvalidOperationException(
-                $"ExchangeRates:HistoryChunkDays должен быть целым числом не меньше 1 (получено \"{raw}\").");
-        }
-
-        return new ExchangeRateHistoryOptions(chunkDays);
     }
 
     /// <summary>

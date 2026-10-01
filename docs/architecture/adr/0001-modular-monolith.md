@@ -29,12 +29,12 @@
 | # | Способ | Где объявлен | Где реализован | Примеры |
 |---|---|---|---|---|
 | a | Типизированный Id | `SharedKernel` | — | `Operation.WalletId` |
-| b | Доменное событие | `Domain` издателя | подписчик — в `Infrastructure` другого модуля | `OperationCreated` → BalanceHistory, Audit; `WalletDeleted` → BalanceHistory; `CurrencyDeleted` → ExchangeRates |
-| c | Порт у владельца данных | `Application` владельца | `Infrastructure` владельца; вызывает `Application` потребителя | `IWalletBalanceGateway`, `IOperationTypeLookup`, `IWalletOperationsLookup`, `IWalletDirectory`, `ICurrencyLookup`, `IWalletBalanceOnDateLookup` |
+| b | Доменное событие | `Domain` издателя | подписчик — в `Infrastructure` другого модуля | `OperationCreated` → BalanceHistory, Audit; `WalletDeleted` → BalanceHistory; `CurrencyDeleted`, `CurrencyCreated`, `WalletCreated`, `WalletCurrencyChanged`, `PrimaryWalletChanged` → ExchangeRates |
+| c | Порт у владельца данных | `Application` владельца | `Infrastructure` владельца; вызывает `Application` потребителя | `IWalletBalanceGateway`, `IOperationTypeLookup`, `IWalletOperationsLookup`, `IWalletDirectory`, `ICurrencyLookup`, `IWalletBalanceOnDateLookup`; записывающие порты `ReferenceData` — `IAvailableCurrencyCatalog` (его вызывает `ExchangeRates`, чтобы заменить список доступных валют) и `ICurrencyActivation` (его вызывает `Wallets`, чтобы при создании кошелька сделать валюту активной) |
 | d | Порт у потребителя | `Application` потребителя | `Infrastructure` владельца или нескольких владельцев | `IWalletHistorySource`, `IReferenceItemUsageProbe` |
 | e | Ссылка `Infrastructure` → чужой `Domain` | — | ради типов событий, не ради поведения | подписчики BalanceHistory (`Operations.Domain`, `Wallets.Domain`), ExchangeRates (`Wallets.Domain`, `ReferenceData.Domain`) и Audit |
 
-Способ (c) — основной. Порт может быть и записывающим (`IWalletBalanceGateway.ApplyDeltaAsync`); он работает через `DbContext` владельца и потому участвует в общей транзакции команды.
+Способ (c) — основной. Порт может быть и записывающим (`IWalletBalanceGateway.ApplyDeltaAsync`, `ICurrencyActivation.EnsureActiveAsync`); он работает через `DbContext` владельца и потому участвует в общей транзакции команды, если она есть. `IAvailableCurrencyCatalog.ReplaceAsync` вызывается из команды вне `ICommand` (§4) и сохраняет собственным `SaveChanges` владельца.
 
 Способ (d) нужен, когда потребитель стоит ниже владельца в графе зависимостей и прямая ссылка образовала бы цикл (например, `Wallets` спрашивает `Operations`, хотя `Operations` уже ссылается на `Wallets.Application`). Ссылка при этом идёт от `Infrastructure` владельца к `Application` потребителя — в том направлении, в котором владелец и так зависит от потребителя. Если данными владеют несколько модулей, каждый регистрирует свою реализацию под тем же интерфейсом, потребитель внедряет `IEnumerable<TPort>` и агрегирует ответы сам. Составные адаптеры в Host и отдельные `*.Contracts`-проекты не используются.
 
@@ -53,7 +53,7 @@
 - `TransactionBehavior` (MediatR pipeline behavior) открывает `System.Transactions.TransactionScope` вокруг обработки каждой команды (`ICommand`), но не запросов (`IQuery`). `TransactionBehavior` привязан к маркеру `ICommand<TResponse>`, а не к `IRequest<TResponse>`, чтобы команды без результата (`IRequest, ICommand<Unit>`, например все `Delete*Command`) тоже попадали в транзакцию: в MediatR 12 `IRequest` не наследует `IRequest<Unit>`, и ограничение по `IRequest<TResponse>` заставляло бы DI-контейнер молча пропускать поведение. Регрессию ловит `TransactionBehaviorRegistrationTests` (обходит все команды `*.Application`-сборок).
 - Несколько `DbContext` разных модулей участвуют в одной физической транзакции на одном соединении к одной базе PostgreSQL; распределённой транзакции не возникает.
 - Сильная согласованность вместо eventual consistency и outbox: либо сохраняется всё (операция, баланс, слепки, аудит), либо ничего.
-- Команда, выполняющая внешний HTTP-вызов, намеренно не является `ICommand` и управляет атомарностью сама в рамках своего `DbContext` (`RefreshExchangeRatesCommand`, см. [ADR-0004](./0004-currencies-and-exchange-rates.md)): лимит `TransactionScope` по умолчанию — 1 минута, а последовательные вызовы с ретраями его легко превышают.
+- Команда, выполняющая внешний HTTP-вызов, намеренно не является `ICommand` и управляет атомарностью сама в рамках своего `DbContext` (`RefreshExchangeRatesCommand`, `BackfillExchangeRateHistoryCommand`, см. [ADR-0004](./0004-currencies-and-exchange-rates.md)): лимит `TransactionScope` по умолчанию — 1 минута, а последовательные вызовы с ретраями его легко превышают.
 
 ### 5. Доменные события
 
@@ -66,11 +66,13 @@
 
 ### 6. Фоновые задачи
 
-Фоновая задача принадлежит модулю, чьей доменной операцией управляет, реализуется как `BackgroundService` в его `Infrastructure` и переиспользует те же команды и сервисы, что и пользовательские сценарии. Различие — только актор аудита (`System` вместо `User`, ADR-0006). Каждый проход выполняется в собственном DI-scope; необработанное исключение прохода не должно останавливать хост.
+Фоновая задача принадлежит модулю, чьей доменной операцией управляет, реализуется как `BackgroundService` в его `Infrastructure` и переиспользует те же команды и сервисы, что и пользовательские сценарии. Различие — только актор аудита (`System` вместо `User`, ADR-0006). Каждый проход (или каждая его команда, как обновление курсов и затем дозагрузка истории в `ExchangeRateRefreshBackgroundService`) выполняется в собственном DI-scope; необработанное исключение прохода не должно останавливать хост.
 
 ### 7. Реакция на событие, требующая внешнего I/O
 
-Подписчик, которому для реакции нужен вызов внешнего сервиса, не выполняет его внутри транзакции команды: он только сигналит фоновому сервису своего модуля через `System.Threading.Channels.Channel<T>` и возвращает управление. Работа выполняется позже, на фоновом потоке, в собственном scope, вне транзакции издателя. Иначе локальная команда зависела бы от доступности стороннего сервиса, а соединение с БД удерживалось бы на время сетевых ретраев. Применение — обновление курсов при смене основного кошелька (ADR-0004).
+Подписчик, которому для реакции нужен вызов внешнего сервиса, не выполняет его внутри транзакции команды: он только сигналит фоновому сервису своего модуля через `System.Threading.Channels.Channel<T>` и возвращает управление. Работа выполняется позже, на фоновом потоке, в собственном scope, вне транзакции издателя. Иначе локальная команда зависела бы от доступности стороннего сервиса, а соединение с БД удерживалось бы на время сетевых ретраев.
+
+Подписчик выполняется внутри `TransactionScope` издателя (§5), а фон читает БД из другого соединения, поэтому сигнал доставляется **после фиксации** транзакции: при наличии `Transaction.Current` запись в канал откладывается до `TransactionCompleted` со статусом `Committed`, при откате сигнала нет, без транзакции сигнал пишется сразу. Иначе фон мог бы прочитать ещё не зафиксированные данные (например, обновить курсы к прежней основной валюте). Фоновый сервис вычитывает накопленные сигналы, так что серия событий одной команды даёт один проход. Применение — обновление курсов и дозагрузка истории при активации валюты, создании кошелька, смене его валюты и смене основного кошелька (ADR-0004).
 
 ### 8. Хост
 
@@ -82,13 +84,13 @@
 
 - Граница модуля — компиляционная, а не «по договорённости». Цена — 30 проектов и отдельные миграции на модуль.
 - Вся цепочка обработчиков одной команды укладывается в одну транзакцию. При росте числа подписчиков или объёма каскадных пересчётов ([ADR-0003](./0003-balance-history.md)) это первое узкое место.
-- `Operations.Application` ссылается на `Wallets.Application` и `ReferenceData.Application`; `BalanceHistory.Application` — на `Wallets.Application` и `Operations.Application`; `Reporting.Application` — на `Application` трёх модулей. Граф зависимостей модулей не «только Host знает про все модули», а направленный ациклический граф, проверяемый в CI (`backend/scripts/check-architecture.mjs`).
+- `Operations.Application` ссылается на `Wallets.Application` и `ReferenceData.Application`; `BalanceHistory.Application` — на `Wallets.Application` и `Operations.Application`; `Reporting.Application` — на `Application` четырёх модулей (`Wallets`, `BalanceHistory`, `ExchangeRates`, `ReferenceData` — последний ради `ICurrencyLookup`, способ (c): код валюты в причине исключения кошелька из суммы); `Wallets.Application` — на `ReferenceData.Application` (`IWalletTypeLookup`, `ICurrencyActivation`, `ICurrencyLookup`). Граф зависимостей модулей не «только Host знает про все модули», а направленный ациклический граф, проверяемый в CI (`backend/scripts/check-architecture.mjs`).
 - Появление нового владельца данных для порта (d) — новая реализация плюс одна регистрация; ожидаемое число реализаций в тесте обновляется вручную.
 - Если модуль когда-либо потребуется вынести в отдельный сервис, порты (c) и (d) — точное место замены на сетевые вызовы.
 
 ## Отклонения в коде
 
-- Аудит обновления курсов пишется после сохранения курсов вне общей транзакции — следствие §4 для `RefreshExchangeRatesCommand`; принято как известное.
+- Аудит обновления курсов, дозагрузки истории и переименований активных валют при замене списка доступных пишется после сохранения данных вне общей транзакции — следствие §4 для команд вне `ICommand`; принято как известное.
 
 ## Отклонённые варианты
 

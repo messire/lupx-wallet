@@ -75,21 +75,20 @@
         </app-field>
 
         <app-field
-          #currencyField
           label="Валюта"
           [required]="true"
           [hint]="availableCurrenciesEmpty() ? emptyAvailableCurrenciesHint : null"
+          [error]="availableCurrenciesLoadError()"
         >
-          @if (availableCurrenciesLoadError(); as error) {
-            <app-error-state [message]="error" retryLabel="Повторить" (retry)="loadAvailableCurrencies()" />
-          } @else {
-            <app-currency-select
-              [id]="currencyField.controlId()"
-              [currencies]="currencyOptions()"
-              [placeholder]="availableCurrenciesLoading() ? 'Загрузка…' : '— выберите валюту —'"
-              [emptyListText]="availableCurrenciesLoading() ? 'Загрузка…' : emptyAvailableCurrenciesHint"
-              formControlName="currencyCode"
-            />
+          <!-- Always rendered, even on a load error, so that the field's <label for> has its target. -->
+          <app-currency-select
+            [currencies]="currencyOptions()"
+            [placeholder]="availableCurrenciesLoading() ? 'Загрузка…' : '— выберите валюту —'"
+            [emptyListText]="availableCurrenciesLoading() ? 'Загрузка…' : 'Список валют пуст'"
+            formControlName="currencyCode"
+          />
+          @if (availableCurrenciesLoadError()) {
+            <app-button variant="ghost" type="button" (click)="retryAvailableCurrencies()">Повторить</app-button>
           }
         </app-field>
 

@@ -7,29 +7,27 @@ using LupexWallet.Wallets.Application;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace LupexWallet.ExchangeRates.Infrastructure;
 
-/// <summary>Options of the history load: <c>ExchangeRates:HistoryChunkDays</c> (ADR-0004, §9).</summary>
-public sealed record ExchangeRateHistoryOptions(int ChunkDays = ExchangeRateHistoryOptions.DefaultChunkDays)
+/// <summary>Options section <c>ExchangeRates</c>: <c>HistoryChunkDays</c> is the longest period of one history request (ADR-0004 §9).</summary>
+public sealed class ExchangeRateHistoryOptions
 {
+    public const string SectionName = "ExchangeRates";
     public const int DefaultChunkDays = 366;
+
+    public int HistoryChunkDays { get; set; } = DefaultChunkDays;
 }
 
 /// <summary>
-/// Handler for BackfillExchangeRateHistoryCommand (ADR-0004, §9); lives in Infrastructure and is
-/// registered manually, for the same reasons as RefreshExchangeRatesCommandHandler.
-/// <para>
-/// Per pair (active currency → primary currency) the stored coverage [covered_from; covered_to]
-/// tells what is missing: no row — the whole period [requiredFrom; today]; otherwise the right edge
-/// [covered_to − 7; today] (the overlap re-reads days whose rate may have been refined) and the left
-/// edge [requiredFrom; covered_from − 1]. Chunks are at most <c>ChunkDays</c> long and each is one
-/// request, one upsert and one SaveChanges together with the coverage shift, so the coverage is always
-/// contiguous and an aborted pass resumes where it stopped. The left edge is loaded from new dates to
-/// old; the right edge from old to new — a long gap must not leave a hole between the covered range and
-/// the newest chunk. requiredFrom reaches 7 days before the earliest accounting start date, so the
-/// closest earlier rate exists for a weekend on the left border.
-/// </para>
+/// Handler of BackfillExchangeRateHistoryCommand (ADR-0004 §9); lives in Infrastructure and is registered
+/// manually, like RefreshExchangeRatesCommandHandler. Per pair the stored coverage tells what is missing:
+/// none — [requiredFrom; today]; otherwise the right edge [covered_to - 7; today] and the left edge
+/// [requiredFrom; covered_from - 1]. Each chunk (at most <c>HistoryChunkDays</c>) is one request and one
+/// SaveChanges together with the coverage shift, so an aborted pass resumes where it stopped. The left edge
+/// goes from new dates to old, the right edge from old to new. An empty chunk is not the end of the data
+/// (a currency may have ended before the chunk); the left edge always walks to requiredFrom.
 /// </summary>
 public sealed class BackfillExchangeRateHistoryCommandHandler(
     IHistoricalExchangeRateRepository historyRepository,
@@ -39,7 +37,7 @@ public sealed class BackfillExchangeRateHistoryCommandHandler(
     IWalletCurrencySet walletCurrencySet,
     ICurrencyLookup currencyLookup,
     IDomainEventDispatcher eventDispatcher,
-    ExchangeRateHistoryOptions options,
+    IOptions<ExchangeRateHistoryOptions> options,
     ILogger<BackfillExchangeRateHistoryCommandHandler> logger)
     : IRequestHandler<BackfillExchangeRateHistoryCommand, BackfillResult>
 {
@@ -64,7 +62,7 @@ public sealed class BackfillExchangeRateHistoryCommandHandler(
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var requiredFrom = Earlier(currencySet.EarliestAccountingStartDate ?? today, today).AddDays(-LeftMarginDays);
-        var chunkDays = Math.Max(1, options.ChunkDays);
+        var chunkDays = options.Value.HistoryChunkDays;
 
         var loaded = new List<HistoryRangeLoaded>();
         var failed = new List<ExchangeRatePairFailure>();
@@ -171,10 +169,9 @@ public sealed class BackfillExchangeRateHistoryCommandHandler(
     }
 
     /// <summary>
-    /// Loads [<paramref name="requiredFrom"/>; <paramref name="leftEnd"/>] from new dates to old. For a pair
-    /// without coverage the first chunk creates it; an empty first chunk means the service has no data
-    /// for the currency at all (nothing is stored, the next pass asks again). Without that, an empty
-    /// chunk means the data starts later: the left border is reached.
+    /// Loads [<paramref name="requiredFrom"/>; <paramref name="leftEnd"/>] from new dates to old. The first
+    /// chunk of a pair without coverage creates it; an empty chunk still extends the coverage, since the
+    /// currency may have ended earlier or not started yet.
     /// </summary>
     private async Task LoadLeftEdgeAsync(
         Pair pair, HistoricalRateCoverage? coverage, DateOnly requiredFrom, DateOnly leftEnd, int chunkDays,
@@ -191,18 +188,11 @@ public sealed class BackfillExchangeRateHistoryCommandHandler(
                 var rates = await frankfurterClient.GetRatesForPeriodAsync(pair.FromCode, pair.ToCode, chunkFrom, leftEnd, cancellationToken);
                 var now = DateTimeOffset.UtcNow;
 
-                if (rates.Count == 0)
+                if (rates.Count > 0)
                 {
-                    if (coverage is not null)
-                    {
-                        coverage.ExtendLeft(requiredFrom, now);
-                        await unitOfWork.SaveChangesAsync(cancellationToken);
-                    }
-
-                    break;
+                    await UpsertAsync(pair, rates, chunkFrom, leftEnd, now, cancellationToken);
                 }
 
-                await UpsertAsync(pair, rates, chunkFrom, leftEnd, now, cancellationToken);
                 if (coverage is null)
                 {
                     coverage = HistoricalRateCoverage.Create(pair.FromId, pair.ToId, chunkFrom, leftEnd, now);
@@ -215,8 +205,12 @@ public sealed class BackfillExchangeRateHistoryCommandHandler(
 
                 await unitOfWork.SaveChangesAsync(cancellationToken);
 
-                loadedTo ??= leftEnd;
-                loadedFrom = chunkFrom;
+                if (rates.Count > 0)
+                {
+                    loadedTo ??= leftEnd;
+                    loadedFrom = chunkFrom;
+                }
+
                 leftEnd = chunkFrom.AddDays(-1);
             }
         }

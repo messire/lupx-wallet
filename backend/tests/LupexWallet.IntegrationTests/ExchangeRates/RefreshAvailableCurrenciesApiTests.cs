@@ -7,7 +7,7 @@ using Xunit;
 namespace LupexWallet.IntegrationTests.ExchangeRates;
 
 /// <summary>
-/// POST /exchange-rates/refresh and the available-currency list (ADR-0004 §7, PROGRESS R5/R10): every refresh reloads the
+/// POST /exchange-rates/refresh and the available-currency list (ADR-0004 §7): every refresh reloads the
 /// list (also without a primary wallet), a failed or empty load keeps the stored list and is a 502, rates are requested
 /// only for active currencies, active currencies take the service English names with an audit "Updated" record.
 /// </summary>

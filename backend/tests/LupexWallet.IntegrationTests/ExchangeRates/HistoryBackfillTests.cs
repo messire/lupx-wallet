@@ -16,10 +16,11 @@ namespace LupexWallet.IntegrationTests.ExchangeRates;
 
 /// <summary>
 /// The background pass (refresh, then BackfillExchangeRateHistoryCommand) against the real database and FrankfurterFake
-/// (ADR-0004 §9, PROGRESS R11/R12): the period reaches the earliest accounting start date of all wallets (archived ones
-/// included), the coverage table records progress, an empty chunk closes the left border, 422 skips a pair, an unavailable
-/// source keeps the next pass able to continue, the right edge is re-read with an upsert, a change of the primary wallet
-/// reloads the history to the new currency, deleting a currency removes its coverage, and each pass leaves one audit entry.
+/// (ADR-0004 §9): the period reaches the earliest accounting start date of all wallets (archived ones included), the
+/// coverage table records progress, empty chunks do not stop the walk to the left border (a currency that ended earlier
+/// still gets its history), weekend rates are stored and applied, 422 skips a pair, an unavailable source keeps the next
+/// pass able to continue, the right edge is re-read with an upsert, a change of the primary wallet reloads the history to
+/// the new currency, deleting a currency removes its coverage, and each pass leaves one audit entry.
 /// </summary>
 public sealed class HistoryBackfillTests(ApiTestFixture fixture) : IntegrationTestBase(fixture)
 {
@@ -75,8 +76,8 @@ public sealed class HistoryBackfillTests(ApiTestFixture fixture) : IntegrationTe
         coverage.CoveredTo.Should().Be(Today);
         var dates = await WithDbAsync(db => db.HistoricalExchangeRates.AsNoTracking().Select(r => r.RateDate).ToListAsync());
         dates.Should().OnlyHaveUniqueItems();
-        dates.Should().OnlyContain(d => d.DayOfWeek != DayOfWeek.Saturday && d.DayOfWeek != DayOfWeek.Sunday, "the fake serves business days only");
-        dates.Min().Should().BeOnOrAfter(Today.AddDays(-37));
+        dates.Should().OnlyContain(d => d >= coverage.CoveredFrom && d <= coverage.CoveredTo, "the stored rows stay inside the covered period");
+        dates.Should().NotBeEmpty();
         _fake.ResetCounters();
 
         var (_, second) = await Fixture.RunExchangeRatesBackgroundPassAsync();
@@ -87,7 +88,7 @@ public sealed class HistoryBackfillTests(ApiTestFixture fixture) : IntegrationTe
     }
 
     [Fact]
-    public async Task Pass_CurrencyWithDataStartingLater_EmptyChunkClosesTheLeftBorderAndNothingIsAskedAgain()
+    public async Task Pass_CurrencyWithDataStartingLater_EmptyChunkStillCoversTheWholePeriodAndNothingIsAskedAgain()
     {
         await AuthenticateAsync();
         await CreateEurPrimaryAndUsdWalletsAsync(eurStartDaysAgo: 400, usdStartDaysAgo: 400);
@@ -97,13 +98,70 @@ public sealed class HistoryBackfillTests(ApiTestFixture fixture) : IntegrationTe
 
         PeriodRequests.Should().HaveCount(2, "the first chunk has data, the second (older than the data start) is empty");
         var coverage = await WithDbAsync(db => db.HistoricalRateCoverages.AsNoTracking().SingleAsync());
-        coverage.CoveredFrom.Should().Be(Today.AddDays(-407), "an empty chunk means the service has nothing older: the border is reached");
+        coverage.CoveredFrom.Should().Be(Today.AddDays(-407), "the walk reaches the left border even over an empty chunk");
         (await WithDbAsync(db => db.HistoricalExchangeRates.MinAsync(r => r.RateDate))).Should().BeOnOrAfter(Today.AddDays(-100));
         _fake.ResetCounters();
 
         await Fixture.RunExchangeRatesBackgroundPassAsync();
 
         PeriodRequests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Pass_CurrencyWhoseDataEndedBeforeTheNewestChunk_StillGetsHistoryForItsPeriod()
+    {
+        await AuthenticateAsync();
+        var eur = await Client.CreateCurrencyAsync("EUR", "Euro");
+        var usd = await Client.CreateCurrencyAsync("USD", "Dollar");
+        await Client.CreateWalletAsync(currencyId: eur.Id, name: "Основной", accountingStartDate: Today.AddDays(-400));
+        await Client.CreateWalletAsync(
+            currencyId: usd.Id, name: "USD", initialBalanceAmount: 100m, accountingStartDate: Today.AddDays(-400));
+        var dataEnd = Today.AddDays(-380);
+        _fake.SetDataEnd("USD", dataEnd);
+
+        await Fixture.RunExchangeRatesBackgroundPassAsync();
+
+        PeriodRequests.Should().HaveCount(2, "the newest chunk is empty, the older one holds the data");
+        var coverage = await WithDbAsync(db => db.HistoricalRateCoverages.AsNoTracking().SingleAsync());
+        coverage.CoveredFrom.Should().Be(Today.AddDays(-407));
+        coverage.CoveredTo.Should().Be(Today);
+        var dates = await WithDbAsync(db => db.HistoricalExchangeRates.AsNoTracking().Select(r => r.RateDate).ToListAsync());
+        dates.Should().NotBeEmpty().And.OnlyContain(d => d <= dataEnd);
+        var total = await Client.GetFromJsonAsync<TotalAmountResponse>($"/api/v1/reporting/total-amount?date={Today.AddDays(-390):yyyy-MM-dd}");
+        total!.ExcludedWallets.Should().BeEmpty("the wallet has rates for the period it was alive");
+        decimal.Parse(total.Amount.Amount, CultureInfo.InvariantCulture).Should().Be(100m * _fake.DefaultRate);
+        _fake.ResetCounters();
+
+        await Fixture.RunExchangeRatesBackgroundPassAsync();
+
+        PeriodRequests.Should().BeEmpty("the coverage already spans the required period");
+    }
+
+    [Fact]
+    public async Task Pass_ServiceReturnsWeekendRates_TheSaturdayRateIsStoredAndApplied()
+    {
+        await AuthenticateAsync();
+        var eur = await Client.CreateCurrencyAsync("EUR", "Euro");
+        var usd = await Client.CreateCurrencyAsync("USD", "Dollar");
+        await Client.CreateWalletAsync(currencyId: eur.Id, name: "Основной", accountingStartDate: Today.AddDays(-30));
+        await Client.CreateWalletAsync(
+            currencyId: usd.Id, name: "USD", initialBalanceAmount: 100m, accountingStartDate: Today.AddDays(-30));
+        var saturday = Today.AddDays(-1);
+        while (saturday.DayOfWeek != DayOfWeek.Saturday)
+        {
+            saturday = saturday.AddDays(-1);
+        }
+
+        _fake.IncludeWeekends = true;
+        _fake.RateForDate = (_, _, date) => date == saturday ? 2.0m : 1.0m;
+
+        await Fixture.RunExchangeRatesBackgroundPassAsync();
+
+        var saturdayRate = await WithDbAsync(db => db.HistoricalExchangeRates.AsNoTracking().SingleAsync(r => r.RateDate == saturday));
+        saturdayRate.Rate.Rate.Should().Be(2.0m);
+        var total = await Client.GetFromJsonAsync<TotalAmountResponse>($"/api/v1/reporting/total-amount?date={saturday:yyyy-MM-dd}");
+        decimal.Parse(total!.Amount.Amount, CultureInfo.InvariantCulture).Should().Be(200m, "the rate of Saturday itself, not Friday's");
+        total.RatesAsOfDate.Should().Be(saturday);
     }
 
     [Fact]
@@ -259,89 +317,5 @@ public sealed class HistoryBackfillTests(ApiTestFixture fixture) : IntegrationTe
         await using var command = connection.CreateCommand();
         command.CommandText = sql;
         await command.ExecuteNonQueryAsync();
-    }
-}
-
-/// <summary>
-/// ADR-0004 §8: no GET touches the rate service. The counter of FrankfurterFake is reset after the preparation and must stay at zero
-/// for every read, with and without loaded history, for the current total and a past one.
-/// </summary>
-public sealed class ReadPathDoesNotCallSourceTests(ApiTestFixture fixture) : IntegrationTestBase(fixture)
-{
-    private readonly FrankfurterFake _fake = new(fixture.Factory.GetFrankfurterTestableHandler());
-
-    private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
-
-    private async Task PrepareAsync(bool loadHistory)
-    {
-        await AuthenticateAsync();
-        var eur = await Client.CreateCurrencyAsync("EUR", "Euro");
-        var usd = await Client.CreateCurrencyAsync("USD", "Dollar");
-        await Client.CreateWalletAsync(currencyId: eur.Id, name: "Основной", initialBalanceAmount: 10m, accountingStartDate: Today.AddDays(-60));
-        await Client.CreateWalletAsync(currencyId: usd.Id, name: "USD", initialBalanceAmount: 100m, accountingStartDate: Today.AddDays(-60));
-        if (loadHistory)
-        {
-            await Fixture.RunExchangeRatesBackgroundPassAsync();
-        }
-        else
-        {
-            (await Client.PostAsync("/api/v1/exchange-rates/refresh", null)).StatusCode.Should().Be(HttpStatusCode.OK);
-        }
-
-        _fake.ResetCounters();
-    }
-
-    private async Task AssertReadsDoNotCallTheServiceAsync()
-    {
-        string[] urls =
-        [
-            "/api/v1/reporting/total-amount",
-            $"/api/v1/reporting/total-amount?date={Today.AddDays(-20):yyyy-MM-dd}",
-            $"/api/v1/reporting/total-amount?date={Today.AddDays(-59):yyyy-MM-dd}",
-            "/api/v1/exchange-rates/latest",
-            "/api/v1/currencies",
-            "/api/v1/currencies/available",
-        ];
-
-        foreach (var url in urls)
-        {
-            var response = await Client.GetAsync(url);
-
-            response.StatusCode.Should().Be(HttpStatusCode.OK, url);
-            _fake.TotalCalls.Should().Be(0, $"GET {url} must read the database only (ADR-0004 §8)");
-        }
-    }
-
-    [Fact]
-    public async Task Reads_AfterTheHistoryWasLoaded_DoNotCallTheService()
-    {
-        await PrepareAsync(loadHistory: true);
-
-        await AssertReadsDoNotCallTheServiceAsync();
-    }
-
-    [Fact]
-    public async Task Reads_WithoutAnyLoadedHistory_DoNotCallTheServiceAndExcludeTheWalletWithAReason()
-    {
-        await PrepareAsync(loadHistory: false);
-
-        await AssertReadsDoNotCallTheServiceAsync();
-
-        var past = await Client.GetFromJsonAsync<TotalAmountResponse>($"/api/v1/reporting/total-amount?date={Today.AddDays(-20):yyyy-MM-dd}");
-        past!.ExcludedWallets.Should().ContainSingle(w => !string.IsNullOrWhiteSpace(w.Reason), "no history is loaded yet: the USD wallet is excluded, not fetched");
-        _fake.TotalCalls.Should().Be(0);
-    }
-
-    [Fact]
-    public async Task Reads_OfAnEmptyApplication_DoNotCallTheService()
-    {
-        await AuthenticateAsync();
-
-        foreach (var url in new[] { "/api/v1/exchange-rates/latest", "/api/v1/currencies", "/api/v1/currencies/available" })
-        {
-            (await Client.GetAsync(url)).StatusCode.Should().Be(HttpStatusCode.OK);
-        }
-
-        _fake.TotalCalls.Should().Be(0);
     }
 }

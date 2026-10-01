@@ -57,7 +57,7 @@ public sealed class OperationType : AggregateRoot<OperationTypeId>
     {
         if (isUsed)
         {
-            throw new ReferenceItemInUseException(nameof(OperationType), Id.Value);
+            throw new ReferenceItemInUseException("Тип операции", Id.Value, Name);
         }
     }
 

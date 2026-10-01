@@ -5,6 +5,7 @@
     <ProjectReference Include="..\..\Wallets\Application\LupexWallet.Wallets.Application.csproj" />
     <ProjectReference Include="..\..\BalanceHistory\Application\LupexWallet.BalanceHistory.Application.csproj" />
     <ProjectReference Include="..\..\ExchangeRates\Application\LupexWallet.ExchangeRates.Application.csproj" />
+    <ProjectReference Include="..\..\ReferenceData\Application\LupexWallet.ReferenceData.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -6,8 +6,8 @@ namespace LupexWallet.UnitTests.ExchangeRates;
 
 /// <summary>
 /// Чистая логика суточного планирования (ADR-0004 п.2/3) на фейковых часах — без реального
-/// Task.Delay/BackgroundService. Проверяет docs/PROGRESS.md, W1.1 DoD п.4: "ручное
-/// обновление сбрасывает суточный таймер".
+/// Task.Delay/BackgroundService. Проверяет ADR-0004, §3: ручное обновление запускает
+/// суточный отсчёт заново.
 /// </summary>
 public sealed class ExchangeRateRefreshTimerTests
 {

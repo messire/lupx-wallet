@@ -15,8 +15,8 @@ public sealed record TotalAmountResponse(
 
 /// <summary>
 /// Reporting API (docs/api/openapi.yaml, тег Reporting) — GET /total-amount, текущая (UC-19)
-/// и историческая (UC-21) сумма. Риск №6 (docs/PROGRESS.md, П.5.1): кошелек без курса для
-/// своей валюты исключается из суммы с явной пометкой — основной путь, не 409, не курс 1:1.
+/// и историческая (UC-21) сумма. Кошелек без курса для своей валюты исключается из суммы
+/// с явной пометкой (ADR-0004 §9) — основной путь, не 409, не курс 1:1.
 /// HTTP-вызов к Frankfurter подменен через FrankfurterFake; чтение суммы к сервису не обращается (ADR-0004 §8).
 /// </summary>
 public sealed class ReportingApiTests(ApiTestFixture fixture) : IntegrationTestBase(fixture)
@@ -71,7 +71,7 @@ public sealed class ReportingApiTests(ApiTestFixture fixture) : IntegrationTestB
         var body = await GetTotalAmountAsync();
 
         decimal.Parse(body.Amount.Amount, CultureInfo.InvariantCulture).Should().Be(100m, "кошелек без курса исключается из суммы (риск №6), а не блокирует ответ и не считается 1:1");
-        body.ExcludedWallets.Should().ContainSingle(w => w.WalletId == unratedWallet.Id && !string.IsNullOrWhiteSpace(w.Reason));
+        body.ExcludedWallets.Should().ContainSingle(w => w.WalletId == unratedWallet.Id && w.Reason == "Курс валюты XYZ недоступен.");
     }
 
     [Fact]
@@ -212,7 +212,8 @@ public sealed class ReportingApiTests(ApiTestFixture fixture) : IntegrationTestB
         var body = await GetTotalAmountAsync(today.AddDays(-10));
 
         decimal.Parse(body.Amount.Amount, CultureInfo.InvariantCulture).Should().Be(0m);
-        body.ExcludedWallets.Should().ContainSingle(w => w.WalletId == usdWallet.Id && !string.IsNullOrWhiteSpace(w.Reason));
+        body.ExcludedWallets.Should().ContainSingle(
+            w => w.WalletId == usdWallet.Id && w.Reason == $"Курс валюты USD на дату {today.AddDays(-10):yyyy-MM-dd} недоступен.");
         _fake.TotalCalls.Should().Be(0, "дозагрузка истории — работа фонового сервиса, не чтения (ADR-0004 §8, §9)");
     }
 }

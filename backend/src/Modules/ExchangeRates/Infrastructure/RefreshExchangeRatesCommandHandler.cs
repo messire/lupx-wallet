@@ -45,15 +45,17 @@ public sealed class RefreshExchangeRatesCommandHandler(
             var now = DateTimeOffset.UtcNow;
 
             var catalogCurrencies = await currencyLookup.GetAllAsync(cancellationToken);
-            var pairsToRefresh = catalogCurrencies
-                .Select(currency => currency.Id)
-                .Where(currencyId => currencyId != primaryCurrencyId)
-                .Distinct()
-                .ToList();
-
-            foreach (var fromCurrencyId in pairsToRefresh)
+            var primaryCurrency = catalogCurrencies.FirstOrDefault(currency => currency.Id == primaryCurrencyId);
+            if (primaryCurrency is null)
             {
-                await RefreshPairAsync(fromCurrencyId, primaryCurrencyId, now, updatedPairs, failedPairs, cancellationToken);
+                logger.LogWarning("Основная валюта {Currency} не найдена в справочнике — пары пропущены", primaryCurrencyId);
+            }
+            else
+            {
+                foreach (var fromCurrency in catalogCurrencies.Where(currency => currency.Id != primaryCurrencyId).DistinctBy(currency => currency.Id))
+                {
+                    await RefreshPairAsync(fromCurrency, primaryCurrency, now, updatedPairs, failedPairs, cancellationToken);
+                }
             }
 
             // A currency can be deleted while the run is in flight (ADR-0002): re-read the catalog and
@@ -114,7 +116,8 @@ public sealed class RefreshExchangeRatesCommandHandler(
     /// <summary>
     /// Replaces the stored available list with the service's. An empty list or an unavailable source
     /// leaves the stored list untouched and counts as a failure (it does not raise
-    /// ExchangeRateUpdateFailed — that event describes pairs).
+    /// ExchangeRateUpdateFailed — that event describes pairs). A database error on replacing the list
+    /// is a failure of the list too, not of the whole run: pair rates are still refreshed.
     /// </summary>
     private async Task<bool> RefreshAvailableCurrenciesAsync(CancellationToken cancellationToken)
     {
@@ -134,6 +137,12 @@ public sealed class RefreshExchangeRatesCommandHandler(
         catch (FrankfurterClientException ex)
         {
             logger.LogWarning(ex, "Не удалось загрузить список доступных валют — список не изменён");
+            return false;
+        }
+        catch (DbUpdateException ex)
+        {
+            // Includes DbUpdateConcurrencyException: e.g. two runs replacing the list at once.
+            logger.LogWarning(ex, "Не удалось сохранить список доступных валют — список не изменён");
             return false;
         }
     }
@@ -168,21 +177,15 @@ public sealed class RefreshExchangeRatesCommandHandler(
     }
 
     private async Task RefreshPairAsync(
-        CurrencyId fromCurrencyId,
-        CurrencyId primaryCurrencyId,
+        CurrencyLookupResult fromCurrency,
+        CurrencyLookupResult toCurrency,
         DateTimeOffset now,
         List<ExchangeRatePairResult> updatedPairs,
         List<ExchangeRatePairFailure> failedPairs,
         CancellationToken cancellationToken)
     {
-        var fromCurrency = await currencyLookup.GetAsync(fromCurrencyId, cancellationToken);
-        var toCurrency = await currencyLookup.GetAsync(primaryCurrencyId, cancellationToken);
-        if (fromCurrency is null || toCurrency is null)
-        {
-            logger.LogWarning(
-                "Пропущена пара {From}->{To}: валюта не найдена в справочнике", fromCurrencyId, primaryCurrencyId);
-            return;
-        }
+        var fromCurrencyId = fromCurrency.Id;
+        var primaryCurrencyId = toCurrency.Id;
 
         try
         {

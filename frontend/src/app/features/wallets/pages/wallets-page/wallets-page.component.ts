@@ -103,7 +103,11 @@ export class WalletsComponent implements OnInit {
     () =>
       !this.availableCurrenciesLoading() && !this.availableCurrenciesLoadError() && this.availableCurrencies().length === 0,
   );
-  /** Shown instead of a silent empty picker: on a fresh install the list is empty until the first rates refresh. */
+  /**
+   * Shown once, as the field's `hint` (linked to the combobox via `aria-describedby`) instead of a silent empty
+   * picker: on a fresh install the list is empty until the first rates refresh. The popup itself only says
+   * "Список валют пуст" so the explanation is not announced twice.
+   */
   protected readonly emptyAvailableCurrenciesHint =
     'Список валют ещё не загружен из сервиса курсов. Обновите курсы на экране «Курсы валют» или повторите позже.';
 
@@ -190,6 +194,7 @@ export class WalletsComponent implements OnInit {
    *  opened form rather than back to the "···" trigger. */
   private readonly editNameInput = viewChild<ElementRef<HTMLInputElement>>('editNameInput');
   private readonly currencyFormSelect = viewChild<ElementRef<HTMLSelectElement>>('currencyFormSelect');
+  private readonly currencySelect = viewChild(CurrencySelectComponent);
 
   constructor() {
     effect(() => {
@@ -275,6 +280,12 @@ export class WalletsComponent implements OnInit {
       });
   }
 
+  /** The retry button vanishes with the error, so focus goes back to the combobox (the failed control) rather than the body. */
+  retryAvailableCurrencies(): void {
+    this.loadAvailableCurrencies();
+    this.currencySelect()?.focus();
+  }
+
   openForm(): void {
     this.submitError.set(null);
     this.isFormOpen.set(true);
@@ -329,8 +340,8 @@ export class WalletsComponent implements OnInit {
         this.cancelForm();
         this.loadWallets();
         // The server may have just activated the wallet's currency — the active list drives the balance's currency code.
+        // The available list (the create form's source) is unchanged by that, so it is not reloaded.
         this.loadCurrencies();
-        this.loadAvailableCurrencies();
         this.successMessage.set('Кошелек создан');
       },
       error: (error: unknown) => {

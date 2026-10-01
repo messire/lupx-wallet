@@ -456,7 +456,7 @@ describe('WalletsComponent', () => {
     expect(component.availableCurrenciesLoadError()).toBe('Не удалось загрузить список доступных валют.');
   });
 
-  it('submit: sends currencyCode (not currencyId) and refreshes the active currencies afterwards', () => {
+  it('submit: sends currencyCode (not currencyId) and refreshes only the active currencies afterwards', () => {
     const fixture = createComponent();
     const component = fixture.componentInstance;
 
@@ -478,7 +478,8 @@ describe('WalletsComponent', () => {
     httpMock
       .expectOne((r) => r.url === `${environment.apiBaseUrl}/currencies`)
       .flush({ data: [], pagination: { nextCursor: null, hasMore: false } });
-    httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush(availableCurrencies);
+    // The available list (the form's source) does not change on a create — no second request for it.
+    httpMock.expectNone(`${environment.apiBaseUrl}/currencies/available`);
   });
 
   it('submit: shows a currency-aware error when the server rejects the code (400)', () => {
@@ -576,7 +577,6 @@ describe('WalletsComponent', () => {
       req.flush({ ...secondaryWallet, id: 'w-new' }, { status: 201, statusText: 'Created' });
       httpMock.expectOne((r) => r.method === 'GET' && r.url === `${environment.apiBaseUrl}/wallets`).flush(emptyPage);
       httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/currencies`).flush(emptyPage);
-      httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush(availableCurrencies);
     });
 
     it('does not submit without a chosen currency', () => {
@@ -590,13 +590,17 @@ describe('WalletsComponent', () => {
       expect(component.form.controls.currencyCode.invalid).toBe(true);
     });
 
-    it('an empty available list shows the "not loaded yet" hint both as the field hint and in the popup', () => {
+    it('an empty available list shows the "not loaded yet" hint once, as the field hint linked to the combobox, and a short message in the popup', () => {
       const fixture = createOpenForm([]);
       openCombobox(fixture);
 
       expect(fixture.componentInstance.currencyOptions()).toEqual([]);
-      expect(root(fixture).textContent).toContain(hint);
-      expect(root(fixture).querySelector('app-currency-select [role="listbox"]')?.textContent).toContain(hint);
+      const fieldHint = root(fixture).querySelector('.app-field__hint[id]') as HTMLElement;
+      expect(fieldHint.textContent?.trim()).toBe(hint);
+      expect(combobox(fixture)!.getAttribute('aria-describedby')).toBe(fieldHint.id);
+      // Once only: the popup does not repeat the explanation, it just says the list is empty.
+      expect(root(fixture).textContent!.split(hint).length - 1).toBe(1);
+      expect(root(fixture).querySelector('app-currency-select [aria-live="polite"]')?.textContent).toContain('Список валют пуст');
       expect(root(fixture).querySelectorAll('app-currency-select [role="option"]').length).toBe(0);
     });
 
@@ -619,30 +623,68 @@ describe('WalletsComponent', () => {
       expect(combobox(fixture)!.placeholder).toBe('— выберите валюту —');
     });
 
-    it('a load error replaces the combobox with an error and a retry that re-requests the list', () => {
+    it('a load error keeps the combobox (so the label has its target), shows the error through the field and offers a retry', () => {
       const fixture = createOpenForm();
       fixture.componentInstance.loadAvailableCurrencies();
       httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush('boom', { status: 500, statusText: 'Server Error' });
       fixture.detectChanges();
 
-      expect(combobox(fixture)).toBeNull();
-      const errorState = root(fixture).querySelector('app-error-state')!;
-      expect(errorState.textContent).toContain('Не удалось загрузить список доступных валют.');
+      const input = combobox(fixture)!;
+      const label = root(fixture).querySelector('label[for^="app-field-"]') as HTMLLabelElement;
+      const fieldError = root(fixture).querySelector('.app-field__error[role="alert"]') as HTMLElement;
+      expect(root(fixture).querySelector(`#${input.id}`)).toBe(input);
+      expect(Array.from(root(fixture).querySelectorAll('label')).some((l) => l.htmlFor === input.id && l.textContent?.includes('Валюта'))).toBe(true);
+      expect(label).not.toBeNull();
+      expect(fieldError.textContent).toContain('Не удалось загрузить список доступных валют.');
+      expect(input.getAttribute('aria-describedby')).toBe(fieldError.id);
+      expect(input.getAttribute('aria-invalid')).toBe('true');
       expect(root(fixture).textContent).not.toContain('Список валют ещё не загружен');
+    });
 
-      const retry = Array.from(errorState.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Повторить') as HTMLButtonElement;
+    it('the retry re-requests the list and returns focus to the combobox instead of losing it with the button', () => {
+      const fixture = createOpenForm();
+      document.body.appendChild(root(fixture));
+      fixture.componentInstance.loadAvailableCurrencies();
+      httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush('boom', { status: 500, statusText: 'Server Error' });
+      fixture.detectChanges();
+
+      const retry = Array.from(root(fixture).querySelectorAll('app-button button')).find((b) => b.textContent?.trim() === 'Повторить') as HTMLButtonElement;
+      retry.focus();
       retry.click();
       fixture.detectChanges();
+
+      expect(document.activeElement).toBe(combobox(fixture));
       httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush(availableCurrencies);
       fixture.detectChanges();
 
       expect(fixture.componentInstance.availableCurrenciesLoadError()).toBeNull();
-      expect(combobox(fixture)).not.toBeNull();
-      openCombobox(fixture);
+      expect(Array.from(root(fixture).querySelectorAll('app-button button')).some((b) => b.textContent?.trim() === 'Повторить')).toBe(false);
+      expect(document.activeElement).toBe(combobox(fixture));
+      // The programmatic refocus does not pop the list open on its own.
+      expect(root(fixture).querySelector('app-currency-select [role="listbox"]')).toBeNull();
+      combobox(fixture)!.click();
+      fixture.detectChanges();
       expect(optionTexts(fixture)).toEqual(['EUR — Euro', 'USD — US Dollar']);
+      root(fixture).remove();
     });
 
-    it('after a successful create both currency lists are re-read (the server may have activated a currency)', () => {
+    it('a second load failure after the retry shows the error again and keeps focus on the combobox', () => {
+      const fixture = createOpenForm();
+      document.body.appendChild(root(fixture));
+      fixture.componentInstance.loadAvailableCurrencies();
+      httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush('boom', { status: 500, statusText: 'Server Error' });
+      fixture.detectChanges();
+
+      fixture.componentInstance.retryAvailableCurrencies();
+      httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`).flush('boom', { status: 500, statusText: 'Server Error' });
+      fixture.detectChanges();
+
+      expect(root(fixture).querySelector('.app-field__error')?.textContent).toContain('Не удалось загрузить список доступных валют.');
+      expect(document.activeElement).toBe(combobox(fixture));
+      root(fixture).remove();
+    });
+
+    it('after a successful create only the active list is re-read; the available list (the form source) is not requested again', () => {
       const fixture = createOpenForm();
       const component = fixture.componentInstance;
       component.form.patchValue({ name: 'Новый', walletTypeId: 'wt-1', currencyCode: 'EUR' });
@@ -651,9 +693,8 @@ describe('WalletsComponent', () => {
 
       httpMock.expectOne((r) => r.method === 'GET' && r.url === `${environment.apiBaseUrl}/wallets`).flush({ data: [primaryWallet, secondaryWallet], pagination: emptyPage.pagination });
       const activeReq = httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/currencies`);
-      const availableReq = httpMock.expectOne(`${environment.apiBaseUrl}/currencies/available`);
+      httpMock.expectNone(`${environment.apiBaseUrl}/currencies/available`);
       activeReq.flush({ data: [{ id: 'c-usd', code: 'USD', name: 'US Dollar' }, { id: 'c-eur', code: 'EUR', name: 'Euro' }], pagination: emptyPage.pagination });
-      availableReq.flush(availableCurrencies.map((c) => ({ ...c, isActive: true })));
 
       expect(component.currencies().map((c) => c.code)).toEqual(['USD', 'EUR']);
       expect(component.successMessage()).toBe('Кошелек создан');

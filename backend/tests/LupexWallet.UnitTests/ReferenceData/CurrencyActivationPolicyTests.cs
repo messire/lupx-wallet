@@ -9,7 +9,7 @@ using Xunit;
 namespace LupexWallet.UnitTests.ReferenceData;
 
 /// <summary>
-/// CurrencyActivationPolicy and the ICurrencyActivation port (ADR-0004 §7, PROGRESS R6): a currency
+/// CurrencyActivationPolicy and the ICurrencyActivation port (ADR-0004 §7): a currency
 /// becomes active only from the available list; the code is normalised; wallets resolve a code to an
 /// active currency (existing, activated, or null).
 /// </summary>
@@ -79,7 +79,8 @@ public sealed class CurrencyActivationPolicyTests
 
         var act = () => CreatePolicy().ActivateAsync("xyz", CancellationToken.None);
 
-        await act.Should().ThrowAsync<CurrencyCodeAlreadyExistsException>();
+        (await act.Should().ThrowAsync<CurrencyCodeAlreadyExistsException>())
+            .Which.Message.Should().Be("Валюта XYZ уже добавлена в активные.");
         await _available.DidNotReceiveWithAnyArgs().GetByCodeAsync(default!, default);
     }
 
@@ -149,7 +150,7 @@ public sealed class CurrencyActivationPolicyTests
     }
 
     [Fact]
-    public async Task Port_TakesTheCodeLockBeforeCheckingWhetherTheCurrencyIsActive()
+    public async Task Port_NotActiveCode_TakesTheExclusiveLockAndRechecksBeforeActivating()
     {
         MakeAvailable("GBP", "British Pound");
         var port = new CurrencyActivation(CreatePolicy(), _unitOfWork);
@@ -158,9 +159,41 @@ public sealed class CurrencyActivationPolicyTests
 
         Received.InOrder(() =>
         {
+            _currencies.GetByCodeAsync("GBP", Arg.Any<CancellationToken>());
             _unitOfWork.LockCurrencyCodeAsync(" gbp ", Arg.Any<CancellationToken>());
             _currencies.GetByCodeAsync("GBP", Arg.Any<CancellationToken>());
+            _currencies.Add(Arg.Any<Currency>());
         });
+        await _unitOfWork.DidNotReceiveWithAnyArgs().LockCurrencyCodeSharedAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task Port_ActiveCode_TakesOnlyTheSharedLockAndDoesNotSave()
+    {
+        var existing = Currency.Create(CurrencyId.New(), "EUR", "Euro");
+        _currencies.GetByCodeAsync("EUR", Arg.Any<CancellationToken>()).Returns(existing);
+        var port = new CurrencyActivation(CreatePolicy(), _unitOfWork);
+
+        var result = await port.EnsureActiveAsync(" eur ", CancellationToken.None);
+
+        result.Should().NotBeNull();
+        result!.Id.Should().Be(existing.Id);
+        await _unitOfWork.Received(1).LockCurrencyCodeSharedAsync(" eur ", Arg.Any<CancellationToken>());
+        await _unitOfWork.DidNotReceiveWithAnyArgs().LockCurrencyCodeAsync(default!, default);
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Port_ActiveCodeRemovedWhileWaitingForTheSharedLock_ReturnsNullWithoutTakingTheExclusiveLock()
+    {
+        var existing = Currency.Create(CurrencyId.New(), "EUR", "Euro");
+        _currencies.GetByCodeAsync("EUR", Arg.Any<CancellationToken>()).Returns(existing, (Currency?)null);
+        var port = new CurrencyActivation(CreatePolicy(), _unitOfWork);
+
+        var result = await port.EnsureActiveAsync("EUR", CancellationToken.None);
+
+        result.Should().BeNull();
+        await _unitOfWork.DidNotReceiveWithAnyArgs().LockCurrencyCodeAsync(default!, default);
     }
 
     [Fact]
@@ -171,6 +204,7 @@ public sealed class CurrencyActivationPolicyTests
         await port.EnsureActiveAsync("  ", CancellationToken.None);
 
         await _unitOfWork.DidNotReceiveWithAnyArgs().LockCurrencyCodeAsync(default!, default);
+        await _unitOfWork.DidNotReceiveWithAnyArgs().LockCurrencyCodeSharedAsync(default!, default);
     }
 
     [Fact]

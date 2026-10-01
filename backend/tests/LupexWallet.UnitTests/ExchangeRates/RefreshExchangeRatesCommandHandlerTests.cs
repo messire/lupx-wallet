@@ -17,9 +17,9 @@ using Xunit;
 namespace LupexWallet.UnitTests.ExchangeRates;
 
 /// <summary>
-/// Политика fallback при недоступности Frankfurter (ADR-0004 п.6) и пропуск валют, не
-/// поддерживаемых Frankfurter (ADR-0004, "Последствия") — на моках портов, без БД/HTTP
-/// (docs/PROGRESS.md, W1.1 DoD пп.3/6).
+/// Fallback when Frankfurter is unavailable (ADR-0004 §6), skipping currencies it does not support
+/// (ADR-0004, "Consequences") and database failures while replacing the available list — on test
+/// doubles of the ports, no database or HTTP.
 /// </summary>
 public sealed class RefreshExchangeRatesCommandHandlerTests
 {
@@ -275,6 +275,37 @@ public sealed class RefreshExchangeRatesCommandHandlerTests
         result.HadFailures.Should().BeTrue("a failed list load is a failed refresh (502 for the manual button)");
         _repository.Received(1).Add(Arg.Is<ExchangeRateQuote>(q => q.FromCurrencyId == Usd));
         await _availableCurrencyCatalog.DidNotReceiveWithAnyArgs().ReplaceAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task Handle_ReplacingTheListFailsInTheDatabase_StillRefreshesPairsAndReportsFailure()
+    {
+        SetupCurrencies();
+        _availableCurrencyCatalog.ReplaceAsync(Arg.Any<IReadOnlyList<AvailableCurrencyItem>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(CreateConcurrencyException(
+                ExchangeRateQuote.Create(Usd, Primary, new ExchangeRateValue(0.9m), DateTimeOffset.UtcNow))));
+        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary], null));
+        _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlyList<ExchangeRateQuote>)[]);
+        _frankfurterClient.GetLatestRateAsync("USD", "EUR", Arg.Any<CancellationToken>()).Returns(0.9m);
+
+        var result = await CreateHandler().Handle(new RefreshExchangeRatesCommand(IsManualTrigger: true), CancellationToken.None);
+
+        result.HadFailures.Should().BeTrue("a list that could not be saved is a failed refresh (502 for the manual button)");
+        _repository.Received(1).Add(Arg.Is<ExchangeRateQuote>(q => q.FromCurrencyId == Usd));
+        _refreshSignal.Received(1).NotifyManualRefreshCompleted();
+    }
+
+    [Fact]
+    public async Task Handle_CatalogCurrencyCodesAreTakenFromTheCatalogWithoutPerCurrencyLookups()
+    {
+        SetupCurrencies();
+        _walletCurrencySet.GetAsync(Arg.Any<CancellationToken>()).Returns(new WalletCurrencySetResult(Primary, [Primary], null));
+        _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlyList<ExchangeRateQuote>)[]);
+        _frankfurterClient.GetLatestRateAsync("USD", "EUR", Arg.Any<CancellationToken>()).Returns(0.9m);
+
+        await CreateHandler().Handle(new RefreshExchangeRatesCommand(IsManualTrigger: false), CancellationToken.None);
+
+        await _currencyLookup.DidNotReceiveWithAnyArgs().GetAsync(default, default);
     }
 
     [Fact]

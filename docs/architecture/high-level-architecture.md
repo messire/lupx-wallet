@@ -49,10 +49,10 @@ backend/src/
       LupexWallet.Wallets.Infrastructure— EF Core DbContext (схема wallets), репозитории
       LupexWallet.Wallets.Api           — маппинг HTTP-эндпоинтов, DTO контракты
 
-    ReferenceData/    (WalletType, OperationType, Currency, OperationBehaviorKind) — те же 4 слоя
+    ReferenceData/    (WalletType, OperationType, Currency — активные валюты, AvailableCurrency — список доступных валют из сервиса курсов, OperationBehaviorKind) — те же 4 слоя
     Operations/        (Operation, Transfer) — те же 4 слоя
     BalanceHistory/    (BalanceSnapshot, BalanceRecalculationService, фоновая задача снепшота) — те же 4 слоя
-    ExchangeRates/      (ExchangeRateQuote, клиент Frankfurter, фоновая задача обновления) — те же 4 слоя
+    ExchangeRates/      (ExchangeRateQuote, HistoricalExchangeRate, HistoricalRateCoverage, клиент Frankfurter, фоновая задача) — те же 4 слоя. Три обязанности: обновление курсов к основной валюте, обновление списка доступных валют (хранит его ReferenceData), дозагрузка истории курсов (ADR-0004)
     Reporting/          (Total Amount / Historical Total Amount) — только Application + Api + тонкая Infrastructure для read-запросов через схемы
     Audit/              (AuditEntry, обработчики событий всех модулей) — те же 4 слоя, но Domain предельно простой
 
@@ -103,9 +103,9 @@ frontend/
 | Модуль | Задача | Периодичность | Решение |
 |---|---|---|---|
 | `BalanceHistory` | `BalanceSnapshotSchedulerHostedService` — при старте досоздает пропущенные слепки (по одной команде `BackfillWalletBalanceSnapshotsCommand` на кошелек — она вызывает `BalanceRecalculationService`, каскадно закрывает все пропуски разом), затем ежедневно в 12:00 UTC создает/обновляет слепок на сегодня. Обе обязанности — один `BackgroundService`, т.к. обе используют один и тот же `BalanceRecalculationService`. | ежедневно в 12:00 UTC + однократно при старте | раздел 5 требований, ADR-0003 |
-| `ExchangeRates` | `ExchangeRateRefreshBackgroundService` — плановое обновление курсов, реакция на смену основного кошелька по сигналу, перезапуск отсчёта после ручного обновления | раз в сутки (+ сброс таймера при ручном обновлении) | ADR-0004 |
+| `ExchangeRates` | `ExchangeRateRefreshBackgroundService` — проход из двух команд: `RefreshExchangeRatesCommand` (курсы активных валют к основной и список доступных валют), затем `BackfillExchangeRateHistoryCommand` (дозагрузка истории курсов по таблице покрытия). Внеочередной проход — по сигналу после фиксации транзакции: активация валюты, создание кошелька, смена валюты кошелька, смена основного кошелька. После ручного обновления из API — только дозагрузка истории и перезапуск отсчёта | раз в сутки + при старте + по сигналу (отсчёт перезапускается после любого прохода и ручного обновления) | ADR-0004 |
 
-Обе задачи идут через команды MediatR в собственном DI-scope с актором `System`. `ExchangeRates` вызывает ту же команду `RefreshExchangeRatesCommand`, что и ручное обновление из API (она намеренно не `ICommand`, см. ADR-0004). `BalanceHistory` отправляет `BackfillWalletBalanceSnapshotsCommand` на каждый кошелёк (`ICommand`) в отдельном scope на кошелёк: слепки кошелька, их аудит и advisory lock пересчёта записываются одной транзакцией `TransactionBehavior`.
+Обе задачи идут через команды MediatR в собственном DI-scope с актором `System`. `ExchangeRates` вызывает ту же команду `RefreshExchangeRatesCommand`, что и ручное обновление из API; обе его команды намеренно не `ICommand` (внутри HTTP-вызовы, см. ADR-0001 §4, ADR-0004), каждая выполняется в своём scope. Сигнал фоновому сервису (`Channel`) доставляется только после фиксации транзакции издателя (ADR-0001 §7). `BalanceHistory` отправляет `BackfillWalletBalanceSnapshotsCommand` на каждый кошелёк (`ICommand`) в отдельном scope на кошелёк: слепки кошелька, их аудит и advisory lock пересчёта записываются одной транзакцией `TransactionBehavior`.
 
 ## 6. API-хост
 

@@ -49,13 +49,12 @@ $$;");
                 name: "available_currencies",
                 schema: "reference_data");
 
-            migrationBuilder.AddColumn<bool>(
-                name: "is_active",
-                schema: "reference_data",
-                table: "currencies",
-                type: "boolean",
-                nullable: false,
-                defaultValue: true);
+            // The original column is NOT NULL without a default. Every existing row is active (Up
+            // rejects deactivated ones), so the default only backfills them and is dropped right after.
+            migrationBuilder.Sql(
+                "ALTER TABLE reference_data.currencies ADD COLUMN is_active boolean NOT NULL DEFAULT true;");
+            migrationBuilder.Sql(
+                "ALTER TABLE reference_data.currencies ALTER COLUMN is_active DROP DEFAULT;");
         }
     }
 }

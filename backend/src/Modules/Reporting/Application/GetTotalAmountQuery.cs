@@ -1,13 +1,14 @@
 using LupexWallet.BalanceHistory.Application;
 using LupexWallet.ExchangeRates.Application;
+using LupexWallet.ReferenceData.Application;
 using LupexWallet.SharedKernel;
 using LupexWallet.Wallets.Application;
 using MediatR;
 
 namespace LupexWallet.Reporting.Application;
 
-/// <summary>A wallet excluded from the total — risk #6 (docs/PROGRESS.md, item 5.1): user decision,
-/// happy path (not 409, not a 1:1 rate) — the wallet is skipped and the reason is returned to the client.</summary>
+/// <summary>A wallet excluded from the total (ADR-0004 §9): user decision, happy path (not 409,
+/// not a 1:1 rate) — the wallet is skipped and the reason is returned to the client.</summary>
 public sealed record ExcludedWalletDto(Guid WalletId, string Reason);
 
 /// <summary>docs/api/openapi.yaml, TotalAmount schema (Money is expanded into Amount+CurrencyId
@@ -30,7 +31,8 @@ public sealed record GetTotalAmountQuery(DateOnly? Date) : IRequest<TotalAmountD
 public sealed class GetTotalAmountQueryHandler(
     IWalletTotalsSource walletTotalsSource,
     IWalletBalanceOnDateLookup balanceOnDateLookup,
-    IExchangeRateLookup exchangeRateLookup) : IRequestHandler<GetTotalAmountQuery, TotalAmountDto?>
+    IExchangeRateLookup exchangeRateLookup,
+    ICurrencyLookup currencyLookup) : IRequestHandler<GetTotalAmountQuery, TotalAmountDto?>
 {
     public async Task<TotalAmountDto?> Handle(GetTotalAmountQuery request, CancellationToken cancellationToken)
     {
@@ -77,7 +79,7 @@ public sealed class GetTotalAmountQueryHandler(
 
             if (wallet.CurrencyId == targetCurrencyId)
             {
-                // DoD п.2: кошелек уже в валюте основного — без похода в ExchangeRates, курс 1:1.
+                // Кошелек уже в валюте основного — без похода в ExchangeRates, курс 1:1.
                 total += walletAmount;
                 continue;
             }
@@ -90,7 +92,7 @@ public sealed class GetTotalAmountQueryHandler(
                     wallet.CurrencyId, targetCurrencyId, historicalDate, cancellationToken);
                 if (rateResult is null)
                 {
-                    excludedWallets.Add(new ExcludedWalletDto(wallet.WalletId.Value, NoRateReason(wallet.CurrencyId, historicalDate)));
+                    excludedWallets.Add(new ExcludedWalletDto(wallet.WalletId.Value, await NoRateReasonAsync(wallet.CurrencyId, historicalDate, cancellationToken)));
                     continue;
                 }
 
@@ -101,7 +103,7 @@ public sealed class GetTotalAmountQueryHandler(
                 var latestRate = await exchangeRateLookup.GetRateAsync(wallet.CurrencyId, targetCurrencyId, cancellationToken);
                 if (latestRate is null)
                 {
-                    excludedWallets.Add(new ExcludedWalletDto(wallet.WalletId.Value, NoRateReason(wallet.CurrencyId, null)));
+                    excludedWallets.Add(new ExcludedWalletDto(wallet.WalletId.Value, await NoRateReasonAsync(wallet.CurrencyId, null, cancellationToken)));
                     continue;
                 }
 
@@ -123,7 +125,12 @@ public sealed class GetTotalAmountQueryHandler(
         return new TotalAmountDto(request.Date, total, targetCurrencyId.Value, ratesAsOfDate, excludedWallets);
     }
 
-    private static string NoRateReason(CurrencyId currencyId, DateOnly? date) => date is { } d
-        ? $"Курс валюты {currencyId.Value} на дату {d:yyyy-MM-dd} недоступен."
-        : $"Курс валюты {currencyId.Value} недоступен.";
+    private async Task<string> NoRateReasonAsync(CurrencyId currencyId, DateOnly? date, CancellationToken cancellationToken)
+    {
+        // The reason is shown to the user: use the currency code, falling back to the id only if the lookup misses.
+        var currency = (await currencyLookup.GetAsync(currencyId, cancellationToken))?.Code ?? currencyId.Value.ToString();
+        return date is { } d
+            ? $"Курс валюты {currency} на дату {d:yyyy-MM-dd} недоступен."
+            : $"Курс валюты {currency} недоступен.";
+    }
 }

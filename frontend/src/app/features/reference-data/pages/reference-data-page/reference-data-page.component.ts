@@ -1,7 +1,8 @@
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, signal, viewChild } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
-import { forkJoin } from 'rxjs';
+import { RouterLink } from '@angular/router';
+import { finalize, forkJoin } from 'rxjs';
 import { extractErrorMessage } from '../../../../core/http/problem-details';
 import { CurrencyOption } from '@shared/currencies/currency-option';
 import { CurrencySelectComponent } from '@shared/currencies/currency-select/currency-select.component';
@@ -17,6 +18,7 @@ import { LoadingStateComponent } from '@shared/ui/loading-state/loading-state.co
 import { SkeletonComponent } from '@shared/ui/skeleton/skeleton.component';
 import { ErrorStateComponent } from '@shared/ui/error-state/error-state.component';
 import { DialogComponent } from '@shared/ui/dialog/dialog.component';
+import { ToastComponent } from '@shared/ui/toast/toast.component';
 
 export type ReferenceTab = 'wallet-types' | 'operation-types' | 'currencies';
 
@@ -26,7 +28,8 @@ export type ReferenceTab = 'wallet-types' | 'operation-types' | 'currencies';
  * flag, create, deactivate, delete. Currencies work differently (ADR-0004 §7): the
  * list holds only active currencies, a currency is added to it from the list
  * provided by the exchange-rate service, and removed from it ("Убрать из активных")
- * — there is no deactivation.
+ * — there is no deactivation. The list of available currencies is loaded as its own
+ * stream with its own error state, so its failure never blocks the other tabs.
  *
  * HTTP calls go only through ReferenceDataApiService — the same service used by the
  * quick-add mini-forms on the wallets screen (features/wallets), so logic is not
@@ -37,6 +40,7 @@ export type ReferenceTab = 'wallet-types' | 'operation-types' | 'currencies';
   standalone: true,
   imports: [
     ReactiveFormsModule,
+    RouterLink,
     CurrencySelectComponent,
     TabsComponent,
     ButtonComponent,
@@ -48,6 +52,7 @@ export type ReferenceTab = 'wallet-types' | 'operation-types' | 'currencies';
     SkeletonComponent,
     ErrorStateComponent,
     DialogComponent,
+    ToastComponent,
   ],
   templateUrl: './reference-data-page.component.html',
   styleUrl: './reference-data-page.component.scss',
@@ -69,6 +74,8 @@ export class ReferenceDataComponent implements OnInit {
   readonly operationTypes = signal<OperationType[]>([]);
   readonly currencies = signal<Currency[]>([]);
   readonly availableCurrencies = signal<AvailableCurrency[]>([]);
+  readonly availableCurrenciesLoading = signal(false);
+  readonly availableCurrenciesError = signal<string | null>(null);
   readonly behaviorKinds = signal<OperationBehaviorKind[]>([]);
 
   /**
@@ -85,12 +92,10 @@ export class ReferenceDataComponent implements OnInit {
       .map(({ code, name }) => ({ code, name }));
   });
 
-  /**
-   * Id of the combobox's inner `<input>`, targeted by the "Добавить в активные" label. Bound as a property:
-   * a plain `id="…"` attribute would also stay on the `<app-currency-select>` host, and the label would
-   * point at that (non-labelable) element, leaving the combobox without an accessible name.
-   */
-  protected readonly currencyControlId = 'currencyQuickAddControl';
+  /** Permanent hint under the "add" field: with nothing left to add the popup alone would be the only place to learn why. */
+  protected readonly allCurrenciesAddedHint = 'Все доступные валюты уже добавлены';
+
+  private readonly tabsComponent = viewChild(TabsComponent);
 
   /** The currency awaiting confirmation before it is removed from the active ones. */
   readonly pendingCurrencyRemoval = signal<Currency | null>(null);
@@ -98,6 +103,8 @@ export class ReferenceDataComponent implements OnInit {
   readonly isLoading = signal(false);
   readonly loadError = signal<string | null>(null);
   readonly actionError = signal<string | null>(null);
+  /** Brief success confirmation (ui-kit §5 "Empty, loading, error, feedback") — app-toast, auto-dismisses. */
+  readonly successMessage = signal<string | null>(null);
 
   readonly walletTypeForm = this.formBuilder.nonNullable.group({
     name: ['', Validators.required],
@@ -127,6 +134,7 @@ export class ReferenceDataComponent implements OnInit {
   loadAll(): void {
     this.isLoading.set(true);
     this.loadError.set(null);
+    this.loadAvailableCurrencies();
 
     // includeInactive: true for wallet and operation types — unlike the mini-forms on the
     // wallets screen (which only need active items for selection), this management screen
@@ -135,14 +143,12 @@ export class ReferenceDataComponent implements OnInit {
       walletTypes: this.referenceDataService.listWalletTypes({ includeInactive: true, limit: 100 }),
       operationTypes: this.referenceDataService.listOperationTypes({ includeInactive: true, limit: 100 }),
       currencies: this.referenceDataService.listCurrencies({ limit: 100 }),
-      availableCurrencies: this.referenceDataService.listAvailableCurrencies(),
       behaviorKinds: this.referenceDataService.listOperationBehaviorKinds(),
     }).subscribe({
       next: (result) => {
         this.walletTypes.set(result.walletTypes.data);
         this.operationTypes.set(result.operationTypes.data);
         this.currencies.set(result.currencies.data);
-        this.availableCurrencies.set(result.availableCurrencies);
         this.behaviorKinds.set(result.behaviorKinds);
         this.isLoading.set(false);
       },
@@ -151,6 +157,27 @@ export class ReferenceDataComponent implements OnInit {
         this.isLoading.set(false);
       },
     });
+  }
+
+  /** Own stream with its own error: a failure here must not hide the wallet/operation type tabs. */
+  loadAvailableCurrencies(): void {
+    this.availableCurrenciesLoading.set(true);
+    this.availableCurrenciesError.set(null);
+
+    this.referenceDataService
+      .listAvailableCurrencies()
+      .pipe(finalize(() => this.availableCurrenciesLoading.set(false)))
+      .subscribe({
+        next: (currencies) => this.availableCurrencies.set(currencies),
+        error: (error: unknown) =>
+          this.availableCurrenciesError.set(extractErrorMessage(error, 'Не удалось загрузить список доступных валют.')),
+      });
+  }
+
+  /** The retry button disappears with the error state, so focus moves to the (focusable) tab panel instead of falling back to the body. */
+  retryAvailableCurrencies(): void {
+    this.loadAvailableCurrencies();
+    this.focusElement(this.tabsComponent()?.panelElementId('currencies'));
   }
 
   behaviorKindName(id: string): string {
@@ -246,11 +273,17 @@ export class ReferenceDataComponent implements OnInit {
       next: () => {
         this.isSubmittingCurrency.set(false);
         this.currencyForm.reset({ code: '' });
+        this.successMessage.set('Валюта добавлена; курсы и история загружаются в фоне');
         this.reloadCurrencies();
       },
       error: (error: unknown) => {
         this.isSubmittingCurrency.set(false);
         this.actionError.set(this.currencyCreateError(error));
+        if (error instanceof HttpErrorResponse && error.status === 409) {
+          // Already active (added elsewhere): our lists are stale, and the chosen code must not stay selected invisibly.
+          this.currencyForm.reset({ code: '' });
+          this.reloadCurrencies();
+        }
       },
     });
   }
@@ -273,7 +306,8 @@ export class ReferenceDataComponent implements OnInit {
     this.pendingCurrencyRemoval.set(null);
 
     this.referenceDataService.deleteCurrency(item.id).subscribe({
-      next: () => this.reloadCurrencies(),
+      // The clicked "Убрать из активных" button is removed together with its row, so focus goes to the tab.
+      next: () => this.reloadCurrencies(true),
       error: (error: unknown) => this.actionError.set(this.currencyRemovalError(error)),
     });
   }
@@ -307,17 +341,27 @@ export class ReferenceDataComponent implements OnInit {
       .subscribe((page) => this.operationTypes.set(page.data));
   }
 
-  /** Both lists change together: an added/removed currency flips its `isActive` in the available list. */
-  private reloadCurrencies(): void {
-    forkJoin({
-      currencies: this.referenceDataService.listCurrencies({ limit: 100 }),
-      availableCurrencies: this.referenceDataService.listAvailableCurrencies(),
-    }).subscribe({
-      next: (result) => {
-        this.currencies.set(result.currencies.data);
-        this.availableCurrencies.set(result.availableCurrencies);
-      },
-      error: (error: unknown) => this.actionError.set(extractErrorMessage(error, 'Не удалось обновить список валют.')),
-    });
+  /** Both lists change together: an added/removed currency flips its `isActive` in the available list. Loaded as two independent streams. */
+  private reloadCurrencies(restoreFocusToTab = false): void {
+    this.loadAvailableCurrencies();
+    this.referenceDataService
+      .listCurrencies({ limit: 100 })
+      .pipe(
+        finalize(() => {
+          if (restoreFocusToTab) {
+            this.focusElement(this.tabsComponent()?.tabElementId('currencies'));
+          }
+        }),
+      )
+      .subscribe({
+        next: (page) => this.currencies.set(page.data),
+        error: (error: unknown) => this.actionError.set(extractErrorMessage(error, 'Не удалось обновить список валют.')),
+      });
+  }
+
+  private focusElement(id: string | undefined): void {
+    if (id) {
+      document.getElementById(id)?.focus();
+    }
   }
 }

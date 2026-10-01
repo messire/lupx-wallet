@@ -8,16 +8,9 @@ using Microsoft.Extensions.Logging;
 namespace LupexWallet.ExchangeRates.Infrastructure;
 
 /// <summary>
-/// Implements ADR-0004 p.2/3/9 — the daily pass (rates refresh, then rate history load); a manual
-/// refresh resets the countdown; a refresh request (PrimaryWalletChanged, WalletCurrencyChanged,
-/// WalletCreated, CurrencyCreated — signalled only after the publisher's transaction commits)
-/// triggers an out-of-band pass. Like BalanceHistory.Infrastructure.BalanceSnapshotSchedulerHostedService —
-/// a single run's failure must not bring down the whole host (try/catch in RunSafelyAsync).
-///
-/// Scheduling (when the next scheduled run happens) is extracted into the pure
-/// ExchangeRateRefreshTimer (ExchangeRates.Application) — testable without a real
-/// Task.Delay. Only the I/O part remains here: waiting for a signal or delay expiry, and
-/// performing the pass itself.
+/// Daily pass (rates refresh, then history load) plus out-of-band passes on a refresh request signalled
+/// after the publisher's transaction commits (ADR-0004 §3, §5, §9). A manual refresh restarts the daily
+/// countdown and triggers only the history load. A failed run is logged and never stops the host.
 /// </summary>
 public sealed class ExchangeRateRefreshBackgroundService(
     IServiceScopeFactory scopeFactory,
@@ -43,8 +36,9 @@ public sealed class ExchangeRateRefreshBackgroundService(
 
             if (signal == ExchangeRateRefreshSignalKind.ManualRefreshCompleted)
             {
-                // The endpoint already refreshed synchronously — only restart the daily
-                // countdown (ADR-0004 п.3).
+                // The endpoint already refreshed the rates; restart the countdown and catch up the history,
+                // otherwise repeated manual refreshes would keep postponing the scheduled load (ADR-0004 §3, §9).
+                await RunBackfillAsync(stoppingToken);
                 timer.Reset(DateTimeOffset.UtcNow);
                 continue;
             }
@@ -101,9 +95,11 @@ public sealed class ExchangeRateRefreshBackgroundService(
     {
         await RunSafelyAsync(
             new RefreshExchangeRatesCommand(IsManualTrigger: false), "Обновление курсов валют", cancellationToken);
-        await RunSafelyAsync(
-            new BackfillExchangeRateHistoryCommand(), "Дозагрузка истории курсов валют", cancellationToken);
+        await RunBackfillAsync(cancellationToken);
     }
+
+    private Task RunBackfillAsync(CancellationToken cancellationToken) =>
+        RunSafelyAsync(new BackfillExchangeRateHistoryCommand(), "Дозагрузка истории курсов валют", cancellationToken);
 
     private async Task RunSafelyAsync<TResponse>(IRequest<TResponse> command, string description, CancellationToken cancellationToken)
     {
@@ -115,7 +111,7 @@ public sealed class ExchangeRateRefreshBackgroundService(
 
             await scope.ServiceProvider.GetRequiredService<ISender>().Send(command, cancellationToken);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             // A failure of the whole pass (e.g. the database is unavailable) must not bring the host
             // down — the next scheduled pass (in 24 hours) or the next signal tries again.

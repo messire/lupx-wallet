@@ -123,4 +123,72 @@ describe('ReportingComponent', () => {
     expect(total?.amount.amount).toBe('80');
     expect(component.ratesNote(total!)).toBe('2026-04-20');
   });
+
+  describe('historical total (UC-21) DOM', () => {
+    const totalUrl = (req: { url: string }) => req.url === `${environment.apiBaseUrl}/reporting/total-amount`;
+
+    function showHistorical(historical: { ratesAsOfDate: string; excludedWallets: Array<{ walletId: string; reason: string }> }) {
+      const fixture = createComponent();
+      httpMock.expectOne((req) => totalUrl(req) && !req.params.has('date')).flush({
+        date: null,
+        amount: { amount: '100', currencyId: 'cur-usd' },
+        ratesAsOfDate: '2026-09-11',
+        excludedWallets: [],
+      });
+      fixture.componentInstance.dateForm.controls.date.setValue('2026-05-01');
+      fixture.componentInstance.showHistorical();
+      httpMock.expectOne((req) => totalUrl(req) && req.params.get('date') === '2026-05-01').flush({
+        date: '2026-05-01',
+        amount: { amount: '80', currencyId: 'cur-usd' },
+        ...historical,
+      });
+      fixture.detectChanges();
+      const cards = (fixture.nativeElement as HTMLElement).querySelectorAll('app-card');
+      return cards[1] as HTMLElement;
+    }
+
+    it('always shows "Курс по состоянию на <ratesAsOfDate>", also when it equals the requested date', () => {
+      const card = showHistorical({ ratesAsOfDate: '2026-05-01', excludedWallets: [] });
+
+      expect(card.textContent).toContain('Курс по состоянию на 2026-05-01.');
+    });
+
+    it('shows the applied rate date when it differs from the requested one', () => {
+      const card = showHistorical({ ratesAsOfDate: '2026-04-20', excludedWallets: [] });
+
+      expect(card.textContent).toContain('Курс по состоянию на 2026-04-20.');
+    });
+
+    it('without excluded wallets there is no badge and no "incomplete" caption', () => {
+      const card = showHistorical({ ratesAsOfDate: '2026-05-01', excludedWallets: [] });
+
+      expect(card.querySelector('app-badge')).toBeNull();
+      expect(card.textContent).not.toContain('Сумма неполная');
+    });
+
+    it('with excluded wallets shows the badge, the "incomplete, history still loading" caption next to it, and the reason as sent by the backend', () => {
+      const reason = 'Нет курса EUR → USD на 2026-05-01';
+      const card = showHistorical({ ratesAsOfDate: '2026-05-01', excludedWallets: [{ walletId: 'wallet-crypto', reason }] });
+
+      const group = card.querySelector('.excluded-wallets') as HTMLElement;
+      expect(group.querySelector('app-badge')?.textContent).toContain('Не учтено кошельков: 1');
+      expect(group.querySelector('.excluded-wallets__note')?.textContent?.trim()).toBe(
+        'Сумма неполная: история курсов ещё загружается, повторите позже',
+      );
+      expect(group.querySelector('li')?.textContent?.trim()).toBe(`Крипта — ${reason}`);
+    });
+
+    it('the "incomplete" caption is not shown for the current total', () => {
+      const fixture = createComponent();
+      httpMock.expectOne(totalUrl).flush({
+        date: null,
+        amount: { amount: '100', currencyId: 'cur-usd' },
+        ratesAsOfDate: '2026-09-11',
+        excludedWallets: [{ walletId: 'wallet-crypto', reason: 'Курс валюты недоступен.' }],
+      });
+      fixture.detectChanges();
+
+      expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Сумма неполная');
+    });
+  });
 });

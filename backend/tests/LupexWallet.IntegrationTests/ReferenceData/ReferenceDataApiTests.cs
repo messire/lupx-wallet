@@ -65,7 +65,7 @@ public sealed class ReferenceDataApiTests(ApiTestFixture fixture) : IntegrationT
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
-    // ---- W2.5, §4 (ADR-0002): isUsed через реальные IReferenceItemUsageProbe ----
+    // ---- ADR-0002 §4: isUsed via the real IReferenceItemUsageProbe implementations ----
 
     [Fact]
     public async Task DeleteWalletType_UsedByWallet_ReturnsConflict()

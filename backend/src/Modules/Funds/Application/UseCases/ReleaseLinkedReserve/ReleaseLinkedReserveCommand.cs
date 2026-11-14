@@ -7,10 +7,12 @@ namespace LupexWallet.Funds.Application;
 /// <summary>
 /// ADR-0010 §4, B9: a payment of debt/loan X from wallet W releases the reserve of the active
 /// fund(s) linked to X on W, in total not more than <see cref="Amount"/> and not more than each
-/// allocation. Several linked funds are released oldest first. Returns the released total.
-/// Meant for the future subscriber to the Debts payment events; no HTTP endpoint.
+/// allocation. Several linked funds are released oldest first. What each fund released is kept per
+/// <see cref="OperationId"/>, so deleting the expense can bring it back
+/// (<see cref="RestoreLinkedReserveCommand"/>). Returns the released total. Sent by the Funds
+/// subscribers to DebtRepaymentRecorded / LoanPaymentRecorded / OperationRestored; no HTTP endpoint.
 /// </summary>
-public sealed record ReleaseLinkedReserveCommand(Guid? DebtId, Guid? LoanId, Guid WalletId, decimal Amount)
+public sealed record ReleaseLinkedReserveCommand(Guid? DebtId, Guid? LoanId, Guid WalletId, decimal Amount, Guid OperationId)
     : IRequest<decimal>, ICommand<decimal>;
 
 public sealed class ReleaseLinkedReserveCommandHandler(IFundRepository repository, IFundsUnitOfWork unitOfWork)
@@ -29,6 +31,7 @@ public sealed class ReleaseLinkedReserveCommandHandler(IFundRepository repositor
         }
 
         var walletId = new WalletId(request.WalletId);
+        var operationId = new OperationId(request.OperationId);
         await unitOfWork.AcquireWalletLockAsync(walletId, cancellationToken);
 
         var funds = await repository.GetActiveLinkedAsync(request.DebtId, request.LoanId, cancellationToken);
@@ -41,7 +44,7 @@ public sealed class ReleaseLinkedReserveCommandHandler(IFundRepository repositor
                 break;
             }
 
-            remaining -= fund.ReleaseUpTo(walletId, remaining);
+            remaining -= fund.ReleaseForPayment(walletId, operationId, remaining);
         }
 
         var released = request.Amount - remaining;

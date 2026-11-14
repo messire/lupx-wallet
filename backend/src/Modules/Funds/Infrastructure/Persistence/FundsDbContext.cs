@@ -8,11 +8,13 @@ public sealed class FundsDbContext(DbContextOptions<FundsDbContext> options) : D
 {
     public DbSet<Fund> Funds => Set<Fund>();
     public DbSet<FundAllocation> FundAllocations => Set<FundAllocation>();
+    public DbSet<FundLinkedRelease> FundLinkedReleases => Set<FundLinkedRelease>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("funds");
         modelBuilder.ApplyConfiguration(new FundConfiguration());
         modelBuilder.ApplyConfiguration(new FundAllocationConfiguration());
+        modelBuilder.ApplyConfiguration(new FundLinkedReleaseConfiguration());
     }
 }

@@ -43,7 +43,8 @@ public sealed class FundReservedAuditHandler(AuditRecorder recorder, DispatchDom
     {
         var e = notification.DomainEvent;
         return FundAllocationAudit.RecordAsync(
-            recorder, interceptor, e, e.FundId.Value, "Reserved", e.WalletId.Value, e.OldAllocation, e.NewAllocation, reason: null, cancellationToken);
+            recorder, interceptor, e, e.FundId.Value, "Reserved", e.WalletId.Value, e.OldAllocation, e.NewAllocation,
+            e.Reason == FundReserveReason.Manual ? null : ("ReserveReason", e.Reason.ToString()), e.OperationId?.Value, cancellationToken);
     }
 }
 
@@ -54,11 +55,15 @@ public sealed class FundReleasedAuditHandler(AuditRecorder recorder, DispatchDom
     {
         var e = notification.DomainEvent;
         return FundAllocationAudit.RecordAsync(
-            recorder, interceptor, e, e.FundId.Value, "Released", e.WalletId.Value, e.OldAllocation, e.NewAllocation, e.Reason.ToString(), cancellationToken);
+            recorder, interceptor, e, e.FundId.Value, "Released", e.WalletId.Value, e.OldAllocation, e.NewAllocation,
+            ("ReleaseReason", e.Reason.ToString()), e.OperationId?.Value, cancellationToken);
     }
 }
 
-/// <summary>One entry per allocation change: field "Allocation[walletId]" with old/new amount, plus the release reason.</summary>
+/// <summary>
+/// One entry per allocation change: field "Allocation[walletId]" with old/new amount, plus the reason
+/// (ReleaseReason always; ReserveReason when not manual) and the payment OperationId for B9 changes.
+/// </summary>
 internal static class FundAllocationAudit
 {
     public static Task RecordAsync(
@@ -70,7 +75,8 @@ internal static class FundAllocationAudit
         Guid walletId,
         decimal oldAmount,
         decimal newAmount,
-        string? reason,
+        (string Field, string Value)? reason,
+        Guid? operationId,
         CancellationToken cancellationToken)
     {
         // The fund-row diff is shared by all events of this save; drop it so it is not kept in the scope.
@@ -80,9 +86,14 @@ internal static class FundAllocationAudit
         {
             new($"Allocation[{walletId}]", Format(oldAmount), Format(newAmount)),
         };
-        if (reason is not null)
+        if (reason is { } r)
         {
-            changes.Add(new AuditFieldChange("ReleaseReason", null, reason));
+            changes.Add(new AuditFieldChange(r.Field, null, r.Value));
+        }
+
+        if (operationId is { } id)
+        {
+            changes.Add(new AuditFieldChange("OperationId", null, id.ToString()));
         }
 
         return recorder.RecordAsync("Fund", fundId, action, changes, cancellationToken);

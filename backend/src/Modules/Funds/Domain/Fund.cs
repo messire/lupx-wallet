@@ -13,6 +13,7 @@ public sealed class Fund : AggregateRoot<FundId>
     public const int MaxNameLength = 200;
 
     private readonly List<FundAllocation> _allocations = [];
+    private readonly List<FundLinkedRelease> _linkedReleases = [];
 
     public string Name { get; private set; } = null!;
     public decimal TargetAmount { get; private set; }
@@ -30,6 +31,9 @@ public sealed class Fund : AggregateRoot<FundId>
     public DateTimeOffset? ClosedAt { get; private set; }
 
     public IReadOnlyList<FundAllocation> Allocations => _allocations.AsReadOnly();
+
+    /// <summary>Reserves released by linked debt/loan payments, per payment operation and wallet (B9).</summary>
+    public IReadOnlyList<FundLinkedRelease> LinkedReleases => _linkedReleases.AsReadOnly();
 
     public Money Target => new(TargetAmount, CurrencyId);
 
@@ -162,6 +166,67 @@ public sealed class Fund : AggregateRoot<FundId>
         return released;
     }
 
+    /// <summary>
+    /// <see cref="ReleaseUpTo"/> for the payment operation, remembering how much this operation
+    /// released so that deleting the expense can bring it back (<see cref="RestoreLinkedRelease"/>).
+    /// </summary>
+    public decimal ReleaseForPayment(WalletId walletId, OperationId operationId, decimal amount)
+    {
+        EnsurePositive(amount);
+
+        var allocation = FindAllocation(walletId);
+        if (!IsActive || allocation is null || allocation.Amount == 0m)
+        {
+            return 0m;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var released = Math.Min(amount, allocation.Amount);
+        Decrease(allocation, released, FundReleaseReason.LinkedPayment, now, operationId);
+
+        var record = FindLinkedRelease(operationId, walletId);
+        if (record is null)
+        {
+            record = FundLinkedRelease.Create(Id, operationId, walletId, now);
+            _linkedReleases.Add(record);
+        }
+
+        record.SetAmount(record.Amount + released, now);
+        return released;
+    }
+
+    /// <summary>Reserve the operation currently keeps released on the wallet (0 if none).</summary>
+    public decimal ReleasedBy(OperationId operationId, WalletId walletId) => FindLinkedRelease(operationId, walletId)?.Amount ?? 0m;
+
+    /// <summary>
+    /// The payment expense was soft-deleted (ADR-0010 §4, B9): gives back what it released on the
+    /// wallet, not more than <paramref name="maxAmount"/> (the wallet's free funds, checked by the
+    /// caller). Returns the restored amount; 0 for a closed fund.
+    /// </summary>
+    public decimal RestoreLinkedRelease(OperationId operationId, WalletId walletId, decimal maxAmount)
+    {
+        var record = FindLinkedRelease(operationId, walletId);
+        if (!IsActive || record is null || record.Amount == 0m || maxAmount <= 0m)
+        {
+            return 0m;
+        }
+
+        var restored = Math.Min(record.Amount, maxAmount);
+        var now = DateTimeOffset.UtcNow;
+        var allocation = FindAllocation(walletId)!;
+        var old = allocation.Amount;
+        allocation.SetAmount(old + restored, now);
+        record.SetAmount(record.Amount - restored, now);
+        UpdatedAt = now;
+
+        Raise(new FundReserved(Id, walletId, CurrencyId, restored, old, allocation.Amount)
+        {
+            Reason = FundReserveReason.LinkedPaymentDeleted,
+            OperationId = operationId,
+        });
+        return restored;
+    }
+
     /// <summary>Closes the fund and releases all allocations (ADR-0010 §4). Closed is final.</summary>
     public void Close()
     {
@@ -190,15 +255,19 @@ public sealed class Fund : AggregateRoot<FundId>
 
     public void MarkAsDeleted() => Raise(new FundDeleted(Id));
 
-    private void Decrease(FundAllocation allocation, decimal amount, FundReleaseReason reason, DateTimeOffset now)
+    private void Decrease(
+        FundAllocation allocation, decimal amount, FundReleaseReason reason, DateTimeOffset now, OperationId? operationId = null)
     {
         var old = allocation.Amount;
         allocation.SetAmount(old - amount, now);
         UpdatedAt = now;
-        Raise(new FundReleased(Id, allocation.WalletId, CurrencyId, amount, old, allocation.Amount, reason));
+        Raise(new FundReleased(Id, allocation.WalletId, CurrencyId, amount, old, allocation.Amount, reason) { OperationId = operationId });
     }
 
     private FundAllocation? FindAllocation(WalletId walletId) => _allocations.FirstOrDefault(a => a.WalletId == walletId);
+
+    private FundLinkedRelease? FindLinkedRelease(OperationId operationId, WalletId walletId) =>
+        _linkedReleases.FirstOrDefault(r => r.OperationId == operationId && r.WalletId == walletId);
 
     private void EnsureActive()
     {

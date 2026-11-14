@@ -12,20 +12,30 @@ public sealed class FundRepository(FundsDbContext dbContext) : IFundRepository
     public void Remove(Fund fund) => dbContext.Funds.Remove(fund);
 
     public Task<Fund?> GetByIdAsync(FundId id, CancellationToken cancellationToken) =>
-        dbContext.Funds.Include(f => f.Allocations).FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
+        dbContext.Funds.Include(f => f.Allocations).Include(f => f.LinkedReleases).FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
 
     public async Task<IReadOnlyList<Fund>> GetActiveLinkedAsync(Guid? debtId, Guid? loanId, CancellationToken cancellationToken) =>
         await dbContext.Funds
             .Include(f => f.Allocations)
+            .Include(f => f.LinkedReleases)
             .Where(f => f.Status == FundStatus.Active)
             .Where(f => (debtId != null && f.LinkedDebtId == debtId) || (loanId != null && f.LinkedLoanId == loanId))
+            .OrderBy(f => f.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<Fund>> GetActiveWithLinkedReleaseAsync(OperationId operationId, CancellationToken cancellationToken) =>
+        await dbContext.Funds
+            .Include(f => f.Allocations)
+            .Include(f => f.LinkedReleases)
+            .Where(f => f.Status == FundStatus.Active)
+            .Where(f => f.LinkedReleases.Any(r => r.OperationId == operationId && r.Amount != 0m))
             .OrderBy(f => f.CreatedAt)
             .ToListAsync(cancellationToken);
 
     public async Task<FundPageResult> ListAsync(
         bool includeClosed, FundCursor? afterCursor, int limit, CancellationToken cancellationToken)
     {
-        var query = dbContext.Funds.Include(f => f.Allocations).AsQueryable();
+        var query = dbContext.Funds.Include(f => f.Allocations).Include(f => f.LinkedReleases).AsSplitQuery().AsQueryable();
 
         if (!includeClosed)
         {

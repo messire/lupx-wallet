@@ -54,6 +54,14 @@ public sealed class FundConfiguration : IEntityTypeConfiguration<Fund>
             .HasField("_allocations")
             .UsePropertyAccessMode(PropertyAccessMode.Field);
 
+        builder.HasMany(f => f.LinkedReleases)
+            .WithOne()
+            .HasForeignKey(r => r.FundId)
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Navigation(f => f.LinkedReleases)
+            .HasField("_linkedReleases")
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+
         builder.HasIndex(f => f.CreatedAt).HasDatabaseName("ix_funds_created_at");
         builder.HasIndex(f => f.LinkedDebtId).HasDatabaseName("ix_funds_linked_debt").HasFilter("linked_debt_id IS NOT NULL");
         builder.HasIndex(f => f.LinkedLoanId).HasDatabaseName("ix_funds_linked_loan").HasFilter("linked_loan_id IS NOT NULL");

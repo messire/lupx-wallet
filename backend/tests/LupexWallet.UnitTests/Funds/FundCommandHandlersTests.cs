@@ -1,4 +1,5 @@
 using FluentAssertions;
+using LupexWallet.Debts.Application;
 using LupexWallet.Funds.Application;
 using LupexWallet.Funds.Domain;
 using LupexWallet.ReferenceData.Application;
@@ -43,6 +44,8 @@ public sealed class FundCommandHandlersTests
         return gateway;
     }
 
+    private static FundLinkValidator NoLinks() => new(Substitute.For<IDebtObligationsLookup>());
+
     // ---- Create / Update / Delete / Close ----
 
     [Fact]
@@ -51,7 +54,7 @@ public sealed class FundCommandHandlersTests
         var repository = RepositoryReturning(null);
         var currencyLookup = Substitute.For<ICurrencyLookup>();
         var handler = new CreateFundCommandHandler(
-            repository, Substitute.For<IFundsUnitOfWork>(), currencyLookup, new FundViewBuilder(repository, Wallets()));
+            repository, Substitute.For<IFundsUnitOfWork>(), currencyLookup, NoLinks(), new FundViewBuilder(repository, Wallets()));
 
         var act = () => handler.Handle(new CreateFundCommand("Фонд", 10m, Guid.NewGuid(), null, null), CancellationToken.None);
 
@@ -66,7 +69,7 @@ public sealed class FundCommandHandlersTests
         var unitOfWork = Substitute.For<IFundsUnitOfWork>();
         var currencyLookup = Substitute.For<ICurrencyLookup>();
         currencyLookup.GetAsync(Usd, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(Usd, "USD"));
-        var handler = new CreateFundCommandHandler(repository, unitOfWork, currencyLookup, new FundViewBuilder(repository, Wallets()));
+        var handler = new CreateFundCommandHandler(repository, unitOfWork, currencyLookup, NoLinks(), new FundViewBuilder(repository, Wallets()));
 
         var dto = await handler.Handle(new CreateFundCommand("Фонд", 200m, Usd.Value, null, null), CancellationToken.None);
 
@@ -81,7 +84,7 @@ public sealed class FundCommandHandlersTests
     {
         var repository = RepositoryReturning(null);
         var handler = new UpdateFundCommandHandler(
-            repository, Substitute.For<IFundsUnitOfWork>(), Substitute.For<ICurrencyLookup>(), new FundViewBuilder(repository, Wallets()));
+            repository, Substitute.For<IFundsUnitOfWork>(), Substitute.For<ICurrencyLookup>(), NoLinks(), new FundViewBuilder(repository, Wallets()));
 
         var act = () => handler.Handle(new UpdateFundCommand(Guid.NewGuid(), "x", 1m, Usd.Value, null, null), CancellationToken.None);
 
@@ -199,7 +202,7 @@ public sealed class FundCommandHandlersTests
         fund.Reserve(WalletA, Usd, 100m);
         var (handler, unitOfWork) = LinkedHandler(fund);
 
-        var released = await handler.Handle(new ReleaseLinkedReserveCommand(debtId, null, WalletA.Value, 30m), CancellationToken.None);
+        var released = await handler.Handle(new ReleaseLinkedReserveCommand(debtId, null, WalletA.Value, 30m, Guid.NewGuid()), CancellationToken.None);
 
         released.Should().Be(30m);
         fund.AllocatedOn(WalletA).Should().Be(70m);
@@ -216,7 +219,7 @@ public sealed class FundCommandHandlersTests
         fund.Reserve(WalletB, Usd, 50m);
         var (handler, _) = LinkedHandler(fund);
 
-        var released = await handler.Handle(new ReleaseLinkedReserveCommand(null, loanId, WalletA.Value, 30m), CancellationToken.None);
+        var released = await handler.Handle(new ReleaseLinkedReserveCommand(null, loanId, WalletA.Value, 30m, Guid.NewGuid()), CancellationToken.None);
 
         released.Should().Be(20m);
         fund.AllocatedOn(WalletA).Should().Be(0m);
@@ -233,7 +236,7 @@ public sealed class FundCommandHandlersTests
         second.Reserve(WalletA, Usd, 10m);
         var (handler, _) = LinkedHandler(first, second);
 
-        var released = await handler.Handle(new ReleaseLinkedReserveCommand(debtId, null, WalletA.Value, 15m), CancellationToken.None);
+        var released = await handler.Handle(new ReleaseLinkedReserveCommand(debtId, null, WalletA.Value, 15m, Guid.NewGuid()), CancellationToken.None);
 
         released.Should().Be(15m);
         first.AllocatedOn(WalletA).Should().Be(0m);
@@ -248,7 +251,7 @@ public sealed class FundCommandHandlersTests
         fund.Reserve(WalletB, Usd, 10m);
         var (handler, unitOfWork) = LinkedHandler(fund);
 
-        var released = await handler.Handle(new ReleaseLinkedReserveCommand(debtId, null, WalletA.Value, 15m), CancellationToken.None);
+        var released = await handler.Handle(new ReleaseLinkedReserveCommand(debtId, null, WalletA.Value, 15m, Guid.NewGuid()), CancellationToken.None);
 
         released.Should().Be(0m);
         await unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
@@ -262,7 +265,7 @@ public sealed class FundCommandHandlersTests
         var (handler, _) = LinkedHandler();
 
         var act = () => handler.Handle(
-            new ReleaseLinkedReserveCommand(withDebt ? Guid.NewGuid() : null, withLoan ? Guid.NewGuid() : null, WalletA.Value, 1m),
+            new ReleaseLinkedReserveCommand(withDebt ? Guid.NewGuid() : null, withLoan ? Guid.NewGuid() : null, WalletA.Value, 1m, Guid.NewGuid()),
             CancellationToken.None);
 
         await act.Should().ThrowAsync<FundLinkAmbiguousException>();

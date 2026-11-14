@@ -141,6 +141,52 @@ namespace LupexWallet.Funds.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("LupexWallet.Funds.Domain.FundLinkedRelease", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("numeric")
+                        .HasColumnName("amount");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("FundId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fund_id");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("operation_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("WalletId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("wallet_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_fund_linked_releases");
+
+                    b.HasIndex("OperationId")
+                        .HasDatabaseName("ix_fund_linked_releases_operation");
+
+                    b.HasIndex("FundId", "OperationId", "WalletId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_fund_linked_releases_fund_operation_wallet");
+
+                    b.ToTable("fund_linked_releases", "funds", t =>
+                        {
+                            t.HasCheckConstraint("ck_fund_linked_releases_amount_non_negative", "amount >= 0");
+                        });
+                });
+
             modelBuilder.Entity("LupexWallet.Funds.Domain.FundAllocation", b =>
                 {
                     b.HasOne("LupexWallet.Funds.Domain.Fund", null)
@@ -151,9 +197,21 @@ namespace LupexWallet.Funds.Infrastructure.Migrations
                         .HasConstraintName("fk_fund_allocations_funds_fund_id");
                 });
 
+            modelBuilder.Entity("LupexWallet.Funds.Domain.FundLinkedRelease", b =>
+                {
+                    b.HasOne("LupexWallet.Funds.Domain.Fund", null)
+                        .WithMany("LinkedReleases")
+                        .HasForeignKey("FundId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_fund_linked_releases_funds_fund_id");
+                });
+
             modelBuilder.Entity("LupexWallet.Funds.Domain.Fund", b =>
                 {
                     b.Navigation("Allocations");
+
+                    b.Navigation("LinkedReleases");
                 });
 #pragma warning restore 612, 618
         }

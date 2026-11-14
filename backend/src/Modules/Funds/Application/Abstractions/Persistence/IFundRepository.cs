@@ -15,6 +15,9 @@ public interface IFundRepository
     /// <summary>Active funds linked to the debt or loan, oldest first.</summary>
     Task<IReadOnlyList<Fund>> GetActiveLinkedAsync(Guid? debtId, Guid? loanId, CancellationToken cancellationToken);
 
+    /// <summary>Active funds that keep a non-zero reserve released by the payment operation (B9), oldest first.</summary>
+    Task<IReadOnlyList<Fund>> GetActiveWithLinkedReleaseAsync(OperationId operationId, CancellationToken cancellationToken);
+
     /// <summary>Page ordered by CreatedAt.</summary>
     Task<FundPageResult> ListAsync(bool includeClosed, FundCursor? afterCursor, int limit, CancellationToken cancellationToken);
 

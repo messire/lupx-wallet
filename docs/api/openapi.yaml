@@ -980,6 +980,9 @@ paths:
       summary: Общая сумма — текущая или на дату (UC-19, UC-21)
       operationId: getTotalAmount
       description: >
+        Текущая общая сумма (без date) равна свободным средствам — резервы активных фондов её
+        уменьшают (ADR-0010, В9); фактический баланс и резерв возвращаются рядом
+        (actualAmount, reservedAmount, freeAmount). У исторической суммы резервов нет.
         Курсы берутся только из БД, к Frankfurter запрос не обращается (ADR-0004, §8).
         Для даты используется курс на эту дату или ближайший более ранний; ratesAsOfDate —
         фактически примененная дата. Если подходящего курса нет (в том числе пока история
@@ -1005,6 +1008,108 @@ paths:
       # 404 здесь — штатный случай (нет основного кошелька), не только "запись не найдена по
       # id"; схема ответа та же, что у components/responses/NotFound (application/problem+json,
       # Problem), описание переопределено под конкретный смысл этого эндпоинта.
+
+  /reporting/free-funds:
+    get:
+      tags: [Reporting]
+      summary: Свободные средства по кошелькам и сводка (#12, ADR-0010 §7)
+      operationId: getFreeFunds
+      description: >
+        По каждому кошельку — фактический баланс, зарезервировано (аллокации активных фондов),
+        свободно = баланс − резерв (может быть отрицательным) и дефицит обеспечения резерва.
+        Сводка — по кошелькам «в общей сумме» в валюте основного кошелька по последним известным
+        курсам; кошелёк без курса исключается из сводки с причиной (excludedWallets).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FreeFunds" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Нет основного кошелька (валюты сводки).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /reporting/upcoming-payments:
+    get:
+      tags: [Reporting]
+      summary: Ближайшие платежи — плановые расходы и платежи графиков кредитов (#12, ADR-0010 §7)
+      operationId: getUpcomingPayments
+      description: >
+        Ожидаемые наступления плановых расходов (остаток к исполнению, с учётом пропусков и
+        переносов) и неоплаченные пункты графиков кредитов с датой не позже сегодня + days,
+        включая просроченные (плановые — не старше 366 дней). Список не вычитается из свободных средств.
+      parameters:
+        - name: days
+          in: query
+          description: Горизонт в днях от сегодня (1…366), по умолчанию 30.
+          schema: { type: integer, minimum: 1, maximum: 366, default: 30 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpcomingPayments" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Нет основного кошелька (валюты сводки).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /reporting/debts-summary:
+    get:
+      tags: [Reporting]
+      summary: Сводка долгов и кредитов в валюте основного кошелька (#6, #8, ADR-0010 §7)
+      operationId: getReportingDebtsSummary
+      description: >
+        Общий долг и разбивка по кредиторам, остаток кредитов отдельным блоком — по последнему
+        известному курсу с датой и источником. Отменённые и погашенные не входят. Суммы в валюте
+        без курса в итоги не входят и перечислены в missingRates.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DebtsSummaryReport" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Нет основного кошелька (валюты сводки).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /reporting/cash-flow-forecast:
+    get:
+      tags: [Reporting]
+      summary: Прогноз денежного потока (#10, ADR-0010 §7)
+      operationId: getCashFlowForecast
+      description: >
+        Read model, считается при запросе. Старт — фактические балансы кошельков «в общей сумме»;
+        движения — ожидаемые наступления плановых операций и неоплаченные платежи графиков
+        кредитов; просроченные — на сегодня. Валюта расчёта — валюта основного кошелька,
+        последние известные курсы; будущее изменение курсов не моделируется (см. assumptions).
+      parameters:
+        - name: months
+          in: query
+          description: Горизонт в месяцах — 1, 3, 6 или 12; по умолчанию 3.
+          schema: { type: integer, enum: [1, 3, 6, 12], default: 3 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CashFlowForecast" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Нет основного кошелька (валюты сводки).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
 
   # ---------- Audit ----------
   /audit-entries:
@@ -2033,8 +2138,9 @@ paths:
       operationId: createFund
       description: >
         Фонд в одной валюте (ADR-0010, В6); валюта — активная (GET /currencies).
-        Связь с долгом или кредитом необязательна, указывается не более одной;
-        существование долга/кредита пока не проверяется.
+        Связь с долгом или кредитом необязательна, указывается не более одной; долг/кредит
+        должен существовать, быть в валюте фонда и не быть отменённым. Платёж по связанному
+        долгу/кредиту сам снимает резерв фонда по кошельку платежа (ADR-0010, В9).
       requestBody:
         required: true
         content:
@@ -2049,7 +2155,13 @@ paths:
         "400":
           description: >
             Пустое или длиннее 200 символов название, целевая сумма не указана или не больше нуля,
-            валюта не активна, указаны одновременно долг и кредит.
+            валюта не активна, указаны одновременно долг и кредит, связанный долг/кредит не найден
+            или в другой валюте.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "409":
+          description: Связанный долг или кредит отменён.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -2092,7 +2204,7 @@ paths:
         "409":
           description: >
             Фонд закрыт; смена валюты фонда, по которому уже были резервы (даже снятые);
-            параллельное изменение фонда.
+            новая связь с отменённым долгом/кредитом; параллельное изменение фонда.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -2662,13 +2774,26 @@ components:
     # ---- Reporting ----
     TotalAmount:
       type: object
-      required: [amount, ratesAsOfDate, excludedWallets]
+      required: [amount, actualAmount, reservedAmount, freeAmount, ratesAsOfDate, excludedWallets]
       properties:
         date:
           type: [string, "null"]
           format: date
           description: Запрошенная дата; null означает «текущая сумма» (UC-19).
-        amount: { $ref: "#/components/schemas/Money" }
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: >-
+            Общая сумма. Текущая — свободные средства (= freeAmount, ADR-0010 В9); на дату —
+            фактическая (= actualAmount).
+        actualAmount:
+          $ref: "#/components/schemas/Money"
+          description: Сумма фактических балансов кошельков «в общей сумме».
+        reservedAmount:
+          $ref: "#/components/schemas/NullableMoney"
+          description: Резервы активных фондов на этих кошельках; null для суммы на дату (история резервов не хранится).
+        freeAmount:
+          $ref: "#/components/schemas/NullableMoney"
+          description: actualAmount − reservedAmount (может быть отрицательной при дефиците); null для суммы на дату.
         ratesAsOfDate:
           type: string
           format: date
@@ -2690,6 +2815,170 @@ components:
       properties:
         walletId: { type: string, format: uuid }
         reason: { type: string, description: "Человекочитаемая причина исключения кошелька из суммы; для отсутствующего курса содержит код валюты (и дату для исторической суммы)." }
+    AppliedRate:
+      type: object
+      required: [fromCurrencyId, toCurrencyId, rate, rateDate, source]
+      properties:
+        fromCurrencyId: { type: string, format: uuid }
+        toCurrencyId: { type: string, format: uuid }
+        rate: { type: string, format: decimal }
+        rateDate: { type: string, format: date, description: Дата получения последнего известного курса. }
+        source: { type: string, example: Frankfurter }
+    MissingRate:
+      type: object
+      required: [currencyId, reason, itemCount]
+      properties:
+        currencyId: { type: string, format: uuid }
+        reason: { type: string, description: "Например «Курс валюты XYZ недоступен.»" }
+        itemCount: { type: integer, description: Сколько позиций в этой валюте не вошло в итоги. }
+    NullableMoney:
+      oneOf:
+        - $ref: "#/components/schemas/Money"
+        - type: "null"
+    WalletFreeFunds:
+      type: object
+      required: [walletId, currencyId, includeInTotal, isPrimary, balance, reserved, free, deficit]
+      properties:
+        walletId: { type: string, format: uuid }
+        currencyId: { type: string, format: uuid }
+        includeInTotal: { type: boolean }
+        isPrimary: { type: boolean }
+        balance: { $ref: "#/components/schemas/Money" }
+        reserved: { $ref: "#/components/schemas/Money" }
+        free: { $ref: "#/components/schemas/Money", description: "balance − reserved, может быть отрицательным." }
+        deficit: { $ref: "#/components/schemas/Money", description: "Дефицит обеспечения резерва = reserved − balance, если > 0, не больше reserved." }
+    FreeFunds:
+      type: object
+      required: [actualAmount, reservedAmount, freeAmount, deficitAmount, ratesAsOfDate, rateSource, rates, excludedWallets, wallets]
+      properties:
+        actualAmount: { $ref: "#/components/schemas/Money" }
+        reservedAmount: { $ref: "#/components/schemas/Money" }
+        freeAmount: { $ref: "#/components/schemas/Money", description: "actualAmount − reservedAmount." }
+        deficitAmount: { $ref: "#/components/schemas/Money" }
+        ratesAsOfDate: { type: string, format: date, description: "Самая ранняя дата применённых курсов; сегодня, если пересчёт не понадобился." }
+        rateSource: { type: string, example: Frankfurter }
+        rates: { type: array, items: { $ref: "#/components/schemas/AppliedRate" } }
+        excludedWallets: { type: array, items: { $ref: "#/components/schemas/ExcludedWallet" } }
+        wallets:
+          type: array
+          description: Все кошельки (сначала основной), суммы в валюте кошелька.
+          items: { $ref: "#/components/schemas/WalletFreeFunds" }
+    UpcomingPayment:
+      type: object
+      required: [kind, date, isOverdue, amount, convertedAmount]
+      properties:
+        kind: { type: string, enum: [PlannedExpense, LoanPayment] }
+        date: { type: string, format: date, description: "Дата наступления (с учётом переноса) или дата пункта графика." }
+        isOverdue: { type: boolean }
+        amount: { $ref: "#/components/schemas/Money", description: "Остаток к оплате в валюте позиции." }
+        convertedAmount: { $ref: "#/components/schemas/NullableMoney", description: "В валюте основного кошелька; null без курса." }
+        plannedTransactionId: { type: [string, "null"], format: uuid }
+        occurrenceDate: { type: [string, "null"], format: date, description: "Исходная дата наступления плана (до переноса)." }
+        operationTypeId: { type: [string, "null"], format: uuid }
+        walletId: { type: [string, "null"], format: uuid }
+        loanId: { type: [string, "null"], format: uuid }
+        loanName: { type: [string, "null"] }
+        creditorId: { type: [string, "null"], format: uuid }
+        creditorName: { type: [string, "null"] }
+        scheduleItemStatus: { type: [string, "null"], enum: [Partial, Overdue, Expected, null] }
+    UpcomingPayments:
+      type: object
+      required: [from, to, totalAmount, overdueAmount, ratesAsOfDate, rateSource, rates, missingRates, items]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        totalAmount: { $ref: "#/components/schemas/Money", description: "Сумма convertedAmount (без позиций без курса)." }
+        overdueAmount: { $ref: "#/components/schemas/Money" }
+        ratesAsOfDate: { type: string, format: date }
+        rateSource: { type: string }
+        rates: { type: array, items: { $ref: "#/components/schemas/AppliedRate" } }
+        missingRates: { type: array, items: { $ref: "#/components/schemas/MissingRate" } }
+        items: { type: array, items: { $ref: "#/components/schemas/UpcomingPayment" } }
+    CreditorDebt:
+      type: object
+      required: [creditorId, creditorName, amount, debtCount]
+      properties:
+        creditorId: { type: string, format: uuid }
+        creditorName: { type: string }
+        amount: { $ref: "#/components/schemas/Money" }
+        debtCount: { type: integer }
+    ObligationRemaining:
+      type: object
+      required: [id, name, creditorId, creditorName, remainingAmount, convertedAmount]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        creditorId: { type: string, format: uuid }
+        creditorName: { type: string }
+        remainingAmount: { $ref: "#/components/schemas/Money", description: "В валюте долга/кредита." }
+        convertedAmount: { $ref: "#/components/schemas/NullableMoney" }
+    DebtsSummaryReport:
+      type: object
+      required: [totalDebtAmount, debtCount, creditors, debts, totalLoanRemainingAmount, loanCount, loans, ratesAsOfDate, rateSource, rates, missingRates]
+      properties:
+        totalDebtAmount: { $ref: "#/components/schemas/Money" }
+        debtCount: { type: integer }
+        creditors: { type: array, items: { $ref: "#/components/schemas/CreditorDebt" } }
+        debts: { type: array, items: { $ref: "#/components/schemas/ObligationRemaining" } }
+        totalLoanRemainingAmount: { $ref: "#/components/schemas/Money" }
+        loanCount: { type: integer }
+        loans: { type: array, items: { $ref: "#/components/schemas/ObligationRemaining" } }
+        ratesAsOfDate: { type: string, format: date }
+        rateSource: { type: string }
+        rates: { type: array, items: { $ref: "#/components/schemas/AppliedRate" } }
+        missingRates: { type: array, items: { $ref: "#/components/schemas/MissingRate" } }
+    ForecastMovement:
+      type: object
+      required: [kind, date, originalDate, isOverdue, amount, convertedAmount]
+      properties:
+        kind: { type: string, enum: [PlannedIncome, PlannedExpense, LoanPayment] }
+        date: { type: string, format: date, description: "Дата в прогнозе (просроченное — сегодня)." }
+        originalDate: { type: string, format: date }
+        isOverdue: { type: boolean }
+        amount: { $ref: "#/components/schemas/Money", description: "Со знаком (доход +, расход −), в валюте позиции." }
+        convertedAmount: { $ref: "#/components/schemas/Money", description: "Со знаком, в валюте расчёта." }
+        plannedTransactionId: { type: [string, "null"], format: uuid }
+        walletId: { type: [string, "null"], format: uuid }
+        loanId: { type: [string, "null"], format: uuid }
+        loanName: { type: [string, "null"] }
+    ForecastDay:
+      type: object
+      required: [date, netChange, expectedBalance, isNegative, movements]
+      properties:
+        date: { type: string, format: date }
+        netChange: { $ref: "#/components/schemas/Money" }
+        expectedBalance: { $ref: "#/components/schemas/Money", description: "Ожидаемый остаток на конец дня." }
+        isNegative: { type: boolean }
+        movements: { type: array, items: { $ref: "#/components/schemas/ForecastMovement" } }
+    NegativePeriod:
+      type: object
+      required: [from, to]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date, description: "Включительно." }
+    CashFlowForecast:
+      type: object
+      required: [from, to, horizonMonths, startBalance, endBalance, minBalance, minBalanceDate, firstNegativeDate, negativePeriods, days, ratesAsOfDate, rateSource, rates, assumptions, excludedWallets, missingRates]
+      properties:
+        from: { type: string, format: date, description: "Сегодня." }
+        to: { type: string, format: date }
+        horizonMonths: { type: integer, enum: [1, 3, 6, 12] }
+        startBalance: { $ref: "#/components/schemas/Money", description: "Валюта — валюта основного кошелька (валюта расчёта)." }
+        endBalance: { $ref: "#/components/schemas/Money" }
+        minBalance: { $ref: "#/components/schemas/Money" }
+        minBalanceDate: { type: string, format: date }
+        firstNegativeDate: { type: [string, "null"], format: date }
+        negativePeriods: { type: array, items: { $ref: "#/components/schemas/NegativePeriod" } }
+        days:
+          type: array
+          description: Сегодня и каждая дата с движениями, по возрастанию.
+          items: { $ref: "#/components/schemas/ForecastDay" }
+        ratesAsOfDate: { type: string, format: date }
+        rateSource: { type: string }
+        rates: { type: array, items: { $ref: "#/components/schemas/AppliedRate" } }
+        assumptions: { type: array, items: { type: string }, description: "Явные предположения расчёта для показа в UI." }
+        excludedWallets: { type: array, items: { $ref: "#/components/schemas/ExcludedWallet" } }
+        missingRates: { type: array, items: { $ref: "#/components/schemas/MissingRate" } }
 
     # ---- Audit ----
     AuditFieldChange:

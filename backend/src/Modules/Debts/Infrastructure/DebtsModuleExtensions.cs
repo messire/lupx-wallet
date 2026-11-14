@@ -31,6 +31,9 @@ public static class DebtsModuleExtensions
         services.AddScoped<ExpensePaymentRecorder>();
         services.AddScoped<DebtsReferenceValidator>();
 
+        // ADR-0010 §4, §7: Debts-owned read port for Funds and Reporting.
+        services.AddScoped<IDebtObligationsLookup, DebtObligationsLookup>();
+
         // ADR-0002 §4: currencies referenced by debts/loans are in use.
         services.AddScoped<IReferenceItemUsageProbe, DebtsReferenceItemUsageProbe>();
 

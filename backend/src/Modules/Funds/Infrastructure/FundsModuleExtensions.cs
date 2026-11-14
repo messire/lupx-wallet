@@ -1,7 +1,10 @@
 using LupexWallet.BuildingBlocks.Infrastructure;
+using LupexWallet.Debts.Domain;
 using LupexWallet.Funds.Application;
+using LupexWallet.Operations.Domain;
 using LupexWallet.ReferenceData.Application;
 using LupexWallet.Wallets.Application;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,7 +31,14 @@ public static class FundsModuleExtensions
         services.AddScoped<IFundsUnitOfWork, FundsUnitOfWork>();
         services.AddScoped<ReservationPolicy>();
         services.AddScoped<FundViewBuilder>();
+        services.AddScoped<FundLinkValidator>();
         services.AddScoped<IFundReservationsLookup, FundReservationsLookup>();
+
+        // ADR-0010 §4, B9: a linked debt/loan payment releases the reserve; deleting/restoring its expense undoes/redoes it.
+        services.AddScoped<INotificationHandler<DomainEventNotification<DebtRepaymentRecorded>>, FundsDebtRepaymentRecordedHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<LoanPaymentRecorded>>, FundsLoanPaymentRecordedHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<OperationDeleted>>, FundsOperationDeletedHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<OperationRestored>>, FundsOperationRestoredHandler>();
 
         // ADR-0010 §4: the only implementation of Wallets.Application.IWalletReservationProbe.
         services.AddScoped<IWalletReservationProbe, FundsWalletReservationProbe>();

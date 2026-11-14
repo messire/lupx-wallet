@@ -18,6 +18,9 @@
 | `/exchange-rates/*` | ExchangeRates | агрегат `ExchangeRateQuote` |
 | `/reporting/total-amount` | Reporting | композиция без собственного агрегата |
 | `/audit-entries` | Audit | агрегат `AuditEntry` |
+| `/creditors` | Debts | справочник кредиторов модуля (ADR-0010 §3) |
+| `/debts`, `/debts/summary`, `/debts/{id}/repayments` | Debts | агрегат `Debt`; погашение — команда, создающая операцию расхода (ADR-0010, В4) |
+| `/loans`, `/loans/{id}/schedule`, `/loans/{id}/payments` | Debts | агрегат `Loan` (график и платежи — его сущности) |
 | `/auth/login` | Host (сквозная забота) | не доменный ресурс |
 
 Один REST-ресурс = один агрегат (кроме `/reporting/*`, которое намеренно нарушает это правило, так как Reporting — чисто читающая композиция, не агрегат — см. `ddd-model.md`). Переводы не смешаны с операциями в одном ресурсе: `POST /operations` создает только Income/Expense/Adjustment (корректировка — только дельтой; заявленный баланс вводится отдельным `PUT /wallets/{id}/stated-balances/{date}`), для перевода — отдельный `POST /transfers`, отражающий, что перевод — самостоятельный агрегат, координирующий две операции атомарно (раздел 4 требований, `ddd-model.md` §2.5).

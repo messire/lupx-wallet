@@ -89,5 +89,8 @@ public static class AuditModuleExtensions
         services.AddScoped<INotificationHandler<DomainEventNotification<ExchangeRatesUpdated>>, ExchangeRatesUpdatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<ExchangeRateUpdateFailed>>, ExchangeRateUpdateFailedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<ExchangeRateHistoryLoaded>>, ExchangeRateHistoryLoadedAuditHandler>();
+
+        // Budgeting (ExpenseCategory*, Budget*) — ADR-0010 §8.
+        services.AddBudgetingAuditHandlers();
     }
 }

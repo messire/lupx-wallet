@@ -43,6 +43,14 @@ tags:
     description: Общая сумма по всем кошелькам — текущая и историческая.
   - name: Audit
     description: Неизменяемый журнал изменений финансовых данных.
+  - name: ExpenseCategories
+    description: >
+      Справочник категорий расходов модуля Budgeting (ADR-0010 §5, В1): название и
+      типы операций с поведением «Расход»; тип входит не более чем в одну категорию.
+  - name: Budgets
+    description: >
+      Месячные бюджеты (месяц + валюта) с лимитами по категориям и исполнение бюджета
+      (ADR-0010 §5, В8). Бюджет ничего не резервирует и не меняет балансы.
 
 paths:
   # ---------- Auth ----------
@@ -1002,6 +1010,255 @@ paths:
               schema: { $ref: "#/components/schemas/AuditEntryPage" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  # ---------- Budgeting (ADR-0010 §5) ----------
+  /expense-categories:
+    get:
+      tags: [ExpenseCategories]
+      summary: Список категорий расходов
+      operationId: listExpenseCategories
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - name: includeInactive
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: OK, отсортировано по названию
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExpenseCategoryPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [ExpenseCategories]
+      summary: Добавить категорию расходов
+      operationId: createExpenseCategory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExpenseCategoryCreateRequest" }
+      responses:
+        "201":
+          description: Создана
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExpenseCategory" }
+        "400":
+          description: >
+            Пустое или длинное (более 200 символов) название; тип операции не найден,
+            деактивирован или не является расходом.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "409":
+          description: >
+            Тип операции уже входит в другую категорию; активная категория с таким
+            названием (без учета регистра) уже есть.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /expense-categories/{id}:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    get:
+      tags: [ExpenseCategories]
+      summary: Категория расходов
+      operationId: getExpenseCategory
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExpenseCategory" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [ExpenseCategories]
+      summary: Переименовать категорию и/или заменить набор ее типов операций
+      operationId: updateExpenseCategory
+      description: >
+        Отсутствующее поле не меняется. operationTypeIds — полный новый набор. Тип, уже
+        входящий в категорию, можно оставить, даже если он деактивирован; новый тип должен
+        быть активным расходом. Состав категории применяется ко всем бюджетам, включая
+        прошлые месяцы: исполнение считается при запросе по текущему составу.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExpenseCategoryUpdateRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExpenseCategory" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [ExpenseCategories]
+      summary: Удалить неиспользуемую категорию расходов
+      operationId: deleteExpenseCategory
+      responses:
+        "204": { description: Удалена }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Категория используется в лимите бюджета — используйте деактивацию.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /expense-categories/{id}/deactivate:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    post:
+      tags: [ExpenseCategories]
+      summary: Деактивировать категорию расходов
+      operationId: deactivateExpenseCategory
+      description: >
+        Категория скрывается из списка по умолчанию, новый лимит по ней задать нельзя;
+        существующие лимиты и ее типы операций сохраняются (тип остается занятым ею).
+      responses:
+        "200":
+          description: Деактивирована (повторный вызов — без изменений)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExpenseCategory" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /budgets:
+    get:
+      tags: [Budgets]
+      summary: Список бюджетов
+      operationId: listBudgets
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - name: month
+          in: query
+          description: Фильтр по месяцу ГГГГ-ММ.
+          schema: { type: string, pattern: "^\\d{4}-\\d{2}$", example: "2026-10" }
+      responses:
+        "200":
+          description: OK, по месяцу по убыванию, затем по времени создания
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BudgetPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Budgets]
+      summary: Создать бюджет на месяц в валюте
+      operationId: createBudget
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BudgetCreateRequest" }
+      responses:
+        "201":
+          description: Создан (без лимитов)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Budget" }
+        "400":
+          description: Месяц не в формате ГГГГ-ММ; валюта не найдена среди активных.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "409":
+          description: Бюджет на этот месяц в этой валюте уже есть.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /budgets/{id}:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    get:
+      tags: [Budgets]
+      summary: Бюджет с лимитами
+      operationId: getBudget
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Budget" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Budgets]
+      summary: Удалить бюджет вместе с лимитами
+      operationId: deleteBudget
+      responses:
+        "204": { description: Удален }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /budgets/{id}/limits/{categoryId}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - name: categoryId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      tags: [Budgets]
+      summary: Задать или изменить лимит категории
+      operationId: setBudgetCategoryLimit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BudgetLimitRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Budget" }
+        "400":
+          description: Лимит не указан или меньше нуля; категория не найдена или деактивирована.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Budgets]
+      summary: Убрать лимит категории
+      operationId: removeBudgetCategoryLimit
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Budget" }
+        "404":
+          description: Бюджет не найден или в нем нет лимита по категории.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /budgets/{id}/execution:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    get:
+      tags: [Budgets]
+      summary: Исполнение бюджета
+      operationId: getBudgetExecution
+      description: >
+        Факт по категории — сумма не удаленных расходов (поведение «Расход») ее типов
+        операций с датой в месяце, по всем кошелькам; корректирующие суммы и переводы не
+        учитываются. Операция в другой валюте пересчитывается по историческому курсу на
+        дату операции, при его отсутствии — по ближайшему более раннему (В8, ADR-0004 §8);
+        если пары «валюта → валюта бюджета» в истории нет, используется обратная пара.
+        Если курса нет совсем, операция не входит в суммы и перечисляется в
+        excludedOperations с причиной. Курсы читаются только из БД. Остаток = лимит − факт,
+        превышение — отрицательный остаток. Перенос остатка между месяцами не делается.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BudgetExecution" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
 components:
   parameters:
     WalletIdParam:
@@ -1482,6 +1739,139 @@ components:
       properties:
         data: { type: array, items: { $ref: "#/components/schemas/AuditEntry" } }
         pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+
+    # ---- Budgeting (ADR-0010 §5) ----
+    ExpenseCategory:
+      type: object
+      required: [id, name, isActive, operationTypeIds]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 200 }
+        isActive: { type: boolean }
+        operationTypeIds:
+          type: array
+          items: { type: string, format: uuid }
+    ExpenseCategoryCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 200 }
+        operationTypeIds:
+          type: array
+          description: Активные типы операций с поведением «Расход»; можно пусто.
+          items: { type: string, format: uuid }
+    ExpenseCategoryUpdateRequest:
+      type: object
+      properties:
+        name: { type: string, maxLength: 200 }
+        operationTypeIds:
+          type: array
+          description: Полный новый набор типов; отсутствие поля — набор не меняется.
+          items: { type: string, format: uuid }
+    ExpenseCategoryPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/ExpenseCategory" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+    CategoryLimit:
+      type: object
+      required: [expenseCategoryId, limit]
+      properties:
+        expenseCategoryId: { type: string, format: uuid }
+        limit: { type: string, format: decimal, description: "В валюте бюджета, не меньше нуля." }
+    Budget:
+      type: object
+      required: [id, month, currencyId, limits, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        month: { type: string, pattern: "^\\d{4}-\\d{2}$", example: "2026-10" }
+        currencyId: { type: string, format: uuid }
+        limits: { type: array, items: { $ref: "#/components/schemas/CategoryLimit" } }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    BudgetCreateRequest:
+      type: object
+      required: [month, currencyId]
+      properties:
+        month: { type: string, pattern: "^\\d{4}-\\d{2}$", example: "2026-10" }
+        currencyId: { type: string, format: uuid, description: "Активная валюта." }
+    BudgetLimitRequest:
+      type: object
+      required: [limit]
+      properties:
+        limit: { type: string, format: decimal, example: "15000.00" }
+    BudgetPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Budget" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+    BudgetCategoryExecution:
+      type: object
+      required: [expenseCategoryId, name, isActive, limit, actual, remaining, isOverspent]
+      properties:
+        expenseCategoryId: { type: string, format: uuid }
+        name: { type: string }
+        isActive: { type: boolean }
+        limit: { type: string, format: decimal }
+        actual: { type: string, format: decimal, description: "Факт в валюте бюджета." }
+        remaining: { type: string, format: decimal, description: "Лимит − факт; отрицательный при превышении." }
+        isOverspent: { type: boolean, description: "true, если remaining < 0." }
+    BudgetAppliedRate:
+      type: object
+      required: [fromCurrencyId, operationDate, rateDate, rate, isFallback]
+      properties:
+        fromCurrencyId: { type: string, format: uuid }
+        operationDate: { type: string, format: date }
+        rateDate: { type: string, format: date, description: "Дата примененного курса." }
+        rate: { type: string, format: decimal, description: "Множитель из fromCurrencyId в валюту бюджета." }
+        isFallback: { type: boolean, description: "Курса на дату операции нет — применен ближайший более ранний." }
+    BudgetExcludedOperation:
+      type: object
+      required: [operationId, currencyId, operationDate, amount, reason]
+      properties:
+        operationId: { type: string, format: uuid }
+        currencyId: { type: string, format: uuid }
+        operationDate: { type: string, format: date }
+        amount: { type: string, format: decimal, description: "Сумма в валюте операции." }
+        reason: { type: string, example: "Курс валюты USD к EUR на дату 2026-10-03 недоступен." }
+    BudgetExecution:
+      type: object
+      required: [budgetId, month, currencyId, categories, unbudgeted, totals, rateSource, appliedRates, excludedOperations]
+      properties:
+        budgetId: { type: string, format: uuid }
+        month: { type: string, example: "2026-10" }
+        currencyId: { type: string, format: uuid, description: "Валюта расчета = валюта бюджета." }
+        categories:
+          type: array
+          description: Одна строка на каждую категорию с лимитом в этом бюджете.
+          items: { $ref: "#/components/schemas/BudgetCategoryExecution" }
+        unbudgeted:
+          type: object
+          description: >
+            Строка «Без бюджета»: расходы, тип которых не входит ни в одну категорию с лимитом
+            в этом бюджете (категория без лимита или тип вне категорий).
+          required: [actual]
+          properties:
+            actual: { type: string, format: decimal }
+        totals:
+          type: object
+          required: [limit, budgetedActual, remaining, actual]
+          properties:
+            limit: { type: string, format: decimal, description: "Сумма лимитов." }
+            budgetedActual: { type: string, format: decimal, description: "Факт по категориям с лимитом." }
+            remaining: { type: string, format: decimal, description: "limit − budgetedActual." }
+            actual: { type: string, format: decimal, description: "Все учтенные расходы месяца (budgetedActual + «Без бюджета»)." }
+        rateSource: { type: string, example: Frankfurter }
+        appliedRates:
+          type: array
+          description: Курсы, примененные к операциям в другой валюте, — по одной записи на (валюта, дата операции).
+          items: { $ref: "#/components/schemas/BudgetAppliedRate" }
+        excludedOperations:
+          type: array
+          description: Расходы, не вошедшие в суммы из-за отсутствия курса.
+          items: { $ref: "#/components/schemas/BudgetExcludedOperation" }
 
   responses:
     BadRequest:

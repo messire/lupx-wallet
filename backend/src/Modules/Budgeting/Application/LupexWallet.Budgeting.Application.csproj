@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Domain\LupexWallet.Budgeting.Domain.csproj" />
+    <!-- ADR-0010 §2: Budgeting reads operation facts, operation type behavior, currencies and rates. -->
+    <ProjectReference Include="..\..\Operations\Application\LupexWallet.Operations.Application.csproj" />
+    <ProjectReference Include="..\..\ReferenceData\Application\LupexWallet.ReferenceData.Application.csproj" />
+    <ProjectReference Include="..\..\ExchangeRates\Application\LupexWallet.ExchangeRates.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MediatR" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

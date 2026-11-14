@@ -299,6 +299,58 @@ CREATE RULE audit_entries_no_delete AS ON DELETE TO audit.audit_entries DO INSTE
 
 **Про `changes jsonb`.** Список измененных полей (VO `AuditFieldChange` из `ddd-model.md`) хранится как JSONB-массив, а не в отдельной нормализованной таблице — так как список полей разный для каждого `entity_type` и запросы вида «найти все изменения конкретного поля» не входят в бизнес-сценарии (UC-25 — только просмотр истории конкретной записи целиком). Если такая потребность появится, это будет пересмотрено отдельно.
 
+## Схема `budgeting`
+
+Модуль Budgeting ([ADR-0010](../architecture/adr/0010-financial-planning.md), §5): справочник категорий расходов и месячные бюджеты. Ссылки на типы операций и валюты — без внешних ключей (другие схемы).
+
+```sql
+CREATE SCHEMA budgeting;
+
+-- Пользовательский справочник категорий расходов (В1). Жизненный цикл — ADR-0002 §4.
+CREATE TABLE budgeting.expense_categories (
+    id          uuid         PRIMARY KEY,
+    name        varchar(200) NOT NULL,
+    is_active   boolean      NOT NULL,
+    created_at  timestamptz  NOT NULL,
+    updated_at  timestamptz  NOT NULL
+);
+CREATE UNIQUE INDEX ux_expense_categories_active_name
+    ON budgeting.expense_categories (lower(name)) WHERE is_active;
+
+-- Типы операций (поведение Expense) в категории. Тип входит не более чем в одну категорию.
+CREATE TABLE budgeting.expense_category_operation_types (
+    expense_category_id  uuid NOT NULL REFERENCES budgeting.expense_categories (id) ON DELETE CASCADE,
+    operation_type_id    uuid NOT NULL,   -- reference_data.operation_types.id, без FK
+    PRIMARY KEY (expense_category_id, operation_type_id)
+);
+CREATE UNIQUE INDEX ux_expense_category_operation_types_operation_type
+    ON budgeting.expense_category_operation_types (operation_type_id);
+
+-- Бюджет на месяц в валюте; один на пару (месяц, валюта).
+CREATE TABLE budgeting.budgets (
+    id           uuid        PRIMARY KEY,
+    month        date        NOT NULL CHECK (EXTRACT(DAY FROM month) = 1),   -- первое число месяца
+    currency_id  uuid        NOT NULL,   -- reference_data.currencies.id, без FK
+    created_at   timestamptz NOT NULL,
+    updated_at   timestamptz NOT NULL
+);
+CREATE UNIQUE INDEX ux_budgets_month_currency ON budgeting.budgets (month, currency_id);
+CREATE INDEX ix_budgets_currency ON budgeting.budgets (currency_id);
+
+-- Лимит категории внутри бюджета (CategoryLimit).
+CREATE TABLE budgeting.budget_category_limits (
+    budget_id            uuid    NOT NULL REFERENCES budgeting.budgets (id) ON DELETE CASCADE,
+    expense_category_id  uuid    NOT NULL REFERENCES budgeting.expense_categories (id) ON DELETE RESTRICT,
+    limit_amount         numeric NOT NULL CHECK (limit_amount >= 0),   -- в валюте бюджета
+    PRIMARY KEY (budget_id, expense_category_id)
+);
+CREATE INDEX ix_budget_category_limits_category ON budgeting.budget_category_limits (expense_category_id);
+```
+
+- Исполнение бюджета не хранится: считается при запросе из операций (`IOperationFactsLookup`) и исторических курсов (`IExchangeRateLookup`).
+- Тип операции, входящий в категорию (активную или нет), и валюта бюджета считаются «используемыми» для правил удаления ReferenceData (`BudgetingReferenceItemUsageProbe`).
+- Категория, на которую ссылается лимит, не удаляется (`ON DELETE RESTRICT`, в приложении — 409 с предложением деактивации). Бюджет удаляется физически вместе с лимитами.
+
 ## Сводная таблица: схема ↔ модуль ↔ таблицы
 
 | Схема | Модуль | Таблицы |
@@ -309,5 +361,6 @@ CREATE RULE audit_entries_no_delete AS ON DELETE TO audit.audit_entries DO INSTE
 | `balance_history` | BalanceHistory | `balance_snapshots` |
 | `exchange_rates` | ExchangeRates | `latest_exchange_rates`, `historical_exchange_rates`, `historical_rate_coverage` |
 | `audit` | Audit | `audit_entries` |
+| `budgeting` | Budgeting | `expense_categories`, `expense_category_operation_types`, `budgets`, `budget_category_limits` |
 
 `Reporting` не владеет таблицами — читает через узкие read-контракты остальных модулей или (как будущая оптимизация) через SQL-представления, объединяющие несколько схем на чтение.

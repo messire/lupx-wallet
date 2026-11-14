@@ -23,7 +23,9 @@ describe('BudgetsComponent', () => {
   it('ignores a budget list that arrives after the user switched to another month', () => {
     const fixture = TestBed.createComponent(BudgetsComponent);
     fixture.detectChanges();
-    httpMock.match((req) => !req.url.startsWith(`${api}/budgets`)).forEach((req) => req.flush(emptyPage));
+    httpMock
+      .match((req) => !req.url.startsWith(`${api}/budgets`))
+      .forEach((req) => req.flush(req.request.url.endsWith('/operation-behavior-kinds') ? [] : emptyPage));
     const component = fixture.componentInstance;
     const firstMonth = component.month();
     const first = httpMock.expectOne((req) => req.url === `${api}/budgets` && req.params.get('month') === firstMonth);

@@ -1,0 +1,50 @@
+<form class="entity-form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+  <p class="metadata entity-form__intro">
+    Фонд откладывает часть денег кошельков под цель. Деньги остаются в кошельках — резерв лишь помечает их занятыми и уменьшает свободные средства.
+  </p>
+
+  <app-field label="Название" [required]="true" [error]="nameError()">
+    <input appFieldControl type="text" formControlName="name" maxlength="200" placeholder="Например, «Отпуск»" />
+  </app-field>
+
+  <app-field
+    label="Валюта"
+    [required]="true"
+    [error]="currencyError()"
+    [hint]="currencyLocked() ? 'По фонду уже были резервы — валюту изменить нельзя' : 'Резервировать можно из кошельков этой валюты'"
+    [disabled]="currencyLocked()"
+  >
+    <app-select formControlName="currencyId" placeholder="— выберите валюту —">
+      @for (currency of currencies(); track currency.id) {
+        <app-select-option [value]="currency.id" [label]="currency.code + ' — ' + currency.name" />
+      }
+    </app-select>
+  </app-field>
+
+  <app-field label="Целевая сумма" [required]="true" [error]="targetError()">
+    <div class="input-suffix">
+      <input appFieldControl type="text" inputmode="decimal" placeholder="0.00" formControlName="targetAmount" />
+      @if (currencyCode(); as code) {
+        <span class="input-suffix__code">{{ code }}</span>
+      }
+    </div>
+  </app-field>
+
+  <app-field label="На погашение" hint="Необязательно. Погашение такого долга или кредита из кошелька с резервом само снимет резерв на сумму платежа">
+    <app-select formControlName="link" emptyText="Нет активных долгов и кредитов">
+      <app-select-option value="" label="— не связан —" />
+      @for (option of linkOptions(); track option.value) {
+        <app-select-option [value]="option.value" [label]="option.label" />
+      }
+    </app-select>
+  </app-field>
+
+  @if (errorMessage()) {
+    <p class="form-error" role="alert">{{ errorMessage() }}</p>
+  }
+
+  <div class="form-actions">
+    <app-button type="submit" variant="primary" [loading]="isSubmitting()" loadingText="Сохранение…">{{ isEdit() ? 'Сохранить' : 'Создать' }}</app-button>
+    <app-button type="button" variant="secondary" (click)="cancel.emit()">Отмена</app-button>
+  </div>
+</form>

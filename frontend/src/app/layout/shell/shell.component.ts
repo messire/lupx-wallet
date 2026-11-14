@@ -8,6 +8,12 @@ interface NavItem {
   label: string;
 }
 
+/** A labelled group of sections; `label: null` — the main group without a heading. */
+interface NavSection {
+  label: string | null;
+  items: NavItem[];
+}
+
 /**
  * Shared shell for the authenticated part of the app: a sidebar with the brand,
  * navigation between sections, and a logout button (docs/design/ui-kit.md §4,
@@ -40,15 +46,36 @@ export class ShellComponent {
    */
   private readonly menuToggleButton = viewChild<ElementRef<HTMLButtonElement>>('menuToggleButton');
 
-  readonly navItems: NavItem[] = [
-    { path: '/wallets', label: 'Кошельки' },
-    { path: '/operations', label: 'Операции' },
-    { path: '/transfers', label: 'Переводы' },
-    { path: '/balance-history', label: 'История баланса' },
-    { path: '/exchange-rates', label: 'Курсы валют' },
-    { path: '/reporting', label: 'Отчёт' },
-    { path: '/reference-data', label: 'Справочники' },
-    { path: '/audit', label: 'Аудит' },
+  readonly navSections: NavSection[] = [
+    {
+      label: null,
+      items: [
+        { path: '/wallets', label: 'Кошельки' },
+        { path: '/operations', label: 'Операции' },
+        { path: '/transfers', label: 'Переводы' },
+        { path: '/balance-history', label: 'История баланса' },
+        { path: '/exchange-rates', label: 'Курсы валют' },
+        { path: '/reporting', label: 'Отчёт' },
+      ],
+    },
+    {
+      // v0.4 (#13, ADR-0010): financial planning — a separate group so the long list stays scannable.
+      label: 'Планирование',
+      items: [
+        { path: '/planning', label: 'Планы' },
+        { path: '/budgets', label: 'Бюджеты' },
+        { path: '/debts', label: 'Долги' },
+        { path: '/loans', label: 'Кредиты' },
+        { path: '/funds', label: 'Фонды' },
+      ],
+    },
+    {
+      label: 'Настройки',
+      items: [
+        { path: '/reference-data', label: 'Справочники' },
+        { path: '/audit', label: 'Аудит' },
+      ],
+    },
   ];
 
   toggleMenu(): void {

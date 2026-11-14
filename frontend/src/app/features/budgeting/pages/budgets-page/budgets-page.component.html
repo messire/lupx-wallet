@@ -1,0 +1,335 @@
+<div class="page">
+  <div class="page-heading">
+    <h1>Бюджеты</h1>
+    @if (activeTab() === 'budget') {
+      <app-button variant="primary" [disabled]="creatableCurrencies().length === 0 && currencies().length > 0" (click)="openCreateBudget()">
+        Создать бюджет
+      </app-button>
+    } @else {
+      <app-button variant="primary" (click)="openCategoryForm(null)">Добавить категорию</app-button>
+    }
+  </div>
+
+  <app-tabs #tabsRef [tabs]="tabs" [selectedId]="activeTab()" ariaLabel="Разделы бюджетов" (selectedIdChange)="selectTab($event)" />
+
+  @if (successMessage(); as message) {
+    <app-toast class="page-toast" [message]="message" tone="success" (dismissed)="successMessage.set(null)" />
+  }
+  @if (actionError(); as message) {
+    <app-toast class="page-toast" [message]="message" tone="error" [autoDismiss]="false" (dismissed)="actionError.set(null)" />
+  }
+  @if (lookupsError(); as message) {
+    <app-error-state [message]="message" (retry)="loadLookups()" />
+  }
+
+  <!-- Бюджет месяца -->
+  <div
+    [id]="tabsRef.panelElementId('budget')"
+    role="tabpanel"
+    tabindex="0"
+    [attr.aria-labelledby]="tabsRef.tabElementId('budget')"
+    [hidden]="activeTab() !== 'budget'"
+  >
+    <div class="toolbar">
+      <div class="period-switcher" role="group" aria-label="Месяц бюджета">
+        <app-button variant="ghost" [iconOnly]="true" ariaLabel="Предыдущий месяц" (click)="previousMonth()">‹</app-button>
+        <span class="period-switcher__label" aria-live="polite">{{ formatMonthLabel(month()) }}</span>
+        <app-button variant="ghost" [iconOnly]="true" ariaLabel="Следующий месяц" (click)="nextMonth()">›</app-button>
+        @if (!isCurrentMonth()) {
+          <app-button variant="ghost" (click)="currentMonth()">Текущий месяц</app-button>
+        }
+      </div>
+
+      @if (budgets().length > 1) {
+        <app-field label="Валюта бюджета" class="toolbar__field">
+          <app-select [formControl]="budgetSwitch">
+            @for (budget of budgets(); track budget.id) {
+              <app-select-option [value]="budget.id" [label]="currencyCode(budget.currencyId)" />
+            }
+          </app-select>
+        </app-field>
+      }
+    </div>
+
+    @if (isLoading()) {
+      <app-loading-state label="Загрузка…">
+        <app-skeleton height="56px" />
+        <app-skeleton height="56px" />
+        <app-skeleton height="56px" />
+      </app-loading-state>
+    } @else if (loadError()) {
+      <app-error-state [message]="loadError()!" (retry)="loadBudgets()" />
+    } @else if (!selectedBudget()) {
+      <app-empty-state
+        [title]="'На ' + formatMonthLabel(month()).toLowerCase() + ' бюджета нет'"
+        description="Создайте бюджет месяца в нужной валюте и задайте лимиты по категориям расходов"
+      />
+    } @else {
+      @if (executionError()) {
+        <app-error-state [message]="executionError()!" (retry)="loadExecution()" />
+      } @else if (execution(); as exec) {
+        <section class="summary-grid" aria-label="Итоги бюджета">
+          <div class="summary-tile">
+            <span class="metadata">Лимит по категориям</span>
+            <strong class="summary-value">{{ amount(exec.totals.limit) }}</strong>
+          </div>
+          <div class="summary-tile">
+            <span class="metadata">Потрачено по категориям</span>
+            <strong class="summary-value">{{ amount(exec.totals.budgetedActual) }}</strong>
+          </div>
+          <div class="summary-tile">
+            <span class="metadata">{{ exec.totals.remaining.startsWith('-') ? 'Перерасход' : 'Осталось' }}</span>
+            <strong class="summary-value" [class.amount-negative]="exec.totals.remaining.startsWith('-')">
+              {{ amount(exec.totals.remaining.startsWith('-') ? exec.totals.remaining.slice(1) : exec.totals.remaining) }}
+            </strong>
+          </div>
+          <div class="summary-tile">
+            <span class="metadata">Все расходы месяца</span>
+            <strong class="summary-value">{{ amount(exec.totals.actual) }}</strong>
+          </div>
+        </section>
+
+        <div class="section-heading">
+          <h2>Исполнение · {{ budgetCurrencyCode() }}</h2>
+          <div class="budget-actions">
+            <app-button variant="secondary" [disabled]="categoriesWithoutLimit().length === 0" (click)="openAddLimit()">Добавить лимит</app-button>
+            <app-button variant="ghost" (click)="requestDeleteBudget()">Удалить бюджет</app-button>
+          </div>
+        </div>
+        @if (categoriesWithoutLimit().length === 0 && categories().length === 0) {
+          <p class="metadata">Чтобы задать лимиты, сначала добавьте категории расходов на вкладке «Категории расходов».</p>
+        }
+
+        <div class="table-scroll" role="region" aria-label="Исполнение бюджета" tabindex="0">
+          <table class="app-table app-table--min-720">
+            <thead>
+              <tr>
+                <th>Категория</th>
+                <th class="amount-col">Лимит</th>
+                <th class="amount-col">Факт</th>
+                <th class="amount-col">Остаток</th>
+                <th><span class="visually-hidden">Действия</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of exec.categories; track row.expenseCategoryId) {
+                <tr>
+                  <td>
+                    {{ row.name }}
+                    @if (!row.isActive) {
+                      <app-badge tone="neutral">Деактивирована</app-badge>
+                    }
+                  </td>
+                  <td class="amount-col money">{{ amount(row.limit) }}</td>
+                  <td class="amount-col money">{{ amount(row.actual) }}</td>
+                  <td class="amount-col money" [class.amount-negative]="row.isOverspent">{{ remainingLabel(row.remaining) }}</td>
+                  <td class="actions">
+                    <app-button variant="ghost" [ariaLabel]="'Изменить лимит: ' + row.name" (click)="openEditLimit(row)">Изменить</app-button>
+                    <app-button variant="ghost" [ariaLabel]="'Убрать лимит: ' + row.name" (click)="requestRemoveLimit(row)">Убрать</app-button>
+                  </td>
+                </tr>
+              }
+              <tr class="unbudgeted-row">
+                <td>Без бюджета</td>
+                <td class="amount-col metadata">—</td>
+                <td class="amount-col money">{{ amount(exec.unbudgeted.actual) }}</td>
+                <td class="amount-col metadata">—</td>
+                <td></td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <th scope="row">Итого по категориям</th>
+                <td class="amount-col money">{{ amount(exec.totals.limit) }}</td>
+                <td class="amount-col money">{{ amount(exec.totals.budgetedActual) }}</td>
+                <td class="amount-col money" [class.amount-negative]="exec.totals.remaining.startsWith('-')">{{ remainingLabel(exec.totals.remaining) }}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        @if (exec.categories.length === 0) {
+          <p class="metadata">Лимиты пока не заданы — все расходы месяца попадают в «Без бюджета».</p>
+        }
+
+        <section class="rates-note" aria-label="Пересчёт валют">
+          <p class="metadata">
+            Расходы в других валютах пересчитаны в {{ budgetCurrencyCode() }} по курсу на дату операции (источник: {{ exec.rateSource }}). Учитываются
+            неудалённые расходы по всем кошелькам; переводы и корректировки не входят.
+          </p>
+          @if (exec.appliedRates.length > 0) {
+            <details>
+              <summary class="metadata rates-summary">Применённые курсы ({{ exec.appliedRates.length }})</summary>
+              <ul class="rates-list metadata">
+                @for (rate of exec.appliedRates; track rate.fromCurrencyId + rate.operationDate) {
+                  <li>
+                    {{ currencyCode(rate.fromCurrencyId) }} → {{ budgetCurrencyCode() }} на {{ rate.operationDate }}: {{ rate.rate }}
+                    @if (rate.isFallback) {
+                      (курс от {{ rate.rateDate }} — ближайший более ранний)
+                    }
+                  </li>
+                }
+              </ul>
+            </details>
+          }
+          @if (exec.excludedOperations.length > 0) {
+            <div class="excluded" role="note">
+              <p class="metadata"><strong>Не вошли в суммы ({{ exec.excludedOperations.length }}) — нет курса:</strong></p>
+              <ul class="rates-list metadata">
+                @for (operation of exec.excludedOperations; track operation.operationId) {
+                  <li>{{ operation.operationDate }} · {{ amount(operation.amount, operation.currencyId) }} — {{ operation.reason }}</li>
+                }
+              </ul>
+            </div>
+          }
+        </section>
+      } @else {
+        <app-loading-state label="Загрузка…">
+          <app-skeleton height="56px" />
+          <app-skeleton height="180px" />
+        </app-loading-state>
+      }
+    }
+  </div>
+
+  <!-- Категории расходов -->
+  <div
+    [id]="tabsRef.panelElementId('categories')"
+    role="tabpanel"
+    tabindex="0"
+    [attr.aria-labelledby]="tabsRef.tabElementId('categories')"
+    [hidden]="activeTab() !== 'categories'"
+  >
+    <p class="metadata">
+      Категория группирует типы операций «Расход». Изменение состава применяется ко всем бюджетам, включая прошлые месяцы.
+    </p>
+    @if (uncategorizedTypes().length > 0) {
+      <p class="metadata">Типы расхода вне категорий (попадают в «Без бюджета»): {{ typeNameList(uncategorizedTypes()) }}.</p>
+    }
+
+    @if (categories().length === 0) {
+      <app-empty-state title="Категорий расходов пока нет" description="Добавьте категорию и выберите, какие типы расходов в неё входят" />
+    } @else {
+      <div class="table-scroll" role="region" aria-label="Категории расходов" tabindex="0">
+        <table class="app-table app-table--min-720">
+          <thead>
+            <tr>
+              <th>Категория</th>
+              <th>Типы расхода</th>
+              <th>Статус</th>
+              <th><span class="visually-hidden">Действия</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (category of categories(); track category.id) {
+              <tr>
+                <td>{{ category.name }}</td>
+                <td class="types-col">{{ typeNames(category) }}</td>
+                <td>
+                  <app-badge [tone]="category.isActive ? 'success' : 'neutral'">{{ category.isActive ? 'Активна' : 'Деактивирована' }}</app-badge>
+                </td>
+                <td class="actions">
+                  <app-button variant="ghost" (click)="openCategoryForm(category)">Изменить</app-button>
+                  @if (category.isActive) {
+                    <app-button variant="ghost" (click)="deactivateCategory(category)">Деактивировать</app-button>
+                  }
+                  <app-button variant="danger" (click)="requestDeleteCategory(category)">Удалить</app-button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </div>
+
+  <!-- Создание бюджета -->
+  <app-dialog [open]="createBudgetOpen()" titleText="Новый бюджет" size="sm" (dismissRequested)="onDismissRequested($event)" (closed)="closeCreateBudget()">
+    @if (createBudgetOpen()) {
+      <form class="entity-form" [formGroup]="createBudgetForm" (ngSubmit)="submitCreateBudget()" novalidate>
+        <p class="metadata entity-form__intro">Бюджет на {{ formatMonthLabel(month()).toLowerCase() }}. На месяц можно завести по одному бюджету в каждой валюте.</p>
+        <app-field label="Валюта" [required]="true">
+          <app-select formControlName="currencyId" placeholder="— выберите валюту —" emptyText="Бюджеты во всех валютах уже есть">
+            @for (currency of creatableCurrencies(); track currency.id) {
+              <app-select-option [value]="currency.id" [label]="currency.code + ' — ' + currency.name" />
+            }
+          </app-select>
+        </app-field>
+        @if (submitError()) {
+          <p class="form-error" role="alert">{{ submitError() }}</p>
+        }
+        <div class="form-actions">
+          <app-button type="submit" variant="primary" [loading]="isSubmitting()" loadingText="Сохранение…">Создать</app-button>
+          <app-button variant="secondary" [disabled]="isSubmitting()" (click)="closeCreateBudget()">Отмена</app-button>
+        </div>
+      </form>
+    }
+  </app-dialog>
+
+  <!-- Лимит -->
+  <app-dialog
+    [open]="limitState() !== null"
+    [titleText]="limitState()?.categoryId ? 'Изменить лимит' : 'Добавить лимит'"
+    size="sm"
+    (dismissRequested)="onDismissRequested($event)"
+    (closed)="closeLimit()"
+  >
+    @if (limitState(); as state) {
+      <app-limit-form
+        [categories]="limitFormCategories()"
+        [fixedCategoryId]="state.categoryId"
+        [initialLimit]="state.limit"
+        [currencyCode]="budgetCurrencyCode()"
+        [isSubmitting]="isSubmitting()"
+        [errorMessage]="submitError()"
+        (save)="saveLimit($event)"
+        (cancel)="closeLimit()"
+      />
+    }
+  </app-dialog>
+
+  <!-- Категория -->
+  <app-dialog
+    [open]="categoryFormState() !== null"
+    [titleText]="categoryFormState()?.category ? 'Изменить категорию' : 'Новая категория расходов'"
+    size="md"
+    (dismissRequested)="onDismissRequested($event)"
+    (closed)="closeCategoryForm()"
+  >
+    @if (categoryFormState(); as state) {
+      <app-category-form
+        [expenseTypes]="expenseTypes()"
+        [categories]="categories()"
+        [category]="state.category"
+        [isSubmitting]="isSubmitting()"
+        [errorMessage]="submitError()"
+        (save)="saveCategory($event)"
+        (cancel)="closeCategoryForm()"
+      />
+    }
+  </app-dialog>
+
+  <!-- Подтверждения -->
+  <app-dialog [open]="confirmState() !== null" titleText="Подтвердите действие" size="sm" (dismissRequested)="onDismissRequested($event)" (closed)="closeConfirm()">
+    @if (confirmState(); as state) {
+      @switch (state.action) {
+        @case ('remove-limit') {
+          <p>Лимит категории будет убран из бюджета; её расходы попадут в строку «Без бюджета».</p>
+        }
+        @case ('delete-budget') {
+          <p>Бюджет {{ budgetCurrencyCode() }} на {{ formatMonthLabel(month()).toLowerCase() }} будет удалён вместе с лимитами. Операции не изменятся.</p>
+        }
+        @case ('delete-category') {
+          <p>Категория будет удалена. Если она используется в лимите бюджета, удалить её нельзя — её можно деактивировать.</p>
+        }
+      }
+    }
+    @if (submitError()) {
+      <p class="form-error" role="alert">{{ submitError() }}</p>
+    }
+    <div dialogActions>
+      <app-button variant="secondary" [disabled]="isSubmitting()" (click)="closeConfirm()">Отмена</app-button>
+      <app-button variant="danger" [loading]="isSubmitting()" loadingText="Сохранение…" (click)="confirm()">Подтвердить</app-button>
+    </div>
+  </app-dialog>
+</div>

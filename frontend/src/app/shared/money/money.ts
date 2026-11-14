@@ -12,6 +12,8 @@ import { AbstractControl, ValidationErrors, ValidatorFn } from '@angular/forms';
 export interface Money {
   amount: string;
   currencyId: string;
+  /** Read-only code of the currency, filled by the server where available (openapi.yaml Money.currencyCode). */
+  currencyCode?: string;
 }
 
 const AMOUNT_PATTERN = /^-?\d+(\.\d+)?$/;
@@ -39,6 +41,27 @@ export const amountValidator: ValidatorFn = (control: AbstractControl): Validati
     return null;
   }
   return isValidAmount(String(value)) ? null : { amount: true };
+};
+
+/**
+ * Reactive Forms validator: the amount must be strictly greater than zero (`{ positiveAmount: true }`).
+ * Format errors are left to {@link amountValidator}; an empty value is left to `Validators.required`.
+ */
+export const positiveAmountValidator: ValidatorFn = (control: AbstractControl): ValidationErrors | null => {
+  const value = control.value;
+  if (value === null || value === undefined || value === '' || !isValidAmount(String(value))) {
+    return null;
+  }
+  return compareAmounts(String(value).trim(), '0') > 0 ? null : { positiveAmount: true };
+};
+
+/** Same as {@link positiveAmountValidator}, but zero is allowed (`{ negativeAmount: true }`), e.g. a budget limit. */
+export const nonNegativeAmountValidator: ValidatorFn = (control: AbstractControl): ValidationErrors | null => {
+  const value = control.value;
+  if (value === null || value === undefined || value === '' || !isValidAmount(String(value))) {
+    return null;
+  }
+  return compareAmounts(String(value).trim(), '0') >= 0 ? null : { negativeAmount: true };
 };
 
 /**
@@ -81,6 +104,43 @@ export function subtractAmounts(minuend: string, subtrahend: string): string {
   const integerPart = digits.slice(0, digits.length - scale);
   const decimalPart = digits.slice(digits.length - scale);
   return `${negative ? '-' : ''}${integerPart}${scale > 0 ? `.${decimalPart}` : ''}`;
+}
+
+/** Exact decimal sum of two amounts (ADR-0005), via {@link subtractAmounts}; both must be valid amounts. */
+export function addAmounts(left: string, right: string): string {
+  const trimmed = right.trim();
+  return subtractAmounts(left, trimmed.startsWith('-') ? trimmed.slice(1) : `-${trimmed}`);
+}
+
+/**
+ * Exact comparison of two amounts in the contract format (ADR-0005): negative if `left < right`,
+ * zero if equal, positive if `left > right`. String/`BigInt`-based, never through `number`.
+ */
+export function compareAmounts(left: string, right: string): number {
+  const difference = subtractAmounts(left, right);
+  if (isZeroAmount(difference)) {
+    return 0;
+  }
+  return difference.startsWith('-') ? -1 : 1;
+}
+
+/** True if the amount is valid and strictly greater than zero (string-based, ADR-0005). */
+export function isPositiveAmount(amount: string): boolean {
+  return isValidAmount(amount) && compareAmounts(amount, '0') > 0;
+}
+
+/**
+ * A ratio in the contract's decimal-string format ("0.355", "1.2" — e.g. `Fund.progress`) as a whole
+ * percentage rounded down ("35", "120"). Computed by moving the decimal point, not through `number`, so
+ * a huge ratio never turns into "Infinity"; an invalid or negative value yields "0".
+ */
+export function ratioToPercent(ratio: string): string {
+  const trimmed = ratio.trim();
+  if (!isValidAmount(trimmed) || trimmed.startsWith('-')) {
+    return '0';
+  }
+  const [integerPart, decimalPart = ''] = trimmed.split('.');
+  return BigInt(`${integerPart}${decimalPart.padEnd(2, '0').slice(0, 2)}`).toString();
 }
 
 interface ParsedDecimal {

@@ -37,6 +37,33 @@ export const routes: Routes = [
           import('./features/transfers/pages/transfers-page/transfers-page.component').then((m) => m.TransfersComponent),
       },
       {
+        // UI Planning — planned transactions and their occurrences (#9, #13, ADR-0010 §6).
+        path: 'planning',
+        loadComponent: () =>
+          import('./features/planning/pages/planning-page/planning-page.component').then((m) => m.PlanningComponent),
+      },
+      {
+        // UI Budgeting — monthly budgets and expense categories (#11, #13, ADR-0010 §5).
+        path: 'budgets',
+        loadComponent: () =>
+          import('./features/budgeting/pages/budgets-page/budgets-page.component').then((m) => m.BudgetsComponent),
+      },
+      {
+        // UI Debts — debts and the creditor dictionary (#6, #13, ADR-0010 §3).
+        path: 'debts',
+        loadComponent: () => import('./features/debts/pages/debts-page/debts-page.component').then((m) => m.DebtsComponent),
+      },
+      {
+        // UI Debts — loans with a payment schedule (#8, #13, ADR-0010 §3).
+        path: 'loans',
+        loadComponent: () => import('./features/debts/pages/loans-page/loans-page.component').then((m) => m.LoansComponent),
+      },
+      {
+        // UI Funds — funds and reservations (#7, #13, ADR-0010 §4).
+        path: 'funds',
+        loadComponent: () => import('./features/funds/pages/funds-page/funds-page.component').then((m) => m.FundsComponent),
+      },
+      {
         // UI BalanceHistory (UC-18, UC-20, UC-23).
         path: 'balance-history',
         loadComponent: () =>

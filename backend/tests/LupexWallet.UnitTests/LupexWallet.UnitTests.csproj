@@ -41,6 +41,10 @@
     <ProjectReference Include="..\..\src\Modules\Audit\Application\LupexWallet.Audit.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Audit\Infrastructure\LupexWallet.Audit.Infrastructure.csproj" />
 
+    <!-- Planning (ADR-0010 §6) -->
+    <ProjectReference Include="..\..\src\Modules\Planning\Domain\LupexWallet.Planning.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Planning\Application\LupexWallet.Planning.Application.csproj" />
+
     <!-- Host owns the module composition (ModuleAssemblies) that the pipeline registration tests mirror. -->
     <ProjectReference Include="..\..\src\Host\LupexWallet.Api\LupexWallet.Api.csproj" />
   </ItemGroup>

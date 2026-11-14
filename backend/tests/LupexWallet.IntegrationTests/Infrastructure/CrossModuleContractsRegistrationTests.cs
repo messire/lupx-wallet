@@ -50,9 +50,10 @@ public sealed class CrossModuleContractsRegistrationTests(ApiTestFixture fixture
     }
 
     /// <summary>
-    /// ADR-0002, §4: <see cref="IReferenceItemUsageProbe"/> — ровно 2 реализации-владельца:
-    /// <c>Wallets.Infrastructure.WalletsReferenceItemUsageProbe</c> и
-    /// <c>Operations.Infrastructure.OperationsReferenceItemUsageProbe</c> (курсы валют использованием не считаются).
+    /// ADR-0002, §4: <see cref="IReferenceItemUsageProbe"/> — ровно 3 реализации-владельца:
+    /// <c>Wallets.Infrastructure.WalletsReferenceItemUsageProbe</c>,
+    /// <c>Operations.Infrastructure.OperationsReferenceItemUsageProbe</c> и
+    /// <c>Planning.Infrastructure.PlanningReferenceItemUsageProbe</c> (ADR-0010 §6; курсы валют использованием не считаются).
     /// </summary>
     [Fact]
     public void ReferenceItemUsageProbe_HasExactlyExpectedNumberOfRegisteredImplementations()
@@ -61,9 +62,9 @@ public sealed class CrossModuleContractsRegistrationTests(ApiTestFixture fixture
 
         var probes = scope.ServiceProvider.GetServices<IReferenceItemUsageProbe>();
 
-        probes.Should().HaveCount(2,
-            "ADR-0002 §4 ожидает ровно 2 владельца данных использования элементов справочника " +
-            "(Wallets, Operations; курсы ExchangeRates использованием не считаются) — если число " +
+        probes.Should().HaveCount(3,
+            "ADR-0002 §4 ожидает ровно 3 владельца данных использования элементов справочника " +
+            "(Wallets, Operations, Planning; курсы ExchangeRates использованием не считаются) — если число " +
             "изменилось, кто-то зарегистрировал лишний пробник либо забыл зарегистрировать " +
             "пробник в Add<Owner>Module, либо ожидание в этом тесте устарело и должно быть " +
             "обновлено осознанно вместе с ADR-0002");

@@ -14,7 +14,7 @@ namespace LupexWallet.IntegrationTests.Infrastructure;
 /// </summary>
 public sealed class ApiTestFixture : IAsyncLifetime
 {
-    private static readonly string[] Schemas = ["wallets", "reference_data", "operations", "balance_history", "exchange_rates"];
+    private static readonly string[] Schemas = ["wallets", "reference_data", "operations", "balance_history", "exchange_rates", "planning"];
 
     /// <summary>
     /// Optional external database (for environments without Docker). When set, the database is

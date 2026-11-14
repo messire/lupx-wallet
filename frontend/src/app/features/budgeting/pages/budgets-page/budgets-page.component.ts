@@ -187,11 +187,16 @@ export class BudgetsComponent implements OnInit {
   /** Loads the month's budgets; keeps the selected currency when the new month has a budget in it. */
   loadBudgets(preferredBudgetId?: string): void {
     const previousCurrency = this.selectedBudget()?.currencyId;
+    const requestedMonth = this.month();
     this.isLoading.set(true);
     this.loadError.set(null);
     this.execution.set(null);
-    this.budgetingService.listBudgets({ month: this.month(), limit: 100 }).subscribe({
+    this.budgetingService.listBudgets({ month: requestedMonth, limit: 100 }).subscribe({
       next: (page) => {
+        // A response for a month the user has already navigated away from is stale.
+        if (requestedMonth !== this.month()) {
+          return;
+        }
         this.budgets.set(page.data);
         const next =
           page.data.find((budget) => budget.id === preferredBudgetId) ??
@@ -206,6 +211,9 @@ export class BudgetsComponent implements OnInit {
         }
       },
       error: (error: unknown) => {
+        if (requestedMonth !== this.month()) {
+          return;
+        }
         this.loadError.set(extractErrorMessage(error, 'Не удалось загрузить бюджеты.'));
         this.isLoading.set(false);
       },

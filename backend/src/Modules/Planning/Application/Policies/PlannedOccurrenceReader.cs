@@ -41,13 +41,27 @@ public sealed class PlannedOccurrenceReader(IOperationFactsLookup operationFacts
     private async Task<IReadOnlyDictionary<OperationId, ExecutionOperationFact>> LoadFactsAsync(
         IEnumerable<PlannedTransaction> plans, CancellationToken cancellationToken)
     {
-        var operationIds = plans.SelectMany(p => p.Executions).Select(e => e.OperationId).Distinct().ToList();
-        if (operationIds.Count == 0)
+        var planByOperation = plans
+            .SelectMany(p => p.Executions.Select(e => (e.OperationId, Plan: p)))
+            .GroupBy(x => x.OperationId)
+            .ToDictionary(g => g.Key, g => g.First().Plan);
+        if (planByOperation.Count == 0)
         {
             return new Dictionary<OperationId, ExecutionOperationFact>();
         }
 
-        var facts = await operationFactsLookup.GetByIdsAsync(operationIds, cancellationToken);
-        return facts.ToDictionary(f => f.OperationId, f => new ExecutionOperationFact(f.Amount, f.IsDeleted));
+        var facts = await operationFactsLookup.GetByIdsAsync(planByOperation.Keys.ToList(), cancellationToken);
+
+        // An operation edited after execution into another currency or the opposite direction no longer
+        // fulfils the plan: it is treated like a deleted one, so the occurrence becomes expected again.
+        return facts.ToDictionary(
+            f => f.OperationId,
+            f => new ExecutionOperationFact(f.Amount, f.IsDeleted || !FulfilsPlan(f, planByOperation[f.OperationId])));
     }
+
+    private static bool FulfilsPlan(OperationFact fact, PlannedTransaction plan) =>
+        !fact.IsCorrection
+        && !fact.IsTransferLeg
+        && fact.CurrencyId == plan.CurrencyId
+        && (plan.Direction == PlannedDirection.Expense ? fact.AppliedDelta < 0 : fact.AppliedDelta > 0);
 }

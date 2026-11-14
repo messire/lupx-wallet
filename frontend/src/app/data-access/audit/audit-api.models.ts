@@ -13,6 +13,14 @@ export const AUDIT_ENTITY_TYPES = [
   'OperationType',
   'Currency',
   'ExchangeRateQuote',
+  // v0.4 (ADR-0010): financial planning aggregates.
+  'Creditor',
+  'Debt',
+  'Loan',
+  'Fund',
+  'ExpenseCategory',
+  'Budget',
+  'PlannedTransaction',
 ] as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];

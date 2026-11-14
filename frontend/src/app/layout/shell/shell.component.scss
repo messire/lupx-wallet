@@ -91,6 +91,18 @@
   }
 }
 
+/* Подпись группы разделов («Планирование», «Настройки») — мелкий приглушённый
+   текст без капса (ui-kit §3), не ссылка. */
+.shell-nav-heading {
+  margin: var(--lw-space-4) 0 var(--lw-space-2);
+  padding: var(--lw-space-4) var(--lw-space-3) 0;
+  border-top: 1px solid var(--lw-divider);
+  color: var(--lw-text-muted);
+  font-size: var(--lw-type-badge);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
 .logout {
   margin-top: auto;
 }

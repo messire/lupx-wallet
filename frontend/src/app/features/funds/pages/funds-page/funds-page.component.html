@@ -1,0 +1,285 @@
+<div class="page">
+  <div class="page-heading">
+    <h1>Фонды</h1>
+    <app-button variant="primary" (click)="openCreateForm()">Создать фонд</app-button>
+  </div>
+
+  <app-tabs #tabsRef [tabs]="tabs" [selectedId]="activeTab()" ariaLabel="Разделы фондов" (selectedIdChange)="selectTab($event)" />
+
+  @if (successMessage(); as message) {
+    <app-toast class="page-toast" [message]="message" tone="success" (dismissed)="successMessage.set(null)" />
+  }
+  @if (lookupsError(); as message) {
+    <app-error-state [message]="message" (retry)="loadLookups()" />
+  }
+
+  <div
+    [id]="tabsRef.panelElementId('funds')"
+    role="tabpanel"
+    tabindex="0"
+    [attr.aria-labelledby]="tabsRef.tabElementId('funds')"
+    [hidden]="activeTab() !== 'funds'"
+  >
+    <form class="toolbar" [formGroup]="filterForm">
+      <app-checkbox label="Показывать закрытые" formControlName="includeClosed" />
+    </form>
+
+    @if (isLoading() && funds().length === 0) {
+      <app-loading-state label="Загрузка…">
+        <app-skeleton height="56px" />
+        <app-skeleton height="56px" />
+        <app-skeleton height="56px" />
+      </app-loading-state>
+    } @else if (loadError()) {
+      <app-error-state [message]="loadError()!" (retry)="loadFunds()" />
+    } @else if (funds().length === 0) {
+      <app-empty-state title="Фондов пока нет" description="Создайте фонд, чтобы откладывать деньги под цель или на погашение долга" />
+    } @else {
+      <div class="table-scroll" role="region" aria-label="Список фондов" tabindex="0">
+        <table class="app-table app-table--min-860">
+          <thead>
+            <tr>
+              <th>Фонд</th>
+              <th class="amount-col">Цель</th>
+              <th class="amount-col">Зарезервировано</th>
+              <th class="progress-col">Прогресс</th>
+              <th class="amount-col">Дефицит резерва</th>
+              <th>Статус</th>
+              <th><span class="visually-hidden">Действия</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (fund of funds(); track fund.id) {
+              <tr>
+                <td>
+                  {{ fund.name }}
+                  @if (linkLabel(fund); as link) {
+                    <span class="fund-link metadata">{{ link }}</span>
+                  }
+                </td>
+                <td class="amount-col money">{{ money(fund.targetAmount) }}</td>
+                <td class="amount-col money">{{ money(fund.reserved) }}</td>
+                <td class="progress-col">
+                  <span class="progress-bar" aria-hidden="true"><span class="progress-bar__fill" [style.width]="progressWidth(fund)"></span></span>
+                  <span class="money">{{ percent(fund) }}%</span>
+                </td>
+                <td class="amount-col money">
+                  @if (hasDeficit(fund.deficit)) {
+                    <span class="amount-negative">{{ money(fund.deficit) }}</span>
+                  } @else {
+                    <span class="metadata">нет</span>
+                  }
+                </td>
+                <td>
+                  <app-badge [tone]="fund.status === 'Active' ? 'accent' : 'neutral'">{{ fund.status === 'Active' ? 'Активен' : 'Закрыт' }}</app-badge>
+                </td>
+                <td class="actions">
+                  <app-button variant="ghost" [iconOnly]="true" [ariaLabel]="'Действия с фондом: ' + fund.name" (click)="openRowActions(fund)">···</app-button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <p class="metadata">
+        Дефицит обеспечения резерва появляется, если после расходов в кошельке осталось меньше денег, чем зарезервировано. Расходы при этом не блокируются.
+      </p>
+      @if (hasMore()) {
+        <div class="load-more">
+          <app-button variant="secondary" [loading]="isLoading()" loadingText="Загрузка…" (click)="loadMore()">Загрузить ещё</app-button>
+        </div>
+      }
+    }
+  </div>
+
+  <div
+    [id]="tabsRef.panelElementId('wallets')"
+    role="tabpanel"
+    tabindex="0"
+    [attr.aria-labelledby]="tabsRef.tabElementId('wallets')"
+    [hidden]="activeTab() !== 'wallets'"
+  >
+    @if (reservationsError(); as message) {
+      <app-error-state [message]="message" (retry)="loadReservations()" />
+    } @else if (visibleReservations().length === 0) {
+      <app-empty-state title="Кошельков пока нет" description="Резервы появятся, когда в фонд будут отложены деньги кошелька" />
+    } @else {
+      <div class="table-scroll" role="region" aria-label="Резервы по кошелькам" tabindex="0">
+        <table class="app-table app-table--min-720">
+          <thead>
+            <tr>
+              <th>Кошелёк</th>
+              <th class="amount-col">Баланс</th>
+              <th class="amount-col">Зарезервировано</th>
+              <th class="amount-col">Свободно</th>
+              <th class="amount-col">Дефицит резерва</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (item of visibleReservations(); track item.walletId) {
+              <tr>
+                <td>{{ walletName(item.walletId) }}</td>
+                <td class="amount-col money">{{ money(item.balance) }}</td>
+                <td class="amount-col money">{{ money(item.reserved) }}</td>
+                <td class="amount-col money" [class.amount-negative]="item.free.amount.startsWith('-')">{{ money(item.free) }}</td>
+                <td class="amount-col money">
+                  @if (hasDeficit(item.deficit)) {
+                    <span class="amount-negative">{{ money(item.deficit) }}</span>
+                  } @else {
+                    <span class="metadata">нет</span>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <p class="metadata">Свободно = баланс − резервы всех активных фондов. Резервировать можно не больше свободных средств.</p>
+    }
+  </div>
+
+  <!-- Форма фонда -->
+  <app-dialog
+    [open]="formState() !== null"
+    [titleText]="formState()?.fund ? 'Изменить фонд' : 'Новый фонд'"
+    size="md"
+    (dismissRequested)="onDismissRequested($event)"
+    (closed)="closeForm()"
+  >
+    @if (formState(); as state) {
+      <app-fund-form
+        [currencies]="currencies()"
+        [linkOptions]="linkOptions()"
+        [fund]="state.fund"
+        [isSubmitting]="isSubmitting()"
+        [errorMessage]="submitError()"
+        (save)="saveFund($event)"
+        (cancel)="closeForm()"
+      />
+    }
+  </app-dialog>
+
+  <!-- Действия строки -->
+  <app-dialog [open]="rowActionsFund() !== null" titleText="Действия с фондом" size="sm" (dismissRequested)="closeRowActions()" (closed)="onRowActionsClosed()">
+    @if (rowActionsFund(); as fund) {
+      <div class="row-actions-list">
+        @if (fund.status === 'Active') {
+          <app-button variant="primary" [fullWidth]="true" (click)="chooseRowAction('reserve', fund)">Зарезервировать</app-button>
+          @if (fund.allocations.length > 0) {
+            <app-button variant="secondary" [fullWidth]="true" (click)="chooseRowAction('release', fund)">Снять резерв</app-button>
+          }
+        }
+        <app-button variant="secondary" [fullWidth]="true" (click)="chooseRowAction('details', fund)">Резервы по кошелькам</app-button>
+        @if (fund.status === 'Active') {
+          <app-button variant="secondary" [fullWidth]="true" (click)="chooseRowAction('edit', fund)">Изменить</app-button>
+          <app-button variant="danger" [fullWidth]="true" (click)="chooseRowAction('close', fund)">Закрыть фонд</app-button>
+        }
+        @if (!fund.hasAllocationHistory) {
+          <app-button variant="danger" [fullWidth]="true" (click)="chooseRowAction('delete', fund)">Удалить</app-button>
+        }
+        <a class="row-actions-list__link" [routerLink]="['/audit']" [queryParams]="{ entityType: 'Fund', entityId: fund.id }" (click)="closeRowActions()">
+          История изменений
+        </a>
+      </div>
+    }
+  </app-dialog>
+
+  <!-- Резерв / снятие -->
+  <app-dialog
+    [open]="allocationState() !== null"
+    [titleText]="allocationState()?.mode === 'release' ? 'Снять резерв' : 'Зарезервировать в фонде'"
+    size="md"
+    (dismissRequested)="onDismissRequested($event)"
+    (closed)="closeAllocation()"
+  >
+    @if (allocationState(); as state) {
+      <p class="metadata">Фонд «{{ state.fund.name }}»: зарезервировано {{ money(state.fund.reserved) }} из {{ money(state.fund.targetAmount) }}.</p>
+      <app-allocation-form
+        [mode]="state.mode"
+        [wallets]="allocationWallets()"
+        [currencyCode]="currencyCode(state.fund.currencyId)"
+        [isSubmitting]="isSubmitting()"
+        [errorMessage]="submitError()"
+        (save)="saveAllocation($event)"
+        (cancel)="closeAllocation()"
+      />
+    }
+  </app-dialog>
+
+  <!-- Детали фонда -->
+  <app-dialog [open]="detailsFund() !== null" [titleText]="detailsFund()?.name ?? 'Фонд'" size="lg" (closed)="detailsFund.set(null)">
+    @if (detailsFund(); as fund) {
+      <dl class="detail-list">
+        <dt>Цель</dt>
+        <dd class="money">{{ money(fund.targetAmount) }}</dd>
+        <dt>Зарезервировано</dt>
+        <dd class="money">{{ money(fund.reserved) }} ({{ percent(fund) }}%)</dd>
+        <dt>Дефицит резерва</dt>
+        <dd class="money">{{ hasDeficit(fund.deficit) ? money(fund.deficit) : 'нет' }}</dd>
+        @if (linkLabel(fund); as link) {
+          <dt>На погашение</dt>
+          <dd>{{ link }}</dd>
+        }
+      </dl>
+      @if (fund.allocations.length === 0) {
+        <p class="metadata">В фонде пока нет резервов.</p>
+      } @else {
+        <div class="table-scroll" role="region" aria-label="Резервы фонда по кошелькам" tabindex="0">
+          <table class="app-table app-table--min-520">
+            <thead>
+              <tr>
+                <th>Кошелёк</th>
+                <th class="amount-col">Резерв</th>
+                <th class="amount-col">Дефицит</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (allocation of fund.allocations; track allocation.walletId) {
+                <tr>
+                  <td>{{ walletName(allocation.walletId) }}</td>
+                  <td class="amount-col money">{{ money(allocation.amount) }}</td>
+                  <td class="amount-col money">
+                    @if (hasDeficit(allocation.deficit)) {
+                      <span class="amount-negative">{{ money(allocation.deficit) }}</span>
+                    } @else {
+                      <span class="metadata">нет</span>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    }
+    <div dialogActions>
+      <app-button variant="secondary" (click)="detailsFund.set(null)">Закрыть</app-button>
+    </div>
+  </app-dialog>
+
+  <!-- Подтверждение -->
+  <app-dialog
+    [open]="confirmState() !== null"
+    [titleText]="confirmState()?.action === 'close' ? 'Закрыть фонд?' : 'Удалить фонд?'"
+    size="sm"
+    (dismissRequested)="onDismissRequested($event)"
+    (closed)="closeConfirm()"
+  >
+    @if (confirmState(); as state) {
+      @if (state.action === 'close') {
+        <p>Все резервы фонда «{{ state.fund.name }}» будут сняты и вернутся в свободные средства кошельков. Закрытие окончательно: фонд нельзя будет изменить или пополнить.</p>
+      } @else {
+        <p>Фонд «{{ state.fund.name }}» будет удалён без возможности восстановления.</p>
+      }
+    }
+    @if (submitError()) {
+      <p class="form-error" role="alert">{{ submitError() }}</p>
+    }
+    <div dialogActions>
+      <app-button variant="secondary" [disabled]="isSubmitting()" (click)="closeConfirm()">Не сейчас</app-button>
+      <app-button variant="danger" [loading]="isSubmitting()" loadingText="Сохранение…" (click)="confirm()">
+        {{ confirmState()?.action === 'close' ? 'Закрыть фонд' : 'Удалить' }}
+      </app-button>
+    </div>
+  </app-dialog>
+</div>

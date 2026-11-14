@@ -2,11 +2,18 @@
   <aside id="shell-nav" class="shell-sidebar" [class.open]="menuOpen()">
     <span class="brand">LupexWallet</span>
 
-    <nav class="shell-nav-list" aria-label="Разделы приложения">
-      @for (item of navItems; track item.path) {
-        <a [routerLink]="item.path" routerLinkActive="active" [ariaCurrentWhenActive]="'page'" (click)="closeMenu()">{{
-          item.label
-        }}</a>
+    <nav class="shell-nav" aria-label="Разделы приложения">
+      @for (section of navSections; track $index) {
+        @if (section.label) {
+          <h2 class="shell-nav-heading" [id]="'shell-nav-heading-' + $index">{{ section.label }}</h2>
+        }
+        <div class="shell-nav-list">
+          @for (item of section.items; track item.path) {
+            <a [routerLink]="item.path" routerLinkActive="active" [ariaCurrentWhenActive]="'page'" (click)="closeMenu()">{{
+              item.label
+            }}</a>
+          }
+        </div>
       }
     </nav>
 

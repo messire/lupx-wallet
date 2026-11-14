@@ -1,0 +1,27 @@
+<form class="entity-form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+  <app-field label="Название" [required]="true" [error]="nameError()">
+    <input appFieldControl type="text" formControlName="name" maxlength="200" placeholder="Например, «Продукты»" />
+  </app-field>
+
+  <fieldset class="type-choices" formGroupName="types">
+    <legend class="type-choices__legend">Типы расхода в категории</legend>
+    <p class="metadata entity-form__intro">Расходы этих типов считаются фактом категории в бюджете. Тип может входить только в одну категорию.</p>
+    @if (choices().length === 0) {
+      <p class="metadata">Нет типов операций с поведением «Расход» — добавьте их в «Справочниках».</p>
+    }
+    @for (choice of choices(); track choice.type.id) {
+      @if (types.controls[choice.type.id]) {
+        <app-checkbox [label]="choiceLabel(choice)" [formControlName]="choice.type.id" />
+      }
+    }
+  </fieldset>
+
+  @if (errorMessage()) {
+    <p class="form-error" role="alert">{{ errorMessage() }}</p>
+  }
+
+  <div class="form-actions">
+    <app-button type="submit" variant="primary" [loading]="isSubmitting()" loadingText="Сохранение…">{{ category() ? 'Сохранить' : 'Создать' }}</app-button>
+    <app-button type="button" variant="secondary" (click)="cancel.emit()">Отмена</app-button>
+  </div>
+</form>

@@ -1,0 +1,25 @@
+.cell-note {
+  display: block;
+}
+
+.date-col {
+  white-space: nowrap;
+}
+
+.amount-income {
+  color: var(--lw-success);
+}
+
+.period-total {
+  display: grid;
+  gap: var(--lw-space-1);
+  padding: var(--lw-space-4) var(--lw-space-6);
+  border: 1px solid var(--lw-surface-border);
+  border-radius: var(--lw-radius-md);
+  background: var(--lw-glass);
+}
+
+.executions {
+  margin: 0;
+  padding-left: var(--lw-space-6);
+}

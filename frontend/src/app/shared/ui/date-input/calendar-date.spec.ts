@@ -1,6 +1,25 @@
-import { addDays, addMonths, describeDate, formatDateText, monthGrid, parseDateText, weekdayIndex } from './calendar-date';
+import {
+  addDays,
+  addMonths,
+  describeDate,
+  formatDateText,
+  formatMonthLabel,
+  monthGrid,
+  monthRange,
+  parseDateText,
+  shiftMonth,
+  weekdayIndex,
+} from './calendar-date';
 
 describe('calendar-date', () => {
+  it('formats, shifts and spans a yyyy-MM month', () => {
+    expect(formatMonthLabel('2026-11')).toBe('Ноябрь 2026');
+    expect(shiftMonth('2026-12', 1)).toBe('2027-01');
+    expect(shiftMonth('2026-01', -1)).toBe('2025-12');
+    expect(monthRange('2028-02')).toEqual({ from: '2028-02-01', to: '2028-02-29' });
+    expect(monthRange('2026-11')).toEqual({ from: '2026-11-01', to: '2026-11-30' });
+  });
+
   it('parses дд.мм.гггг (also / and -, single digits) and ISO, rejecting impossible dates', () => {
     expect(parseDateText('14.11.2026')).toBe('2026-11-14');
     expect(parseDateText('1/2/2026')).toBe('2026-02-01');

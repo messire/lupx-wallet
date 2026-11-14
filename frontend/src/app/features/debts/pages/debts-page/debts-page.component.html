@@ -1,0 +1,340 @@
+<div class="page">
+  <div class="page-heading">
+    <h1>Долги</h1>
+    <app-button variant="primary" (click)="openCreateForm()">Добавить долг</app-button>
+  </div>
+
+  <app-tabs #tabsRef [tabs]="tabs" [selectedId]="activeTab()" ariaLabel="Разделы долгов" (selectedIdChange)="selectTab($event)" />
+
+  @if (successMessage(); as message) {
+    <app-toast class="page-toast" [message]="message" tone="success" (dismissed)="successMessage.set(null)" />
+  }
+  @if (actionError(); as message) {
+    <app-toast class="page-toast" [message]="message" tone="error" [autoDismiss]="false" (dismissed)="actionError.set(null)" />
+  }
+  @if (lookupsError(); as message) {
+    <app-error-state [message]="message" (retry)="loadLookups()" />
+  }
+
+  <!-- Долги -->
+  <div
+    [id]="tabsRef.panelElementId('debts')"
+    role="tabpanel"
+    tabindex="0"
+    [attr.aria-labelledby]="tabsRef.tabElementId('debts')"
+    [hidden]="activeTab() !== 'debts'"
+  >
+    @if (summary(); as currentSummary) {
+      @if (currentSummary.currencies.length > 0) {
+        <section class="summary-grid" aria-label="Общий долг по валютам">
+          @for (group of currentSummary.currencies; track group.currencyId) {
+            <app-card>
+              <span class="metadata">Общий долг, {{ currencyCode(group.currencyId) }} · долгов: {{ group.debtCount }}</span>
+              <strong class="summary-value money">{{ money(group.totalRemainingAmount) }}</strong>
+              <dl class="detail-list detail-list--compact">
+                @for (creditor of group.creditors; track creditor.creditorId) {
+                  <dt>{{ creditor.creditorName }}</dt>
+                  <dd class="money">{{ money(creditor.remainingAmount) }}</dd>
+                }
+              </dl>
+            </app-card>
+          }
+        </section>
+        <p class="metadata">Суммы показаны в валюте долга; разные валюты не складываются.</p>
+      }
+    }
+
+    <form class="toolbar" [formGroup]="filterForm" (ngSubmit)="loadDebts()">
+      <app-field label="Кредитор" class="toolbar__field">
+        <app-select formControlName="creditorId">
+          <app-select-option value="" label="— все —" />
+          @for (creditor of creditors(); track creditor.id) {
+            <app-select-option [value]="creditor.id" [label]="creditor.name" />
+          }
+        </app-select>
+      </app-field>
+      <div class="filter-actions app-field-align">
+        <app-button type="submit" variant="secondary">Применить</app-button>
+        <app-button type="button" variant="ghost" (click)="resetFilter()">Сбросить</app-button>
+      </div>
+    </form>
+
+    @if (isLoading() && debts().length === 0) {
+      <app-loading-state label="Загрузка…">
+        <app-skeleton height="56px" />
+        <app-skeleton height="56px" />
+        <app-skeleton height="56px" />
+      </app-loading-state>
+    } @else if (loadError()) {
+      <app-error-state [message]="loadError()!" (retry)="loadDebts()" />
+    } @else if (debts().length === 0 && hasActiveFilter()) {
+      <app-empty-state title="По этим условиям ничего не найдено" description="Попробуйте другого кредитора или нажмите «Сбросить»" />
+    } @else if (debts().length === 0) {
+      <app-empty-state title="Долгов пока нет" description="Добавьте долг, чтобы видеть остаток и историю погашений" />
+    } @else {
+      <div class="table-scroll" role="region" aria-label="Список долгов" tabindex="0">
+        <table class="app-table app-table--min-860">
+          <thead>
+            <tr>
+              <th>Долг</th>
+              <th>Кредитор</th>
+              <th>Дата</th>
+              <th class="amount-col">Сумма</th>
+              <th class="amount-col">Погашено</th>
+              <th class="amount-col">Остаток</th>
+              <th>Статус</th>
+              <th><span class="visually-hidden">Действия</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (debt of debts(); track debt.id) {
+              <tr>
+                <td>{{ debt.name }}</td>
+                <td>{{ creditorName(debt.creditorId) }}</td>
+                <td class="date-col">{{ debt.startDate }}</td>
+                <td class="amount-col money">{{ money(debt.originalAmount) }}</td>
+                <td class="amount-col money">{{ money(debt.repaidAmount) }}</td>
+                <td class="amount-col money"><strong>{{ money(debt.remainingAmount) }}</strong></td>
+                <td><app-badge [tone]="statusTones[debt.status]">{{ statusLabels[debt.status] }}</app-badge></td>
+                <td class="actions">
+                  <app-button variant="ghost" [iconOnly]="true" [ariaLabel]="'Действия с долгом: ' + debt.name" (click)="openRowActions(debt)">···</app-button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      @if (hasMore()) {
+        <div class="load-more">
+          <app-button variant="secondary" [loading]="isLoading()" loadingText="Загрузка…" (click)="loadMore()">Загрузить ещё</app-button>
+        </div>
+      }
+    }
+  </div>
+
+  <!-- Кредиторы -->
+  <div
+    [id]="tabsRef.panelElementId('creditors')"
+    role="tabpanel"
+    tabindex="0"
+    [attr.aria-labelledby]="tabsRef.tabElementId('creditors')"
+    [hidden]="activeTab() !== 'creditors'"
+  >
+    <form class="toolbar" [formGroup]="creditorForm" (ngSubmit)="addCreditor()" novalidate>
+      <app-field label="Новый кредитор" class="toolbar__field" [error]="creditorNameError()">
+        <input appFieldControl type="text" formControlName="name" maxlength="200" placeholder="Например, «Банк»" />
+      </app-field>
+      <app-button type="submit" variant="primary" class="app-field-align" [loading]="isAddingCreditor()" loadingText="Сохранение…">Добавить</app-button>
+    </form>
+    <p class="metadata">Кредиторы общие для долгов и кредитов. Используемого кредитора нельзя удалить — его можно деактивировать.</p>
+
+    @if (creditors().length === 0) {
+      <app-empty-state title="Кредиторов пока нет" description="Добавьте кредитора — его можно выбрать в долге или кредите" />
+    } @else {
+      <div class="table-scroll" role="region" aria-label="Список кредиторов" tabindex="0">
+        <table class="app-table app-table--min-520">
+          <thead>
+            <tr>
+              <th>Название</th>
+              <th>Статус</th>
+              <th><span class="visually-hidden">Действия</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (creditor of creditors(); track creditor.id) {
+              <tr>
+                <td>{{ creditor.name }}</td>
+                <td>
+                  <app-badge [tone]="creditor.isActive ? 'success' : 'neutral'">{{ creditor.isActive ? 'Активен' : 'Деактивирован' }}</app-badge>
+                </td>
+                <td class="actions">
+                  <app-button variant="ghost" (click)="openRename(creditor)">Переименовать</app-button>
+                  @if (creditor.isActive) {
+                    <app-button variant="ghost" (click)="deactivateCreditor(creditor)">Деактивировать</app-button>
+                  }
+                  <app-button variant="danger" (click)="requestDeleteCreditor(creditor)">Удалить</app-button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </div>
+
+  <!-- Форма долга -->
+  <app-dialog
+    [open]="formState() !== null"
+    [titleText]="formState()?.debt ? 'Изменить долг' : 'Новый долг'"
+    size="md"
+    (dismissRequested)="onFormDismissRequested($event)"
+    (closed)="closeForm()"
+  >
+    @if (formState()) {
+      <app-obligation-form
+        kind="debt"
+        [creditors]="creditors()"
+        [currencies]="currencies()"
+        [initial]="formInitial()"
+        [isSubmitting]="isSubmitting()"
+        [errorMessage]="submitError()"
+        (save)="saveDebt($event)"
+        (cancel)="closeForm()"
+        (createCreditorRequested)="creditorDialogOpen.set(true)"
+      />
+    }
+  </app-dialog>
+
+  <app-creditor-create-dialog [open]="creditorDialogOpen()" (created)="onCreditorCreated($event)" (dismissed)="creditorDialogOpen.set(false)" />
+
+  <!-- Действия строки -->
+  <app-dialog [open]="rowActionsDebt() !== null" titleText="Действия с долгом" size="sm" (dismissRequested)="closeRowActions()" (closed)="onRowActionsClosed()">
+    @if (rowActionsDebt(); as debt) {
+      <div class="row-actions-list">
+        @if (debt.status === 'Active') {
+          <app-button variant="primary" [fullWidth]="true" (click)="chooseRowAction('repay', debt)">Внести погашение</app-button>
+        }
+        <app-button variant="secondary" [fullWidth]="true" (click)="chooseRowAction('details', debt)">История погашений</app-button>
+        @if (debt.status !== 'Cancelled') {
+          <app-button variant="secondary" [fullWidth]="true" (click)="chooseRowAction('edit', debt)">Изменить</app-button>
+        }
+        @if (debt.status === 'Active') {
+          <app-button variant="danger" [fullWidth]="true" (click)="chooseRowAction('cancel', debt)">Отменить долг</app-button>
+        }
+        @if (canDelete(debt)) {
+          <app-button variant="danger" [fullWidth]="true" (click)="chooseRowAction('delete', debt)">Удалить</app-button>
+        }
+        <a class="row-actions-list__link" [routerLink]="['/audit']" [queryParams]="{ entityType: 'Debt', entityId: debt.id }" (click)="closeRowActions()">
+          История изменений
+        </a>
+      </div>
+    }
+  </app-dialog>
+
+  <!-- Погашение -->
+  <app-dialog [open]="paymentDebt() !== null" titleText="Погашение долга" size="md" (dismissRequested)="onFormDismissRequested($event)" (closed)="closePayment()">
+    @if (paymentDebt(); as debt) {
+      <app-payment-form
+        [wallets]="paymentWallets()"
+        [operationTypes]="expenseTypes()"
+        [remainingAmount]="debt.remainingAmount.amount"
+        [currencyCode]="currencyCode(debt.currencyId)"
+        [isSubmitting]="isSubmitting()"
+        [errorMessage]="submitError()"
+        (save)="savePayment($event)"
+        (cancel)="closePayment()"
+      />
+    }
+  </app-dialog>
+
+  <!-- История погашений -->
+  <app-dialog [open]="detailsDebt() !== null" [titleText]="detailsDebt()?.name ?? 'Долг'" size="lg" (closed)="detailsDebt.set(null)">
+    @if (detailsDebt(); as debt) {
+      <dl class="detail-list">
+        <dt>Кредитор</dt>
+        <dd>{{ creditorName(debt.creditorId) }}</dd>
+        <dt>Дата возникновения</dt>
+        <dd>{{ debt.startDate }}</dd>
+        <dt>Сумма долга</dt>
+        <dd class="money">{{ money(debt.originalAmount) }}</dd>
+        <dt>Погашено</dt>
+        <dd class="money">{{ money(debt.repaidAmount) }}</dd>
+        <dt>Остаток</dt>
+        <dd class="money"><strong>{{ money(debt.remainingAmount) }}</strong></dd>
+        <dt>Статус</dt>
+        <dd><app-badge [tone]="statusTones[debt.status]">{{ statusLabels[debt.status] }}</app-badge></dd>
+      </dl>
+      <h3 class="dialog-section-title">Погашения</h3>
+      @if (debt.repayments.length === 0) {
+        <p class="metadata">Погашений пока не было.</p>
+      } @else {
+        <div class="table-scroll" role="region" aria-label="История погашений" tabindex="0">
+          <table class="app-table app-table--min-520">
+            <thead>
+              <tr>
+                <th>Дата</th>
+                <th>Кошелёк</th>
+                <th class="amount-col">Сумма</th>
+                <th>Учёт</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (payment of debt.repayments; track payment.id) {
+                <tr [class.is-deleted]="payment.isOperationDeleted">
+                  <td class="date-col">{{ payment.paymentDate }}</td>
+                  <td>{{ walletName(payment.walletId) }}</td>
+                  <td class="amount-col money">{{ money(payment.amount) }}</td>
+                  <td class="actions">
+                    <app-badge [tone]="payment.isCounted ? 'success' : 'neutral'">{{ paymentStateLabel(payment) }}</app-badge>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        <p class="metadata">Погашение — обычная операция расхода. Если её удалить в «Операциях», погашение перестанет учитываться.</p>
+      }
+    }
+    <div dialogActions>
+      <app-button variant="secondary" (click)="detailsDebt.set(null)">Закрыть</app-button>
+    </div>
+  </app-dialog>
+
+  <!-- Подтверждение отмены / удаления -->
+  <app-dialog
+    [open]="confirmState() !== null"
+    [titleText]="confirmState()?.action === 'cancel' ? 'Отменить долг?' : 'Удалить долг?'"
+    size="sm"
+    (dismissRequested)="onConfirmDismissRequested($event)"
+    (closed)="closeConfirm()"
+  >
+    @if (confirmState(); as state) {
+      @if (state.action === 'cancel') {
+        <p>Долг «{{ state.debt.name }}» перейдёт в статус «Отменён». Отмена окончательна: долг останется в списке, погашения сохранятся, но новые внести будет нельзя.</p>
+      } @else {
+        <p>Долг «{{ state.debt.name }}» будет удалён без возможности восстановления.</p>
+      }
+    }
+    @if (confirmError()) {
+      <p class="form-error" role="alert">{{ confirmError() }}</p>
+    }
+    <div dialogActions>
+      <app-button variant="secondary" [disabled]="isConfirming()" (click)="closeConfirm()">Не сейчас</app-button>
+      <app-button variant="danger" [loading]="isConfirming()" loadingText="Сохранение…" (click)="confirm()">
+        {{ confirmState()?.action === 'cancel' ? 'Отменить долг' : 'Удалить' }}
+      </app-button>
+    </div>
+  </app-dialog>
+
+  <!-- Переименование кредитора -->
+  <app-dialog [open]="renameCreditor() !== null" titleText="Переименовать кредитора" size="sm" (dismissRequested)="onFormDismissRequested($event)" (closed)="closeRename()">
+    @if (renameCreditor()) {
+      <form class="entity-form" [formGroup]="renameForm" (ngSubmit)="submitRename()" novalidate>
+        <app-field label="Название" [required]="true" [error]="renameNameError()">
+          <input appFieldControl type="text" formControlName="name" maxlength="200" />
+        </app-field>
+        @if (renameError()) {
+          <p class="form-error" role="alert">{{ renameError() }}</p>
+        }
+        <div class="form-actions">
+          <app-button type="submit" variant="primary" [loading]="isRenaming()" loadingText="Сохранение…">Сохранить</app-button>
+          <app-button variant="secondary" [disabled]="isRenaming()" (click)="closeRename()">Отмена</app-button>
+        </div>
+      </form>
+    }
+  </app-dialog>
+
+  <!-- Удаление кредитора -->
+  <app-dialog [open]="deleteCreditorTarget() !== null" titleText="Удалить кредитора?" size="sm" (closed)="closeDeleteCreditor()">
+    @if (deleteCreditorTarget(); as creditor) {
+      <p>Кредитор «{{ creditor.name }}» будет удалён. Удалить можно только кредитора, который не используется в долгах и кредитах.</p>
+    }
+    @if (deleteCreditorError()) {
+      <p class="form-error" role="alert">{{ deleteCreditorError() }}</p>
+    }
+    <div dialogActions>
+      <app-button variant="secondary" [disabled]="isDeletingCreditor()" (click)="closeDeleteCreditor()">Отмена</app-button>
+      <app-button variant="danger" [loading]="isDeletingCreditor()" loadingText="Удаление…" (click)="confirmDeleteCreditor()">Удалить</app-button>
+    </div>
+  </app-dialog>
+</div>

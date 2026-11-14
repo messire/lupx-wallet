@@ -1,0 +1,51 @@
+<form class="entity-form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+  <p class="metadata entity-form__intro">
+    @if (kind() === 'debt') {
+      Долг фиксирует, сколько и кому вы должны. Деньги при этом не поступают и не списываются — поступление, если нужно, добавьте обычной операцией дохода.
+    } @else {
+      Кредит — обязательство с графиком платежей. Проценты не учитываются: указывайте сумму, которую нужно вернуть.
+    }
+  </p>
+
+  <app-field label="Кредитор" [required]="true" [error]="creditorError()">
+    <app-select formControlName="creditorId" placeholder="— выберите кредитора —" createLabel="+ добавить кредитора" (createRequested)="createCreditorRequested.emit()">
+      @for (creditor of creditorOptions(); track creditor.id) {
+        <app-select-option [value]="creditor.id" [label]="creditor.isActive ? creditor.name : creditor.name + ' (деактивирован)'" />
+      }
+    </app-select>
+  </app-field>
+
+  <app-field label="Название" [required]="true" [error]="nameError()">
+    <input appFieldControl type="text" formControlName="name" maxlength="200" [placeholder]="kind() === 'debt' ? 'Например, «Занял на ремонт»' : 'Например, «Ипотека»'" />
+  </app-field>
+
+  <app-field label="Валюта" [required]="true" [error]="currencyError()" [hint]="isEdit() ? 'Валюту после создания изменить нельзя' : null" [disabled]="isEdit()">
+    <app-select formControlName="currencyId" placeholder="— выберите валюту —">
+      @for (currency of currencies(); track currency.id) {
+        <app-select-option [value]="currency.id" [label]="currencyLabel(currency)" />
+      }
+    </app-select>
+  </app-field>
+
+  <app-field [label]="amountLabel()" [required]="true" [error]="amountError()">
+    <div class="input-suffix">
+      <input appFieldControl type="text" inputmode="decimal" placeholder="0.00" formControlName="amount" />
+      @if (currencyCode(); as code) {
+        <span class="input-suffix__code">{{ code }}</span>
+      }
+    </div>
+  </app-field>
+
+  <app-field [label]="kind() === 'debt' ? 'Дата возникновения' : 'Дата начала'" [required]="true" [error]="startDateError()">
+    <app-date-input formControlName="startDate" />
+  </app-field>
+
+  @if (errorMessage()) {
+    <p class="form-error" role="alert">{{ errorMessage() }}</p>
+  }
+
+  <div class="form-actions">
+    <app-button type="submit" variant="primary" [loading]="isSubmitting()" loadingText="Сохранение…">{{ isEdit() ? 'Сохранить' : 'Создать' }}</app-button>
+    <app-button type="button" variant="secondary" (click)="cancel.emit()">Отмена</app-button>
+  </div>
+</form>

@@ -1,0 +1,389 @@
+<div class="page">
+  <div class="page-heading">
+    <h1>Планы</h1>
+    <app-button variant="primary" (click)="openCreatePlan()">Добавить план</app-button>
+  </div>
+
+  <app-tabs #tabsRef [tabs]="tabs" [selectedId]="activeTab()" ariaLabel="Разделы планов" (selectedIdChange)="selectTab($event)" />
+
+  @if (successMessage(); as message) {
+    <app-toast class="page-toast" [message]="message" tone="success" (dismissed)="successMessage.set(null)" />
+  }
+  @if (actionError(); as message) {
+    <app-toast class="page-toast" [message]="message" tone="error" [autoDismiss]="false" (dismissed)="actionError.set(null)" />
+  }
+  @if (lookupsError(); as message) {
+    <app-error-state [message]="message" (retry)="loadLookups()" />
+  }
+
+  <!-- Календарь наступлений -->
+  <div
+    [id]="tabsRef.panelElementId('occurrences')"
+    role="tabpanel"
+    tabindex="0"
+    [attr.aria-labelledby]="tabsRef.tabElementId('occurrences')"
+    [hidden]="activeTab() !== 'occurrences'"
+  >
+    <div class="toolbar">
+      <div class="period-switcher app-field-align" role="group" aria-label="Месяц">
+        <app-button variant="ghost" [iconOnly]="true" ariaLabel="Предыдущий месяц" (click)="previousMonth()">‹</app-button>
+        <span class="period-switcher__label" aria-live="polite">{{ formatMonthLabel(month()) }}</span>
+        <app-button variant="ghost" [iconOnly]="true" ariaLabel="Следующий месяц" (click)="nextMonth()">›</app-button>
+        @if (!isCurrentMonth()) {
+          <app-button variant="ghost" (click)="currentMonth()">Текущий месяц</app-button>
+        }
+      </div>
+      <form class="toolbar__field" [formGroup]="occurrenceFilter">
+        <app-field label="План">
+          <app-select formControlName="planId">
+            <app-select-option value="" label="— все планы —" />
+            @for (plan of allPlans(); track plan.id) {
+              <app-select-option [value]="plan.id" [label]="planOptionLabel(plan)" />
+            }
+          </app-select>
+        </app-field>
+      </form>
+    </div>
+
+    @if (periodTotals().length > 0) {
+      <section class="summary-grid" aria-label="Ожидается за месяц">
+        @for (total of periodTotals(); track total.currencyId) {
+          <div class="period-total">
+            <span class="metadata">Ожидается, {{ currencyCode(total.currencyId) }}</span>
+            <span class="money">Доходы: +{{ money({ amount: total.income, currencyId: total.currencyId }) }}</span>
+            <span class="money">Расходы: −{{ money({ amount: total.expense, currencyId: total.currencyId }) }}</span>
+          </div>
+        }
+      </section>
+    }
+    @if (overdueCount() > 0) {
+      <p class="metadata" role="note">Просрочено наступлений в этом месяце: {{ overdueCount() }}. Исполните или пропустите их.</p>
+    }
+
+    @if (occurrencesLoading() && occurrences().length === 0) {
+      <app-loading-state label="Загрузка…">
+        <app-skeleton height="56px" />
+        <app-skeleton height="56px" />
+        <app-skeleton height="56px" />
+      </app-loading-state>
+    } @else if (occurrencesError()) {
+      <app-error-state [message]="occurrencesError()!" (retry)="loadOccurrences()" />
+    } @else if (occurrences().length === 0 && occurrenceFilter.getRawValue().planId) {
+      <app-empty-state title="У этого плана нет наступлений в этом месяце" description="Выберите другой месяц или «— все планы —»" />
+    } @else if (occurrences().length === 0) {
+      <app-empty-state title="В этом месяце ничего не запланировано" description="Добавьте плановый доход или расход — его наступления появятся здесь" />
+    } @else {
+      <div class="table-scroll" role="region" aria-label="Наступления за месяц" tabindex="0">
+        <table class="app-table app-table--min-860">
+          <thead>
+            <tr>
+              <th>Дата</th>
+              <th>План</th>
+              <th>Кошелёк</th>
+              <th class="amount-col">Сумма</th>
+              <th class="amount-col">Ожидается</th>
+              <th>Статус</th>
+              <th><span class="visually-hidden">Действия</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (occurrence of occurrences(); track occurrence.plannedTransactionId + occurrence.occurrenceDate) {
+              <tr>
+                <td class="date-col">
+                  {{ formatDateText(occurrence.effectiveDate) }}
+                  @if (occurrence.isMoved) {
+                    <span class="metadata cell-note">перенесено с {{ formatDateText(occurrence.occurrenceDate) }}</span>
+                  }
+                </td>
+                <td>
+                  {{ planTitle(occurrence) }}
+                  <span class="metadata cell-note">{{ occurrence.direction === 'Income' ? 'Доход' : 'Расход' }} · {{ typeName(occurrence.operationTypeId) }}</span>
+                </td>
+                <td>{{ walletName(occurrence.walletId) }}</td>
+                <td class="amount-col money" [class.amount-income]="occurrence.direction === 'Income'">
+                  {{ signedMoney(occurrence, occurrence.plannedAmount) }}
+                  @if (occurrence.isAmountChanged) {
+                    <span class="metadata cell-note">сумма изменена</span>
+                  }
+                  @if (occurrence.status === 'PartiallyExecuted') {
+                    <span class="metadata cell-note">исполнено {{ money(occurrence.executedAmount) }}</span>
+                  }
+                </td>
+                <td class="amount-col money">{{ money(occurrence.expectedAmount) }}</td>
+                <td>
+                  <app-badge [tone]="statusTones[displayStatus(occurrence)]">{{ statusLabels[displayStatus(occurrence)] }}</app-badge>
+                </td>
+                <td class="actions">
+                  <app-button
+                    variant="ghost"
+                    [iconOnly]="true"
+                    [ariaLabel]="'Действия с наступлением: ' + planTitle(occurrence) + ', ' + formatDateText(occurrence.effectiveDate)"
+                    (click)="openOccurrenceActions(occurrence)"
+                  >
+                    ···
+                  </app-button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <p class="metadata">Плановые операции не меняют баланс, пока не исполнены. Удаление операции исполнения в «Операциях» вернёт наступление в ожидаемые.</p>
+    }
+  </div>
+
+  <!-- Планы -->
+  <div
+    [id]="tabsRef.panelElementId('plans')"
+    role="tabpanel"
+    tabindex="0"
+    [attr.aria-labelledby]="tabsRef.tabElementId('plans')"
+    [hidden]="activeTab() !== 'plans'"
+  >
+    <form class="toolbar" [formGroup]="planFilter">
+      <app-field label="Статус" class="toolbar__field">
+        <app-select formControlName="status">
+          <app-select-option value="Active" label="Активные" />
+          <app-select-option value="Finished" label="Завершённые" />
+          <app-select-option value="" label="Все" />
+        </app-select>
+      </app-field>
+    </form>
+
+    @if (plansLoading() && plans().length === 0) {
+      <app-loading-state label="Загрузка…">
+        <app-skeleton height="56px" />
+        <app-skeleton height="56px" />
+      </app-loading-state>
+    } @else if (plansError()) {
+      <app-error-state [message]="plansError()!" (retry)="loadPlans()" />
+    } @else if (plans().length === 0 && planFilter.getRawValue().status) {
+      <app-empty-state title="По этим условиям ничего не найдено" description="Выберите другой статус" />
+    } @else if (plans().length === 0) {
+      <app-empty-state title="Плановых операций пока нет" description="Добавьте регулярный доход или расход — например, зарплату или аренду" />
+    } @else {
+      <div class="table-scroll" role="region" aria-label="Список плановых операций" tabindex="0">
+        <table class="app-table app-table--min-860">
+          <thead>
+            <tr>
+              <th>План</th>
+              <th class="amount-col">Сумма</th>
+              <th>Повторение</th>
+              <th>Начало</th>
+              <th>Кошелёк</th>
+              <th>Статус</th>
+              <th><span class="visually-hidden">Действия</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (plan of plans(); track plan.id) {
+              <tr>
+                <td>
+                  {{ planTitle(plan) }}
+                  <span class="metadata cell-note">{{ plan.direction === 'Income' ? 'Доход' : 'Расход' }} · {{ typeName(plan.operationTypeId) }}</span>
+                </td>
+                <td class="amount-col money" [class.amount-income]="plan.direction === 'Income'">
+                  {{ plan.direction === 'Income' ? '+' : '−' }}{{ money(plan.amount) }}
+                </td>
+                <td>{{ recurrenceLabel(plan.recurrence) }}</td>
+                <td class="date-col">{{ formatDateText(plan.startDate) }}</td>
+                <td>{{ walletName(plan.walletId) }}</td>
+                <td>
+                  <app-badge [tone]="plan.status === 'Active' ? 'accent' : 'neutral'">{{ plan.status === 'Active' ? 'Активен' : 'Завершён' }}</app-badge>
+                </td>
+                <td class="actions">
+                  <app-button variant="ghost" [iconOnly]="true" [ariaLabel]="'Действия с планом: ' + planTitle(plan)" (click)="openPlanActions(plan)">···</app-button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      @if (plansHasMore()) {
+        <div class="load-more">
+          <app-button variant="secondary" [loading]="plansLoading()" loadingText="Загрузка…" (click)="loadMorePlans()">Загрузить ещё</app-button>
+        </div>
+      }
+    }
+  </div>
+
+  <!-- Действия с наступлением -->
+  <app-dialog
+    [open]="rowActionsOccurrence() !== null"
+    titleText="Действия с наступлением"
+    size="sm"
+    (dismissRequested)="closeOccurrenceActions()"
+    (closed)="onOccurrenceActionsClosed()"
+  >
+    @if (rowActionsOccurrence(); as occurrence) {
+      <p class="metadata">
+        {{ planTitle(occurrence) }} · {{ formatDateText(occurrence.effectiveDate) }} · {{ signedMoney(occurrence, occurrence.plannedAmount) }}
+      </p>
+      @if (isPlanActive(occurrence.plannedTransactionId)) {
+        <div class="row-actions-list">
+          @if (isExecutable(occurrence)) {
+            <app-button variant="primary" [fullWidth]="true" (click)="chooseOccurrenceAction('execute', occurrence)">Исполнить…</app-button>
+          }
+          @if (occurrence.status !== 'Executed') {
+            <app-button variant="secondary" [fullWidth]="true" (click)="toggleSkip(occurrence)">
+              {{ occurrence.status === 'Skipped' ? 'Отменить пропуск' : 'Пропустить' }}
+            </app-button>
+          }
+          @if (occurrence.status !== 'Skipped' && occurrence.status !== 'Executed') {
+            <app-button variant="secondary" [fullWidth]="true" (click)="chooseOccurrenceAction('move', occurrence)">Перенести…</app-button>
+            <app-button variant="secondary" [fullWidth]="true" (click)="chooseOccurrenceAction('amount', occurrence)">Изменить сумму…</app-button>
+          }
+        </div>
+      } @else {
+        <p class="metadata">План завершён — его наступления изменить нельзя.</p>
+      }
+      @if (occurrence.executions.length > 0) {
+        <h3 class="dialog-section-title">Исполнения</h3>
+        <ul class="executions metadata">
+          @for (execution of occurrence.executions; track execution.operationId) {
+            <li>
+              {{ money(execution.amount) }}
+              @if (execution.isOperationDeleted) {
+                — операция удалена, не учитывается
+              }
+            </li>
+          }
+        </ul>
+      }
+    }
+  </app-dialog>
+
+  <!-- Исполнение -->
+  <app-dialog [open]="executeOccurrence() !== null" titleText="Исполнить наступление" size="md" (dismissRequested)="onDismissRequested($event)" (closed)="closeExecute()">
+    @if (executeOccurrence(); as occurrence) {
+      <app-occurrence-execute-form
+        [occurrence]="occurrence"
+        [wallets]="executeWallets()"
+        [currencyCode]="currencyCode(occurrence.plannedAmount.currencyId)"
+        [isSubmitting]="isSubmitting()"
+        [errorMessage]="submitError()"
+        (save)="saveExecute($event)"
+        (cancel)="closeExecute()"
+      />
+    }
+  </app-dialog>
+
+  <!-- Перенос -->
+  <app-dialog [open]="moveOccurrence() !== null" titleText="Перенести наступление" size="sm" (dismissRequested)="onDismissRequested($event)" (closed)="closeMove()">
+    @if (moveOccurrence(); as occurrence) {
+      <form class="entity-form" [formGroup]="moveForm" (ngSubmit)="saveMove()" novalidate>
+        <p class="metadata entity-form__intro">По расписанию: {{ formatDateText(occurrence.occurrenceDate) }}. Перенос затрагивает только это наступление.</p>
+        <app-field label="Новая дата" [required]="true" [error]="moveDateError()">
+          <app-date-input formControlName="date" />
+        </app-field>
+        @if (submitError()) {
+          <p class="form-error" role="alert">{{ submitError() }}</p>
+        }
+        <div class="form-actions">
+          <app-button type="submit" variant="primary" [loading]="isSubmitting()" loadingText="Сохранение…">Перенести</app-button>
+          @if (occurrence.isMoved) {
+            <app-button variant="ghost" [disabled]="isSubmitting()" (click)="resetMove()">Вернуть по расписанию</app-button>
+          }
+          <app-button variant="secondary" [disabled]="isSubmitting()" (click)="closeMove()">Отмена</app-button>
+        </div>
+      </form>
+    }
+  </app-dialog>
+
+  <!-- Сумма наступления -->
+  <app-dialog [open]="amountOccurrence() !== null" titleText="Изменить сумму наступления" size="sm" (dismissRequested)="onDismissRequested($event)" (closed)="closeAmount()">
+    @if (amountOccurrence(); as occurrence) {
+      <form class="entity-form" [formGroup]="amountForm" (ngSubmit)="saveAmount()" novalidate>
+        <p class="metadata entity-form__intro">Меняется только это наступление; остальные — по сумме плана.</p>
+        <app-field label="Сумма" [required]="true" [error]="occurrenceAmountError()">
+          <div class="input-suffix">
+            <input appFieldControl type="text" inputmode="decimal" formControlName="amount" />
+            <span class="input-suffix__code">{{ currencyCode(occurrence.plannedAmount.currencyId) }}</span>
+          </div>
+        </app-field>
+        @if (submitError()) {
+          <p class="form-error" role="alert">{{ submitError() }}</p>
+        }
+        <div class="form-actions">
+          <app-button type="submit" variant="primary" [loading]="isSubmitting()" loadingText="Сохранение…">Сохранить</app-button>
+          @if (occurrence.isAmountChanged) {
+            <app-button variant="ghost" [disabled]="isSubmitting()" (click)="saveAmount(true)">Вернуть сумму плана</app-button>
+          }
+          <app-button variant="secondary" [disabled]="isSubmitting()" (click)="closeAmount()">Отмена</app-button>
+        </div>
+      </form>
+    }
+  </app-dialog>
+
+  <!-- Действия с планом -->
+  <app-dialog [open]="rowActionsPlan() !== null" titleText="Действия с планом" size="sm" (dismissRequested)="closePlanActions()" (closed)="onPlanActionsClosed()">
+    @if (rowActionsPlan(); as plan) {
+      <div class="row-actions-list">
+        <app-button variant="secondary" [fullWidth]="true" (click)="choosePlanAction('occurrences', plan)">Показать в календаре</app-button>
+        @if (plan.status === 'Active') {
+          <app-button variant="secondary" [fullWidth]="true" (click)="choosePlanAction('edit', plan)">Изменить</app-button>
+          <app-button variant="danger" [fullWidth]="true" (click)="choosePlanAction('finish', plan)">Завершить</app-button>
+        }
+        <app-button variant="danger" [fullWidth]="true" (click)="choosePlanAction('delete', plan)">Удалить</app-button>
+        <a
+          class="row-actions-list__link"
+          [routerLink]="['/audit']"
+          [queryParams]="{ entityType: 'PlannedTransaction', entityId: plan.id }"
+          (click)="closePlanActions()"
+        >
+          История изменений
+        </a>
+      </div>
+    }
+  </app-dialog>
+
+  <!-- Форма плана -->
+  <app-dialog
+    [open]="planFormState() !== null"
+    [titleText]="planFormState()?.plan ? 'Изменить плановую операцию' : 'Новая плановая операция'"
+    size="md"
+    (dismissRequested)="onDismissRequested($event)"
+    (closed)="closePlanForm()"
+  >
+    @if (planFormState(); as state) {
+      <app-plan-form
+        [types]="typeOptions()"
+        [currencies]="currencies()"
+        [wallets]="walletOptions()"
+        [plan]="state.plan"
+        [isSubmitting]="isSubmitting()"
+        [errorMessage]="submitError()"
+        (save)="savePlan($event)"
+        (cancel)="closePlanForm()"
+      />
+    }
+  </app-dialog>
+
+  <!-- Подтверждение -->
+  <app-dialog
+    [open]="confirmState() !== null"
+    [titleText]="confirmState()?.action === 'finish' ? 'Завершить план?' : 'Удалить план?'"
+    size="sm"
+    (dismissRequested)="onDismissRequested($event)"
+    (closed)="closeConfirm()"
+  >
+    @if (confirmState(); as state) {
+      @if (state.action === 'finish') {
+        <p>План «{{ planTitle(state.plan) }}» больше ничего не будет ожидать. Исполненные наступления сохранятся; изменить завершённый план нельзя.</p>
+      } @else if (state.plan.hasExecutions) {
+        <p>У плана «{{ planTitle(state.plan) }}» есть исполнения, поэтому он не удалится, а будет завершён. Операции исполнения сохранятся.</p>
+      } @else {
+        <p>План «{{ planTitle(state.plan) }}» будет удалён вместе с его отклонениями без возможности восстановления.</p>
+      }
+    }
+    @if (submitError()) {
+      <p class="form-error" role="alert">{{ submitError() }}</p>
+    }
+    <div dialogActions>
+      <app-button variant="secondary" [disabled]="isSubmitting()" (click)="closeConfirm()">Не сейчас</app-button>
+      <app-button variant="danger" [loading]="isSubmitting()" loadingText="Сохранение…" (click)="confirm()">
+        {{ confirmState()?.action === 'finish' || confirmState()?.plan?.hasExecutions ? 'Завершить' : 'Удалить' }}
+      </app-button>
+    </div>
+  </app-dialog>
+</div>

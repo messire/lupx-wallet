@@ -1,0 +1,16 @@
+.type-choices {
+  display: grid;
+  gap: var(--lw-space-2);
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border: none;
+}
+
+.type-choices__legend {
+  margin-bottom: var(--lw-space-2);
+  padding: 0;
+  font-size: var(--lw-type-small);
+  font-weight: 500;
+}

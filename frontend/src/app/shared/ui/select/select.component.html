@@ -1,0 +1,48 @@
+<button
+  #trigger
+  type="button"
+  role="combobox"
+  class="app-field__input app-select__trigger"
+  [class.app-select__trigger--placeholder]="!selectedOption()"
+  [attr.id]="field?.controlId() ?? null"
+  aria-haspopup="listbox"
+  [attr.aria-expanded]="isOpen()"
+  [attr.aria-controls]="isOpen() ? listboxId : null"
+  [attr.aria-activedescendant]="activeOptionId()"
+  [attr.aria-label]="ariaLabel()"
+  [attr.aria-describedby]="field?.describedBy() ?? null"
+  [attr.aria-invalid]="field?.invalid() ? 'true' : null"
+  [attr.aria-required]="field?.required() ? 'true' : null"
+  [disabled]="disabled()"
+  (click)="onTriggerClick()"
+  (keydown)="onKeydown($event)"
+  (blur)="onBlur($event)"
+>
+  <span class="app-select__value">{{ selectedOption()?.label ?? placeholder() }}</span>
+</button>
+
+@if (isOpen()) {
+  <div class="app-select__panel" [appAnchoredPanel]="triggerElement()" (mousedown)="$event.preventDefault()">
+    @if (options().length === 0) {
+      <p class="app-listbox__empty">{{ emptyText() }}</p>
+    }
+    <ul class="app-listbox" role="listbox" [id]="listboxId" [attr.aria-label]="ariaLabel()" [attr.aria-labelledby]="ariaLabel() ? null : field?.controlId()">
+      @for (item of items(); track $index; let i = $index) {
+        <li
+          [id]="optionId(i)"
+          role="option"
+          class="app-listbox__option"
+          [class.app-listbox__option--create]="item.kind === 'create'"
+          [class.is-highlighted]="i === highlightedIndex()"
+          [attr.aria-selected]="item.kind === 'option' && item.value === value() ? 'true' : 'false'"
+          [attr.aria-disabled]="isItemDisabled(i) ? 'true' : null"
+          [attr.data-value]="item.kind === 'option' ? item.value : null"
+          (click)="onOptionClick(i)"
+          (mousemove)="onOptionHover(i)"
+        >
+          {{ item.label }}
+        </li>
+      }
+    </ul>
+  </div>
+}

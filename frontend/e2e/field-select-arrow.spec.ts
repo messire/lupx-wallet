@@ -1,41 +1,33 @@
 import { test, expect, login } from './fixtures';
 
 /**
- * Regression check for a bug where `.app-field__input:read-only:not(:disabled)`
- * matched native <select> elements too (a <select> has no readonly attribute, but
- * every element that isn't an editable text control still matches CSS :read-only —
- * see field.component.scss) and its `background` shorthand silently cleared the
- * arrow image set by `select.app-field__input`. Real browser computed styles only —
- * jsdom does not implement CSS :read-only matching against a live cascade the way a
- * real engine does, so this can't be caught by a component unit test.
+ * The dropdown trigger (`app-select`, ADR-0009 §6) keeps the field look — arrow image, 44px right padding, field
+ * background — and its open list is the themed panel, not the browser's grey native popup. Real browser computed
+ * styles only: jsdom does not run the cascade the way a real engine does.
  */
-test('an enabled select keeps its arrow image, correct padding, and field background', async ({ page }) => {
+test('a dropdown keeps its arrow, padding and field background, and opens a themed list', async ({ page }) => {
   await login(page);
   await page.goto('/wallets');
   await page.getByRole('button', { name: 'Добавить кошелек' }).click();
 
-  const select = page.locator('select[formcontrolname="walletTypeId"]');
-  await expect(select).toBeVisible();
+  const trigger = page.locator('app-select[formcontrolname="walletTypeId"]').getByRole('combobox');
+  await expect(trigger).toBeVisible();
 
-  const computed = await select.evaluate((el) => {
+  const computed = await trigger.evaluate((el) => {
     const cs = getComputedStyle(el);
-    return {
-      isReadOnly: el.matches(':read-only'),
-      backgroundImage: cs.backgroundImage,
-      backgroundColor: cs.backgroundColor,
-      paddingRight: cs.paddingRight,
-    };
+    return { backgroundImage: cs.backgroundImage, backgroundColor: cs.backgroundColor, paddingRight: cs.paddingRight };
   });
-
-  // The select does match :read-only (an inherent CSS quirk, not the bug) — the
-  // fix is that the arrow/padding survive that regardless.
-  expect(computed.isReadOnly).toBe(true);
-  expect(computed.backgroundImage).not.toBe('none');
   expect(computed.backgroundImage).toContain('data:image/svg+xml');
   expect(computed.paddingRight).toBe('44px');
-  // --lw-field, not --lw-glass-strong/--lw-disabled-bg — confirms the readonly/
-  // disabled rules' `background` shorthand no longer overrides it via the select.
-  expect(computed.backgroundColor).toBe('rgba(17, 22, 60, 0.58)');
+  expect(computed.backgroundColor).toBe('rgba(17, 22, 60, 0.58)'); // --lw-field
+
+  await trigger.click();
+  const panel = page.locator('.app-anchored-panel');
+  await expect(panel).toBeVisible();
+  // --lw-surface-raised, and the panel is in the top layer (Popover API), so no card or dialog can clip it.
+  await expect(panel).toHaveCSS('background-color', 'rgb(52, 57, 102)');
+  expect(await panel.evaluate((el) => el.matches(':popover-open'))).toBe(true);
+  await expect(page.getByRole('option').last()).toHaveText('+ добавить новый');
 });
 
 test('a readonly text input still gets the readonly background and text cursor', async ({ page }) => {

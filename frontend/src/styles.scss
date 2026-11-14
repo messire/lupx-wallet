@@ -345,3 +345,125 @@ body {
 .filters--compact {
   max-width: 760px;
 }
+
+/* Всплывающая панель выпадающих элементов (app-select, app-currency-select,
+   app-date-input) — единое оформление вместо нативного списка браузера, который
+   на Windows открывался серым системным окном и выбивался из темы (решение
+   пользователя 2026-11-14, ADR-0009 §6). Панель поднимается в top layer через
+   Popover API (AnchoredPanelDirective) — `[popover]` получает от браузера
+   inset/margin/border/Canvas-фон, поэтому они сбрасываются здесь явно. */
+.app-anchored-panel {
+  position: fixed;
+  inset: auto;
+  z-index: 1000;
+  box-sizing: border-box;
+  max-height: min(var(--app-panel-max, 280px), var(--app-panel-available, 100vh));
+  margin: 0;
+  padding: var(--lw-space-1);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--lw-border);
+  border-radius: var(--lw-radius-sm);
+  background: var(--lw-surface-raised);
+  color: var(--lw-text);
+  box-shadow: 0 16px 40px rgb(9 11 40 / 45%), inset 0 1px 0 var(--lw-border-light);
+}
+
+/* Список вариантов внутри панели (role="listbox"). */
+.app-listbox {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-listbox__option {
+  display: flex;
+  align-items: center;
+  gap: var(--lw-space-2);
+  min-height: 40px;
+  padding: var(--lw-space-2) var(--lw-space-3);
+  border-radius: calc(var(--lw-radius-sm) - 2px);
+  color: var(--lw-text);
+  font-size: var(--lw-type-small);
+  cursor: pointer;
+  transition: background var(--lw-motion-fast) ease-out;
+
+  &.is-highlighted {
+    background: var(--lw-accent-soft);
+    color: var(--lw-accent-hover);
+  }
+
+  /* Выбранный вариант отмечен галочкой, а не только цветом (ui-kit §5). */
+  &[aria-selected='true']::after {
+    content: '✓';
+    margin-left: auto;
+    color: var(--lw-accent);
+  }
+
+  &[aria-disabled='true'] {
+    color: var(--lw-disabled-text);
+    cursor: not-allowed;
+  }
+}
+
+/* Последний пункт «+ добавить новый» — действие, а не значение: отделён линией и
+   окрашен акцентом. */
+.app-listbox__option--create {
+  margin-top: var(--lw-space-1);
+  border-top: 1px solid var(--lw-divider);
+  border-radius: 0 0 calc(var(--lw-radius-sm) - 2px) calc(var(--lw-radius-sm) - 2px);
+  color: var(--lw-accent);
+  font-weight: 500;
+}
+
+.app-listbox__empty {
+  margin: 0;
+  padding: var(--lw-space-2) var(--lw-space-3);
+  color: var(--lw-text-muted);
+  font-size: var(--lw-type-small);
+}
+
+@media (forced-colors: active) {
+  .app-listbox__option.is-highlighted {
+    outline: 2px solid Highlight;
+  }
+}
+
+/* Числовое поле без системных стрелок-счётчиков (они рисуются браузером в
+   светлой/системной теме и выбиваются из общего стиля поля). Акцент нативных
+   элементов, которые остаются браузерными, — цвет темы. */
+input[type='number'].app-field__input {
+  appearance: textfield;
+
+  &::-webkit-inner-spin-button,
+  &::-webkit-outer-spin-button {
+    appearance: none;
+    margin: 0;
+  }
+}
+
+:root {
+  accent-color: var(--lw-accent);
+}
+
+/* Текст только для вспомогательных технологий (live-область и т.п.). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Строка действий формы («Создать»/«Отмена») — общее определение для форм в
+   диалогах «+ добавить новый»; формы экранов держат такую же локальную копию. */
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lw-space-3);
+  margin-top: var(--lw-space-2);
+}

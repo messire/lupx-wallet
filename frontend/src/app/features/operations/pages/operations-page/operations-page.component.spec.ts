@@ -4,6 +4,7 @@ import { provideRouter } from '@angular/router';
 import { environment } from '../../../../../environments/environment';
 import { Operation } from '../../../../data-access/operations/operations-api.models';
 import { Wallet } from '../../../../data-access/wallets/wallets-api.models';
+import { chooseSelectValue, dateTextInput, selectTrigger, typeDate } from '@shared/testing/form-controls.testing';
 import { OperationsComponent } from './operations-page.component';
 
 const wallet: Wallet = {
@@ -811,7 +812,7 @@ describe('OperationsComponent', () => {
 
   // ---- "Указать баланс": the whole flow through the dialog ----
 
-  function typeInto(input: HTMLInputElement | HTMLSelectElement, value: string, eventName: 'input' | 'change'): void {
+  function typeInto(input: HTMLInputElement, value: string, eventName: 'input' | 'change'): void {
     input.value = value;
     input.dispatchEvent(new Event(eventName));
   }
@@ -827,8 +828,8 @@ describe('OperationsComponent', () => {
     lookup: { balance?: string; operations?: Operation[] } = {},
   ): void {
     const form = (fixture.nativeElement as HTMLElement).querySelector('app-stated-balance-form') as HTMLElement;
-    typeInto(form.querySelector('input[type="date"]') as HTMLInputElement, date, 'input');
-    typeInto(form.querySelector('select') as HTMLSelectElement, 'wallet-1', 'change');
+    typeDate(dateTextInput(form), date);
+    chooseSelectValue(form, 'walletId', 'wallet-1', () => fixture.detectChanges());
 
     httpMock
       .expectOne((r) => r.url === `${environment.apiBaseUrl}/wallets/wallet-1/balance` && r.params.get('date') === date)
@@ -963,7 +964,7 @@ describe('OperationsComponent', () => {
       'Кошелек не найден — возможно, удалён. Обновите страницу.',
     );
     // The vanished wallet no longer stays selected in the form.
-    expect((root.querySelector('app-stated-balance-form select') as HTMLSelectElement).value).toBe('');
+    expect(selectTrigger(root.querySelector('app-stated-balance-form') as HTMLElement).textContent?.trim()).toBe('— выберите кошелек —');
     expect(component.walletOptions()).toEqual([]);
     // A failed PUT is not a reason to reload the operations.
     httpMock.expectNone((r) => r.url === `${environment.apiBaseUrl}/operations`);

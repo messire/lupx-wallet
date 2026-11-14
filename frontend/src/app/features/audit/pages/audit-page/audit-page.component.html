@@ -3,12 +3,11 @@
 
   <form class="filters" [formGroup]="form" (ngSubmit)="search()">
     <app-field label="Тип записи" class="filters__field">
-      <select appFieldControl formControlName="entityType">
-        <option value="" disabled>— выберите тип —</option>
+      <app-select formControlName="entityType" placeholder="— выберите тип —">
         @for (type of entityTypes; track type) {
-          <option [value]="type">{{ type }}</option>
+          <app-select-option [value]="type" [label]="type" />
         }
-      </select>
+      </app-select>
     </app-field>
 
     <app-field label="Идентификатор записи" class="filters__field">

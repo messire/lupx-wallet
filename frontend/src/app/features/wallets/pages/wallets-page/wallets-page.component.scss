@@ -23,25 +23,11 @@
   margin: 0 0 var(--lw-space-4);
 }
 
-.quick-add,
 .form-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--lw-space-3);
   margin-top: var(--lw-space-2);
-}
-
-.quick-add {
-  /* flex-end выравнивал по нижнему краю app-field (резервирует место под
-     hint/error даже без них), а не по видимому инпуту — кнопка "плавала"
-     ниже поля. Выравнивание по верху + .app-field-align на кнопке. */
-  align-items: flex-start;
-}
-
-.quick-add__field {
-  flex: 1;
-  min-width: 200px;
-  margin-bottom: 0;
 }
 
 .checkbox-field {

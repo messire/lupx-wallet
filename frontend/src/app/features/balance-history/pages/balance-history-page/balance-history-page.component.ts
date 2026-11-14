@@ -13,13 +13,15 @@ import { BalanceSnapshot, BalanceSnapshotPage } from '../../../../data-access/ba
 import { BalanceHistoryApiService } from '../../../../data-access/balance-history/balance-history-api.service';
 import { CardComponent } from '@shared/ui/card/card.component';
 import { FieldComponent } from '@shared/ui/field/field.component';
-import { FieldControlDirective } from '@shared/ui/field/field-control.directive';
 import { ButtonComponent } from '@shared/ui/button/button.component';
 import { BadgeComponent } from '@shared/ui/badge/badge.component';
 import { EmptyStateComponent } from '@shared/ui/empty-state/empty-state.component';
 import { LoadingStateComponent } from '@shared/ui/loading-state/loading-state.component';
 import { SkeletonComponent } from '@shared/ui/skeleton/skeleton.component';
 import { ErrorStateComponent } from '@shared/ui/error-state/error-state.component';
+import { SelectComponent } from '@shared/ui/select/select.component';
+import { SelectOptionDirective } from '@shared/ui/select/select-option.directive';
+import { DateInputComponent } from '@shared/ui/date-input/date-input.component';
 
 /** A `null` request cancels whatever inner request is currently in flight for that scenario (see `switchMap` below) without issuing a new HTTP call — used on wallet change. */
 type BalanceDateRequest = { walletId: string; date?: string } | null;
@@ -57,10 +59,12 @@ interface HistoryResult {
   selector: 'app-balance-history',
   standalone: true,
   imports: [
+    SelectComponent,
+    SelectOptionDirective,
+    DateInputComponent,
     ReactiveFormsModule,
     CardComponent,
     FieldComponent,
-    FieldControlDirective,
     ButtonComponent,
     BadgeComponent,
     EmptyStateComponent,

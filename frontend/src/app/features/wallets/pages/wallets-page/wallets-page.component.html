@@ -28,49 +28,16 @@
           @if (walletTypesLoadError(); as error) {
             <app-error-state [message]="error" retryLabel="Повторить" (retry)="loadWalletTypes()" />
           } @else {
-            <select appFieldControl formControlName="walletTypeId" [disabled]="walletTypesLoading()">
-              @if (walletTypesLoading()) {
-                <option value="" disabled>Загрузка…</option>
-              } @else {
-                <option value="" disabled>— выберите тип —</option>
-                @for (walletType of walletTypes(); track walletType.id) {
-                  <option [value]="walletType.id">{{ walletType.name }}</option>
-                }
+            <app-select
+              formControlName="walletTypeId"
+              [placeholder]="walletTypesLoading() ? 'Загрузка…' : '— выберите тип —'"
+              createLabel="+ добавить новый"
+              (createRequested)="openWalletTypeDialog('create')"
+            >
+              @for (walletType of walletTypes(); track walletType.id) {
+                <app-select-option [value]="walletType.id" [label]="walletType.name" />
               }
-            </select>
-          }
-
-          <app-button variant="ghost" type="button" (click)="toggleAddWalletType()">
-            {{ isAddingWalletType() ? 'Отмена' : '+ добавить тип' }}
-          </app-button>
-
-          @if (isAddingWalletType()) {
-            <div class="quick-add">
-              <app-field label="Название нового типа" class="quick-add__field">
-                <input
-                  appFieldControl
-                  type="text"
-                  placeholder="Название типа"
-                  [value]="newWalletTypeName()"
-                  [disabled]="isSubmittingWalletType()"
-                  (input)="newWalletTypeName.set($any($event.target).value)"
-                />
-              </app-field>
-              <app-button
-                variant="secondary"
-                type="button"
-                class="app-field-align"
-                [disabled]="isSubmittingWalletType()"
-                [loading]="isSubmittingWalletType()"
-                loadingText="Сохранение…"
-                (click)="submitNewWalletType()"
-              >
-                Добавить
-              </app-button>
-            </div>
-            @if (addWalletTypeError(); as error) {
-              <p class="form-error" role="alert">{{ error }}</p>
-            }
+            </app-select>
           }
         </app-field>
 
@@ -97,7 +64,7 @@
         </app-field>
 
         <app-field label="Дата начала учета" [required]="true">
-          <input appFieldControl type="date" formControlName="accountingStartDate" />
+          <app-date-input formControlName="accountingStartDate" />
         </app-field>
 
         <details class="advanced-fields">
@@ -148,11 +115,15 @@
         </app-field>
 
         <app-field label="Тип кошелька" [required]="true" [error]="walletTypesLoadError()">
-          <select appFieldControl formControlName="walletTypeId">
+          <app-select
+            formControlName="walletTypeId"
+            createLabel="+ добавить новый"
+            (createRequested)="openWalletTypeDialog('edit')"
+          >
             @for (walletType of walletTypes(); track walletType.id) {
-              <option [value]="walletType.id">{{ walletType.name }}</option>
+              <app-select-option [value]="walletType.id" [label]="walletType.name" />
             }
-          </select>
+          </app-select>
         </app-field>
 
         <app-field label="Описание">
@@ -204,11 +175,17 @@
         <h2 class="wallet-form-card__title">Сменить валюту</h2>
 
         <app-field label="Новая валюта" [required]="true" [error]="currenciesLoadError()">
-          <select #currencyFormSelect appFieldControl formControlName="currencyId">
+          <app-select
+            #currencyFormSelect
+            formControlName="currencyId"
+            placeholder="— выберите валюту —"
+            createLabel="+ добавить новый"
+            (createRequested)="isActivatingCurrency.set(true)"
+          >
             @for (currency of currencies(); track currency.id) {
-              <option [value]="currency.id">{{ currency.code }} — {{ currency.name }}</option>
+              <app-select-option [value]="currency.id" [label]="currency.code + ' — ' + currency.name" />
             }
-          </select>
+          </app-select>
         </app-field>
 
         @if (currencyError()) {
@@ -251,9 +228,8 @@
   } @else if (loadError()) {
     <app-error-state [message]="loadError()!" (retry)="loadWallets()" />
   } @else if (wallets().length === 0) {
-    <app-empty-state title="Кошельков пока нет" description="Создайте первый кошелек, чтобы начать учет">
-      <app-button variant="primary" (click)="openForm()">Добавить кошелек</app-button>
-    </app-empty-state>
+    <!-- Без кнопки: «Добавить кошелек» уже есть в заголовке страницы (не дублировать действие, ui-kit §5). -->
+    <app-empty-state title="Кошельков пока нет" description="Создайте первый кошелек, чтобы начать учет" />
   } @else {
     <div class="wallets-grid">
       @for (wallet of wallets(); track wallet.id) {
@@ -376,4 +352,17 @@
       </app-button>
     </div>
   </app-dialog>
+
+  <app-wallet-type-create-dialog
+    [open]="walletTypeDialogTarget() !== null"
+    (created)="onWalletTypeCreated($event)"
+    (dismissed)="walletTypeDialogTarget.set(null)"
+  />
+
+  <app-currency-activate-dialog
+    [open]="isActivatingCurrency()"
+    [activeCurrencies]="currencies()"
+    (created)="onCurrencyActivated($event)"
+    (dismissed)="isActivatingCurrency.set(false)"
+  />
 </div>

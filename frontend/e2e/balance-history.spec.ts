@@ -1,4 +1,4 @@
-import { test, expect, login, createWallet } from './fixtures';
+import { test, expect, login, createWallet, chooseOption, dateField } from './fixtures';
 
 // Known rate limit (see docs/PROGRESS.md): login is limited to 5 requests/minute,
 // and each test logs in via beforeEach — keep this file to a small number of
@@ -12,7 +12,7 @@ test('selecting a wallet and showing balance with an empty date displays the rea
   await createWallet(page, { name: walletName, initialBalance: '250' });
 
   await page.goto('/balance-history');
-  await page.getByLabel('Кошелек', { exact: true }).selectOption({ label: walletName });
+  await chooseOption(page.getByLabel('Кошелек', { exact: true }), walletName);
 
   // Date field left empty — "Показать" (not "Показать историю") must return the
   // real current balance from the API, never a client-side default of 0.
@@ -28,7 +28,7 @@ test('a reverse date range for the history shows a validation error without call
   await createWallet(page, { name: walletName });
 
   await page.goto('/balance-history');
-  await page.getByLabel('Кошелек', { exact: true }).selectOption({ label: walletName });
+  await chooseOption(page.getByLabel('Кошелек', { exact: true }), walletName);
 
   let historyRequests = 0;
   await page.route('**/balance-history**', (route) => {
@@ -36,8 +36,8 @@ test('a reverse date range for the history shows a validation error without call
     return route.continue();
   });
 
-  await page.locator('input[formcontrolname="from"]').fill('2026-06-01');
-  await page.locator('input[formcontrolname="to"]').fill('2026-01-01');
+  await dateField(page, 'from').fill('2026-06-01');
+  await dateField(page, 'to').fill('2026-01-01');
   await page.getByRole('button', { name: 'Показать историю' }).click();
 
   await expect(page.getByRole('alert')).toContainText('не может быть позже');
@@ -51,25 +51,25 @@ test('changing the wallet after a result is shown clears both results and both s
   await createWallet(page, { name: otherWalletName, initialBalance: '200' });
 
   await page.goto('/balance-history');
-  await page.getByLabel('Кошелек', { exact: true }).selectOption({ label: walletName });
+  await chooseOption(page.getByLabel('Кошелек', { exact: true }), walletName);
 
   // Balance-on-date section: produce a shown result.
   await page.getByRole('button', { name: 'Показать', exact: true }).click();
   await expect(page.locator('.balance-result .balance')).not.toHaveText('—');
 
   // History section: produce a shown (applied) period caption.
-  await page.locator('input[formcontrolname="from"]').fill('2026-01-01');
-  await page.locator('input[formcontrolname="to"]').fill('2026-01-31');
+  await dateField(page, 'from').fill('2026-01-01');
+  await dateField(page, 'to').fill('2026-01-31');
   await page.getByRole('button', { name: 'Показать историю' }).click();
   await expect(page.locator('.history-period')).toBeVisible();
 
-  await page.getByLabel('Кошелек', { exact: true }).selectOption({ label: otherWalletName });
+  await chooseOption(page.getByLabel('Кошелек', { exact: true }), otherWalletName);
 
   // Both results are cleared…
   await expect(page.locator('.balance-result .balance')).toHaveText('—');
   await expect(page.locator('.history-period')).toHaveCount(0);
   // …and both sections' dates are cleared, not just their results.
-  await expect(page.locator('input[type="date"]').first()).toHaveValue('');
-  await expect(page.locator('input[formcontrolname="from"]')).toHaveValue('');
-  await expect(page.locator('input[formcontrolname="to"]')).toHaveValue('');
+  await expect(dateField(page, 'date')).toHaveValue('');
+  await expect(dateField(page, 'from')).toHaveValue('');
+  await expect(dateField(page, 'to')).toHaveValue('');
 });

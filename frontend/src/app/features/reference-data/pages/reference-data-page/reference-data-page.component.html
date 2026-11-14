@@ -95,12 +95,11 @@
           <input type="text" appFieldControl formControlName="name" placeholder="Например, «Зарплата»" />
         </app-field>
         <app-field label="Вид поведения" class="quick-form__field">
-          <select appFieldControl formControlName="behaviorKindId">
-            <option value="" disabled>— вид поведения —</option>
+          <app-select formControlName="behaviorKindId" placeholder="— вид поведения —">
             @for (kind of creatableBehaviorKinds(); track kind.id) {
-              <option [value]="kind.id">{{ kind.name }}</option>
+              <app-select-option [value]="kind.id" [label]="kind.name" />
             }
-          </select>
+          </app-select>
         </app-field>
         <app-button
           type="submit"

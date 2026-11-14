@@ -1,5 +1,5 @@
 import { Page } from '@playwright/test';
-import { test, expect, login, createWallet, ensureTransferOperationType, isoDateDaysAgo } from './fixtures';
+import { test, expect, login, createWallet, ensureTransferOperationType, isoDateDaysAgo, chooseOption, dateField } from './fixtures';
 
 /**
  * Creates two wallets that end up sharing the same currency — `createWallet`
@@ -34,8 +34,8 @@ test('creates a transfer between two same-currency wallets through the dialog', 
   const dialog = page.getByRole('dialog', { name: 'Новый перевод' });
   await expect(dialog).toBeVisible();
 
-  await dialog.locator('select[formcontrolname="sourceWalletId"]').selectOption({ label: source });
-  await dialog.locator('select[formcontrolname="targetWalletId"]').selectOption({ label: target });
+  await chooseOption(dialog, 'sourceWalletId', source);
+  await chooseOption(dialog, 'targetWalletId', target);
   await dialog.locator('input[formcontrolname="amount"]').fill('50.00');
   await dialog.getByRole('button', { name: 'Создать', exact: true }).click();
 
@@ -74,11 +74,11 @@ test('soft-deletes a past-dated transfer: the row stays, struck through with a "
   await page.goto('/transfers');
   await page.locator('.page-heading').getByRole('button', { name: 'Добавить перевод' }).click();
   const createDialog = page.getByRole('dialog', { name: 'Новый перевод' });
-  await createDialog.locator('select[formcontrolname="sourceWalletId"]').selectOption({ label: source });
-  await createDialog.locator('select[formcontrolname="targetWalletId"]').selectOption({ label: target });
+  await chooseOption(createDialog, 'sourceWalletId', source);
+  await chooseOption(createDialog, 'targetWalletId', target);
   await createDialog.locator('input[formcontrolname="amount"]').fill('15.00');
   // ADR-0002: a past date must not prevent deletion (the old "today only" rule is gone).
-  await createDialog.locator('input[formcontrolname="transferDate"]').fill(isoDateDaysAgo(10));
+  await dateField(createDialog, 'transferDate').fill(isoDateDaysAgo(10));
   await createDialog.getByRole('button', { name: 'Создать', exact: true }).click();
   await expect(createDialog).toBeHidden();
 

@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { environment } from '../../../../../environments/environment';
 import { Wallet } from '../../../../data-access/wallets/wallets-api.models';
+import { stubNativeDialog } from '@shared/testing/dialog.testing';
 import { WalletsComponent } from './wallets-page.component';
 
 const primaryWallet: Wallet = {
@@ -368,67 +369,80 @@ describe('WalletsComponent', () => {
     expect(component.currenciesLoadError()).toBeNull();
   });
 
-  // ---- Quick-add wallet type (submitNewWalletType) ----
+  it('shows "Добавить кошелек" once when there are no wallets — in the page heading, not again in the empty state', () => {
+    const fixture = createComponent([]);
+    const root = fixture.nativeElement as HTMLElement;
 
-  it('submitNewWalletType: creates the type, selects it in the form, and closes the quick-add row', () => {
+    expect(root.textContent).toContain('Кошельков пока нет');
+    const addButtons = Array.from(root.querySelectorAll('button')).filter((btn) => btn.textContent?.trim() === 'Добавить кошелек');
+    expect(addButtons.length).toBe(1);
+    expect(root.querySelector('app-empty-state button')).toBeNull();
+  });
+
+  // ---- "+ добавить новый" in reference dropdowns (ADR-0009 §7) ----
+
+  it('onWalletTypeCreated: adds the new type to the list, selects it in the create form and re-reads the list', () => {
     const fixture = createComponent();
     const component = fixture.componentInstance;
 
-    component.toggleAddWalletType();
-    component.newWalletTypeName.set('Кредитная карта');
-    component.submitNewWalletType();
+    component.openForm();
+    component.openWalletTypeDialog('create');
+    expect(component.walletTypeDialogTarget()).toBe('create');
 
-    expect(component.isSubmittingWalletType()).toBe(true);
+    component.onWalletTypeCreated({ id: 'wt-new', name: 'Кредитная карта', isActive: true });
 
-    const req = httpMock.expectOne(`${environment.apiBaseUrl}/wallet-types`);
-    expect(req.request.method).toBe('POST');
-    expect(req.request.body).toEqual({ name: 'Кредитная карта' });
-    req.flush({ id: 'wt-new', name: 'Кредитная карта', isActive: true });
-
-    // submitNewWalletType() reloads the list on success.
-    httpMock
-      .expectOne((r) => r.url === `${environment.apiBaseUrl}/wallet-types`)
-      .flush({ data: [{ id: 'wt-new', name: 'Кредитная карта', isActive: true }], pagination: { nextCursor: null, hasMore: false } });
-
-    expect(component.isSubmittingWalletType()).toBe(false);
+    expect(component.walletTypeDialogTarget()).toBeNull();
+    expect(component.walletTypes().map((type) => type.id)).toEqual(['wt-1', 'wt-new']);
     expect(component.form.controls.walletTypeId.value).toBe('wt-new');
-    expect(component.isAddingWalletType()).toBe(false);
-    expect(component.newWalletTypeName()).toBe('');
-  });
-
-  it('submitNewWalletType: on failure, shows a readable error, ends the loading state, and preserves the typed name', () => {
-    const fixture = createComponent();
-    const component = fixture.componentInstance;
-
-    component.toggleAddWalletType();
-    component.newWalletTypeName.set('Дублирующее имя');
-    component.submitNewWalletType();
-
-    httpMock
-      .expectOne(`${environment.apiBaseUrl}/wallet-types`)
-      .flush({ title: 'Conflict', status: 409, detail: 'Тип с таким названием уже существует.' }, { status: 409, statusText: 'Conflict' });
-
-    expect(component.isSubmittingWalletType()).toBe(false);
-    expect(component.addWalletTypeError()).toBe('Тип с таким названием уже существует.');
-    // The quick-add row stays open and the typed name is not cleared, so the user can fix and resubmit.
-    expect(component.isAddingWalletType()).toBe(true);
-    expect(component.newWalletTypeName()).toBe('Дублирующее имя');
-  });
-
-  it('submitNewWalletType: a second call while the first is in flight does not send a second request', () => {
-    const fixture = createComponent();
-    const component = fixture.componentInstance;
-
-    component.toggleAddWalletType();
-    component.newWalletTypeName.set('Наличные 2');
-    component.submitNewWalletType();
-    component.submitNewWalletType(); // guarded by isSubmittingWalletType()
-
-    // If a second request had been sent, expectOne below would fail with "multiple matches".
-    httpMock.expectOne(`${environment.apiBaseUrl}/wallet-types`).flush({ id: 'wt-2', name: 'Наличные 2', isActive: true });
     httpMock
       .expectOne((r) => r.url === `${environment.apiBaseUrl}/wallet-types`)
-      .flush({ data: [{ id: 'wt-2', name: 'Наличные 2', isActive: true }], pagination: { nextCursor: null, hasMore: false } });
+      .flush({ data: [{ id: 'wt-1', name: 'Наличные', isActive: true }, { id: 'wt-new', name: 'Кредитная карта', isActive: true }], pagination: { nextCursor: null, hasMore: false } });
+  });
+
+  it('onWalletTypeCreated: from the edit form selects the new type in the edit form, not in the create form', () => {
+    const fixture = createComponent();
+    const component = fixture.componentInstance;
+
+    component.openEditForm(secondaryWallet);
+    component.openWalletTypeDialog('edit');
+    component.onWalletTypeCreated({ id: 'wt-new', name: 'Вклад', isActive: true });
+
+    expect(component.editForm.controls.walletTypeId.value).toBe('wt-new');
+    expect(component.form.controls.walletTypeId.value).toBe('');
+    httpMock.expectOne((r) => r.url === `${environment.apiBaseUrl}/wallet-types`).flush({ data: [], pagination: { nextCursor: null, hasMore: false } });
+  });
+
+  it('onCurrencyActivated: adds the currency to the active list and selects it in "Сменить валюту"', () => {
+    const fixture = createComponent();
+    const component = fixture.componentInstance;
+
+    component.isActivatingCurrency.set(true);
+    component.onCurrencyActivated({ id: 'c-eur', code: 'EUR', name: 'Euro' });
+
+    expect(component.isActivatingCurrency()).toBe(false);
+    expect(component.currencies().map((currency) => currency.code)).toEqual(['USD', 'EUR']);
+    expect(component.currencyForm.controls.currencyId.value).toBe('c-eur');
+  });
+
+  it('the wallet-type dropdown of the create form ends with "+ добавить новый", which opens the dialog', () => {
+    onTestFinished(stubNativeDialog());
+
+    const fixture = createComponent();
+    const component = fixture.componentInstance;
+    component.openForm();
+    fixture.detectChanges();
+
+    const trigger = (fixture.nativeElement as HTMLElement).querySelector('app-select[formcontrolname="walletTypeId"] button[role="combobox"]') as HTMLButtonElement;
+    trigger.click();
+    fixture.detectChanges();
+
+    const rows = Array.from(document.querySelectorAll('[role="option"]')) as HTMLElement[];
+    expect(rows.map((row) => row.textContent?.trim())).toEqual(['Наличные', '+ добавить новый']);
+    rows[1].click();
+    fixture.detectChanges();
+
+    expect(component.walletTypeDialogTarget()).toBe('create');
+    expect(component.form.controls.walletTypeId.value).toBe('');
   });
 
   // ---- Create form: currency chosen from the available list (loadAvailableCurrencies / submit) ----
@@ -552,12 +566,11 @@ describe('WalletsComponent', () => {
       expect(root(fixture).querySelectorAll(`[id="${input.id}"]`).length).toBe(1);
     });
 
-    it('has no quick-add for currencies (only the wallet type keeps one)', () => {
+    it('offers "+ добавить новый" for the wallet type only — the available-currency picker has no add row', () => {
       const fixture = createOpenForm();
-      const text = root(fixture).textContent ?? '';
 
-      expect(text).not.toContain('+ добавить валюту');
-      expect(text).toContain('+ добавить тип');
+      expect(root(fixture).querySelector('app-select[formcontrolname="walletTypeId"]')).not.toBeNull();
+      expect(root(fixture).querySelector('app-currency-select')?.textContent ?? '').not.toContain('+ добавить');
       expect(root(fixture).querySelectorAll('.quick-add').length).toBe(0);
     });
 
@@ -753,8 +766,11 @@ describe('WalletsComponent', () => {
       component.openChangeCurrency(secondaryWallet);
       fixture.detectChanges();
 
-      const options = Array.from(root(fixture).querySelectorAll('select[formcontrolname="currencyId"] option')).map((o) => o.textContent?.trim());
-      expect(options).toEqual(['USD — US Dollar']);
+      (root(fixture).querySelector('app-select[formcontrolname="currencyId"] button[role="combobox"]') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      const options = Array.from(root(fixture).querySelectorAll('app-select[formcontrolname="currencyId"] [role="option"]')).map((o) => o.textContent?.trim());
+      // The active currencies, then the "add" row that activates one more (ADR-0009 §7).
+      expect(options).toEqual(['USD — US Dollar', '+ добавить новый']);
     });
   });
 
@@ -904,7 +920,7 @@ describe('WalletsComponent', () => {
       expect(component.openMenuWalletId()).toBeNull();
       expect(component.changingCurrencyWalletId()).toBe(secondaryWallet.id);
 
-      const currencySelect = fixture.nativeElement.querySelector('select[formcontrolname="currencyId"]') as HTMLSelectElement;
+      const currencySelect = fixture.nativeElement.querySelector('app-select[formcontrolname="currencyId"] button[role="combobox"]') as HTMLButtonElement;
       expect(document.activeElement).toBe(currencySelect);
     });
 

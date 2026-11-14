@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { dateInputBounds, selectTrigger } from '@shared/testing/form-controls.testing';
 import { TransferFormComponent, TransferWalletOption } from './transfer-form.component';
 
 describe('TransferFormComponent', () => {
@@ -128,16 +129,14 @@ describe('TransferFormComponent', () => {
     expect(hint).toBeTruthy();
     expect(hint).not.toMatch(/UC-\d+/);
 
-    const select = fixture.nativeElement.querySelector('select[formcontrolname="targetWalletId"]') as HTMLSelectElement;
-    expect(select.disabled).toBe(true);
+    expect(selectTrigger(fixture.nativeElement, 'targetWalletId').disabled).toBe(true);
   });
 
   it('shows "Сначала выберите источник" before any source is selected, and disables the target select', () => {
     const hint = component.targetWalletHint();
 
     expect(hint).toBe('Сначала выберите источник');
-    const select = fixture.nativeElement.querySelector('select[formcontrolname="targetWalletId"]') as HTMLSelectElement;
-    expect(select.disabled).toBe(true);
+    expect(selectTrigger(fixture.nativeElement, 'targetWalletId').disabled).toBe(true);
   });
 
   // ---- A8: date min/max computed from both wallets' accountingStartDate and today ----
@@ -149,8 +148,7 @@ describe('TransferFormComponent', () => {
 
     expect(component.minTransferDate()).toBe('2026-02-01');
 
-    const dateInput = fixture.nativeElement.querySelector('input[type="date"]') as HTMLInputElement;
-    expect(dateInput.min).toBe('2026-02-01');
+    expect(dateInputBounds(fixture.debugElement).min).toBe('2026-02-01');
   });
 
   it('has no lower bound before a source wallet is selected, and an upper bound of today', () => {
@@ -159,8 +157,7 @@ describe('TransferFormComponent', () => {
     const today = new Date().toISOString().slice(0, 10);
     expect(component.maxTransferDate).toBe(today);
 
-    const dateInput = fixture.nativeElement.querySelector('input[type="date"]') as HTMLInputElement;
-    expect(dateInput.max).toBe(today);
+    expect(dateInputBounds(fixture.debugElement).max).toBe(today);
   });
 
   it('rejects a date earlier than the computed lower bound', () => {

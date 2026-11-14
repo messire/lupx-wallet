@@ -37,7 +37,7 @@
 
     <form class="inline-form" [formGroup]="dateForm" (ngSubmit)="showHistorical()">
       <app-field label="Дата">
-        <input appFieldControl type="date" formControlName="date" />
+        <app-date-input formControlName="date" />
       </app-field>
       <app-button
         type="submit"

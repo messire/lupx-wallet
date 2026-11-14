@@ -10,6 +10,9 @@ import {
   login,
   setStatedBalance,
   test,
+  chooseOption,
+  dateField,
+  ruDate,
 } from './fixtures';
 
 // Login is limited to 5 requests/minute and every test logs in (beforeEach): this file stays at 3 scenarios.
@@ -157,13 +160,14 @@ test('the "Указать баланс" dialog limits the date, rejects a malfor
 
   const dialog = page.getByRole('dialog', { name: 'Указать баланс на дату' });
   await expect(dialog).toBeVisible();
-  await dialog.locator('select[formcontrolname="walletId"]').selectOption({ label: walletName });
+  await chooseOption(dialog, 'walletId', walletName);
 
   // The date input is limited to [accounting start .. today] and defaults to today.
-  const date = dialog.locator('input[formcontrolname="date"]');
-  await expect(date).toHaveAttribute('min', startDate);
-  await expect(date).toHaveAttribute('max', isoDateDaysAgo(0));
-  await expect(date).toHaveValue(isoDateDaysAgo(0));
+  const date = dateField(dialog, 'date');
+  const dateHost = dialog.locator('app-date-input[formcontrolname="date"]');
+  await expect(dateHost).toHaveAttribute('data-min', startDate);
+  await expect(dateHost).toHaveAttribute('data-max', isoDateDaysAgo(0));
+  await expect(date).toHaveValue(ruDate(isoDateDaysAgo(0)));
 
   // The live hint appears in a polite live region once the wallet and the date are valid.
   const liveHint = dialog.locator('.balance-lookup');
@@ -214,8 +218,8 @@ test('an adjustment operation offers only the signed change (Delta) and keeps wo
   await page.locator('.page-heading').getByRole('button', { name: 'Добавить операцию' }).click();
 
   const dialog = page.getByRole('dialog', { name: 'Новая операция' });
-  await dialog.locator('select[formcontrolname="walletId"]').selectOption({ label: walletName });
-  await dialog.locator('select[formcontrolname="operationTypeId"]').selectOption({ label: 'E2E корректировка' });
+  await chooseOption(dialog, 'walletId', walletName);
+  await chooseOption(dialog, 'operationTypeId', 'E2E корректировка');
 
   // No choice between a delta and a new absolute value any more: only "Изменение на сумму (+/−)".
   await expect(dialog.getByText('Изменение на сумму (+/−)')).toBeVisible();
@@ -223,7 +227,7 @@ test('an adjustment operation offers only the signed change (Delta) and keeps wo
   await expect(dialog.locator('input[type="radio"]')).toHaveCount(0);
 
   await dialog.locator('input[formcontrolname="amount"]').fill('-30');
-  await dialog.locator('input[formcontrolname="operationDate"]').fill(isoDateDaysAgo(12));
+  await dateField(dialog, 'operationDate').fill(isoDateDaysAgo(12));
   const [request] = await Promise.all([
     page.waitForRequest((req) => req.method() === 'POST' && new URL(req.url()).pathname === '/api/v1/operations'),
     dialog.getByRole('button', { name: 'Создать', exact: true }).click(),

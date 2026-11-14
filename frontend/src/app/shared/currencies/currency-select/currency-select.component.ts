@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, ElementRef, forwardRef, HostListener, inject, input, signal, viewChild } from '@angular/core';
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 import { FieldComponent } from '../../ui/field/field.component';
+import { AnchoredPanelDirective } from '../../ui/popover/anchored-panel.directive';
 import { CurrencyOption } from '../currency-option';
 
 let nextId = 0;
@@ -22,10 +23,15 @@ let nextId = 0;
  * The popup closes (and the control is marked touched) when the input loses
  * focus; the selected value stays visible. Pressing the focused input again
  * re-opens a closed popup.
+ *
+ * The popup is the shared anchored panel (`AnchoredPanelDirective`, top layer) with
+ * the shared `.app-listbox` look — the same as `app-select`, and not clipped by a
+ * dialog's scrolling body.
  */
 @Component({
   selector: 'app-currency-select',
   standalone: true,
+  imports: [AnchoredPanelDirective],
   templateUrl: './currency-select.component.html',
   styleUrl: './currency-select.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

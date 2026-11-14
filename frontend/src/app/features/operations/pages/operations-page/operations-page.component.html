@@ -18,29 +18,29 @@
   <app-card class="filters-card">
     <form class="filters" [formGroup]="filterForm" (ngSubmit)="applyFilters()">
       <app-field label="Кошелек" class="filters__field">
-        <select appFieldControl formControlName="walletId">
-          <option value="">— все —</option>
+        <app-select formControlName="walletId">
+          <app-select-option value="" label="— все —" />
           @for (wallet of wallets(); track wallet.id) {
-            <option [value]="wallet.id">{{ wallet.name }}</option>
+            <app-select-option [value]="wallet.id" [label]="wallet.name" />
           }
-        </select>
+        </app-select>
       </app-field>
 
       <app-field label="Тип операции" class="filters__field">
-        <select appFieldControl formControlName="operationTypeId">
-          <option value="">— все —</option>
+        <app-select formControlName="operationTypeId">
+          <app-select-option value="" label="— все —" />
           @for (type of allOperationTypeOptions(); track type.id) {
-            <option [value]="type.id">{{ type.name }}</option>
+            <app-select-option [value]="type.id" [label]="type.name" />
           }
-        </select>
+        </app-select>
       </app-field>
 
       <app-field label="С даты" class="filters__field">
-        <input appFieldControl type="date" formControlName="dateFrom" />
+        <app-date-input formControlName="dateFrom" />
       </app-field>
 
       <app-field label="По дату" class="filters__field">
-        <input appFieldControl type="date" formControlName="dateTo" />
+        <app-date-input formControlName="dateTo" />
       </app-field>
 
       @if (filterForm.errors?.['reverseDateRange']) {
@@ -73,6 +73,7 @@
         [errorMessage]="submitError()"
         (save)="saveOperation($event)"
         (cancel)="cancelForm()"
+        (operationTypeCreated)="onOperationTypeCreated($event.operationType)"
       />
     }
   </app-dialog>
@@ -104,13 +105,10 @@
   } @else if (loadError()) {
     <app-error-state [message]="loadError()!" (retry)="loadOperations()" />
   } @else if (operations().length === 0 && hasActiveFilters()) {
-    <app-empty-state title="По этим условиям ничего не найдено" description="Попробуйте изменить условия или сбросить фильтры">
-      <app-button variant="secondary" (click)="resetFilters()">Сбросить фильтры</app-button>
-    </app-empty-state>
+    <!-- Без кнопок: «Сбросить» и «Добавить операцию» уже есть на странице (не дублировать действия). -->
+    <app-empty-state title="По этим условиям ничего не найдено" description="Попробуйте изменить условия или нажмите «Сбросить» в фильтрах" />
   } @else if (operations().length === 0) {
-    <app-empty-state title="Операций пока нет" description="Добавьте первую операцию, чтобы начать учёт">
-      <app-button variant="primary" (click)="openCreateForm()">Добавить операцию</app-button>
-    </app-empty-state>
+    <app-empty-state title="Операций пока нет" description="Добавьте первую операцию, чтобы начать учёт" />
   } @else {
     <div class="table-card">
       <div class="table-scroll" role="region" aria-label="Список операций" tabindex="0">

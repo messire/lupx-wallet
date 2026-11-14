@@ -21,10 +21,12 @@ import { DialogComponent } from '@shared/ui/dialog/dialog.component';
 import { EmptyStateComponent } from '@shared/ui/empty-state/empty-state.component';
 import { ErrorStateComponent } from '@shared/ui/error-state/error-state.component';
 import { FieldComponent } from '@shared/ui/field/field.component';
-import { FieldControlDirective } from '@shared/ui/field/field-control.directive';
 import { LoadingStateComponent } from '@shared/ui/loading-state/loading-state.component';
 import { SkeletonComponent } from '@shared/ui/skeleton/skeleton.component';
 import { ToastComponent } from '@shared/ui/toast/toast.component';
+import { SelectComponent } from '@shared/ui/select/select.component';
+import { SelectOptionDirective } from '@shared/ui/select/select-option.directive';
+import { DateInputComponent } from '@shared/ui/date-input/date-input.component';
 
 /**
  * UC-11 (income), UC-12 (expense), UC-13 (edit), UC-14 (delete), UC-15 (list),
@@ -45,6 +47,9 @@ import { ToastComponent } from '@shared/ui/toast/toast.component';
   selector: 'app-operations',
   standalone: true,
   imports: [
+    SelectComponent,
+    SelectOptionDirective,
+    DateInputComponent,
     ReactiveFormsModule,
     RouterLink,
     OperationFormComponent,
@@ -56,7 +61,6 @@ import { ToastComponent } from '@shared/ui/toast/toast.component';
     EmptyStateComponent,
     ErrorStateComponent,
     FieldComponent,
-    FieldControlDirective,
     LoadingStateComponent,
     SkeletonComponent,
     ToastComponent,
@@ -169,6 +173,12 @@ export class OperationsComponent implements OnInit {
 
   loadOperationTypes(): void {
     this.referenceDataService.listOperationTypes({ limit: 100 }).subscribe((page) => this.operationTypesRaw.set(page.data));
+  }
+
+  /** "+ добавить новый" in the operation form (ADR-0009 §7): the new type joins the list at once, then the list is re-read. */
+  onOperationTypeCreated(operationType: OperationType): void {
+    this.operationTypesRaw.update((types) => [...types.filter((type) => type.id !== operationType.id), operationType]);
+    this.loadOperationTypes();
   }
 
   loadBehaviorKinds(): void {

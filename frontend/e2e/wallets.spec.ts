@@ -8,6 +8,7 @@ import {
   removeCurrencyIfActive,
   selectWalletCurrency,
   trackCurrencyForCleanup,
+  pickOrCreateWalletType,
 } from './fixtures';
 
 test.beforeEach(async ({ page }) => {
@@ -39,18 +40,8 @@ test('shows a readable save error and keeps the entered data when the create req
 
   // The currency comes from the list of available currencies, filled only by a rates refresh (ADR-0004 §7).
   await ensureAvailableCurrencyOnPage(page, 'EUR');
-  await page.getByRole('button', { name: 'Добавить кошелек' }).first().click();
-
-  const typeSelect = page.locator('select[formcontrolname="walletTypeId"]');
-  await expect(typeSelect).toBeEnabled();
-  if ((await typeSelect.locator('option').count()) <= 1) {
-    await page.getByRole('button', { name: '+ добавить тип' }).click();
-    await page.getByPlaceholder('Название типа').fill('E2E тип кошелька');
-    const typeQuickAdd = page.locator('.quick-add').filter({ has: page.getByPlaceholder('Название типа') });
-    await typeQuickAdd.getByRole('button', { name: 'Добавить' }).click();
-    await expect(typeSelect.locator('option')).not.toHaveCount(1);
-  }
-  await typeSelect.selectOption({ index: 1 });
+  await page.getByRole('button', { name: 'Добавить кошелек' }).click();
+  await pickOrCreateWalletType(page);
 
   await selectWalletCurrency(page, 'EUR');
 

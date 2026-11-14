@@ -7,6 +7,9 @@ import { CreateTransferRequest } from '../../../../data-access/transfers/transfe
 import { ButtonComponent } from '@shared/ui/button/button.component';
 import { FieldComponent } from '@shared/ui/field/field.component';
 import { FieldControlDirective } from '@shared/ui/field/field-control.directive';
+import { SelectComponent } from '@shared/ui/select/select.component';
+import { SelectOptionDirective } from '@shared/ui/select/select-option.directive';
+import { DateInputComponent } from '@shared/ui/date-input/date-input.component';
 
 export interface TransferWalletOption {
   id: string;
@@ -72,7 +75,7 @@ const differentWalletsValidator: ValidatorFn = (control): ValidationErrors | nul
 @Component({
   selector: 'app-transfer-form',
   standalone: true,
-  imports: [ReactiveFormsModule, ButtonComponent, FieldComponent, FieldControlDirective],
+  imports: [SelectComponent, SelectOptionDirective, DateInputComponent, ReactiveFormsModule, ButtonComponent, FieldComponent, FieldControlDirective],
   templateUrl: './transfer-form.component.html',
   styleUrl: './transfer-form.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

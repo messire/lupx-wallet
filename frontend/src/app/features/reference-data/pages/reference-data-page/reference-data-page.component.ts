@@ -19,6 +19,8 @@ import { SkeletonComponent } from '@shared/ui/skeleton/skeleton.component';
 import { ErrorStateComponent } from '@shared/ui/error-state/error-state.component';
 import { DialogComponent } from '@shared/ui/dialog/dialog.component';
 import { ToastComponent } from '@shared/ui/toast/toast.component';
+import { SelectComponent } from '@shared/ui/select/select.component';
+import { SelectOptionDirective } from '@shared/ui/select/select-option.directive';
 
 export type ReferenceTab = 'wallet-types' | 'operation-types' | 'currencies';
 
@@ -39,6 +41,8 @@ export type ReferenceTab = 'wallet-types' | 'operation-types' | 'currencies';
   selector: 'app-reference-data',
   standalone: true,
   imports: [
+    SelectComponent,
+    SelectOptionDirective,
     ReactiveFormsModule,
     RouterLink,
     CurrencySelectComponent,

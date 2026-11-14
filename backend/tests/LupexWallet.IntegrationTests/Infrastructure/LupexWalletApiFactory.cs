@@ -70,6 +70,9 @@ public sealed class LupexWalletApiFactory : WebApplicationFactory<Program>
         await sp.GetRequiredService<BalanceHistoryDbContext>().Database.MigrateAsync();
         await sp.GetRequiredService<ExchangeRatesDbContext>().Database.MigrateAsync();
         await sp.GetRequiredService<AuditDbContext>().Database.MigrateAsync();
+
+        // Planning (ADR-0010 §6)
+        await sp.GetRequiredService<LupexWallet.Planning.Infrastructure.PlanningDbContext>().Database.MigrateAsync();
         await sp.GetRequiredService<BudgetingDbContext>().Database.MigrateAsync();
 
         // ---- Funds (ADR-0010 §4) ----

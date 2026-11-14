@@ -43,4 +43,10 @@
     <ProjectReference Include="..\..\Modules\Debts\Api\LupexWallet.Debts.Api.csproj" />
   </ItemGroup>
 
+  <!-- Planning (ADR-0010 §6) -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\Modules\Planning\Infrastructure\LupexWallet.Planning.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Planning\Api\LupexWallet.Planning.Api.csproj" />
+  </ItemGroup>
+
 </Project>

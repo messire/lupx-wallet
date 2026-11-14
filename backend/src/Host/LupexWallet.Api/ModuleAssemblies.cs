@@ -17,6 +17,9 @@ public static class ModuleAssemblies
         typeof(LupexWallet.ExchangeRates.Application.AssemblyMarker).Assembly,
         typeof(LupexWallet.Audit.Application.AssemblyMarker).Assembly,
         typeof(LupexWallet.Reporting.Application.AssemblyMarker).Assembly,
+
+        // Planning (ADR-0010 §6)
+        typeof(LupexWallet.Planning.Application.AssemblyMarker).Assembly,
         typeof(LupexWallet.Budgeting.Application.AssemblyMarker).Assembly,
 
         // ---- Funds (ADR-0010 §4) ----

@@ -52,6 +52,14 @@ public readonly record struct AuditEntryId(Guid Value)
     public override string ToString() => Value.ToString();
 }
 
+// ---- Planning (ADR-0010 §6) ----
+
+public readonly record struct PlannedTransactionId(Guid Value)
+{
+    public static PlannedTransactionId New() => new(Guid.NewGuid());
+    public override string ToString() => Value.ToString();
+}
+
 // ---- Budgeting (ADR-0010 §5) ----
 
 public readonly record struct ExpenseCategoryId(Guid Value)

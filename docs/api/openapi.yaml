@@ -43,6 +43,10 @@ tags:
     description: Общая сумма по всем кошелькам — текущая и историческая.
   - name: Audit
     description: Неизменяемый журнал изменений финансовых данных.
+  - name: Planning
+    description: >
+      Плановые операции — разовые и повторяющиеся будущие доходы и расходы, их вычисляемые
+      наступления, отклонения и исполнение обычной операцией (ADR-0010, §6).
   - name: Creditors
     description: Справочник кредиторов модуля Debts — общий для долгов и кредитов (ADR-0010 §3).
   - name: Debts
@@ -1027,6 +1031,320 @@ paths:
               schema: { $ref: "#/components/schemas/AuditEntryPage" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  # ---------- Planning (ADR-0010 §6) ----------
+  /planned-transactions:
+    get:
+      tags: [Planning]
+      summary: Список плановых операций (issue #9)
+      operationId: listPlannedTransactions
+      description: Порядок — по моменту создания. Без status — активные и завершенные.
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [Active, Finished] }
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedTransactionPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Planning]
+      summary: Создать плановую операцию — разовую или повторяющуюся (issue #9)
+      operationId: createPlannedTransaction
+      description: >
+        Тип операции — активный, с поведением Income или Expense (плановые переводы в объем
+        не входят); направление плана берется из типа. Валюта — активная. Кошелек необязателен,
+        если указан — в валюте плана. До исполнения план не меняет ни баланс, ни историю баланса.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlannedTransactionWriteRequest" }
+      responses:
+        "201":
+          description: Создана
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedTransaction" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /planned-transactions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Planning]
+      summary: Получить плановую операцию
+      operationId: getPlannedTransaction
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedTransaction" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Planning]
+      summary: Редактировать плановую операцию
+      operationId: updatePlannedTransaction
+      description: >
+        Все поля передаются полностью (как в остальных PATCH). Отклонения наступлений, которых
+        нет в новом расписании, удаляются. Если у плана есть исполнения: валюту и направление
+        (доход/расход) менять нельзя, и каждое исполненное наступление должно остаться в новом
+        расписании — иначе 409. Неактивный тип операции допустим, только если он не меняется.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlannedTransactionWriteRequest" }
+      responses:
+        "200":
+          description: Обновлена
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedTransaction" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: План завершен; либо смена валюты, направления или расписания противоречит исполнениям.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+    delete:
+      tags: [Planning]
+      summary: Удалить плановую операцию (ADR-0010, §8)
+      operationId: deletePlannedTransaction
+      description: >
+        План без исполнений удаляется физически (204) вместе с отклонениями. План с исполнениями
+        не удаляется, а завершается (200 с планом в статусе Finished; уже завершенный остается как есть).
+      responses:
+        "200":
+          description: У плана есть исполнения — он завершен, а не удален
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedTransaction" }
+        "204": { description: Удалена }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /planned-transactions/{id}/finish:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Planning]
+      summary: Завершить плановую операцию
+      operationId: finishPlannedTransaction
+      description: >
+        Завершенный план больше ничего не ожидает: его наступления не попадают в ожидаемые
+        и в прогноз; в списке наступлений остаются только исполненные (полностью или частично).
+        Изменять завершенный план и его наступления нельзя.
+      responses:
+        "200":
+          description: Завершена
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedTransaction" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: План уже завершен.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /planned-occurrences:
+    get:
+      tags: [Planning]
+      summary: Наступления плановых операций за период
+      operationId: listPlannedOccurrences
+      description: >
+        Наступления вычисляются из правила повторения и не хранятся (ADR-0010, §6). В период
+        попадает наступление, чья фактическая дата (effectiveDate, после переноса) в [from, to]:
+        перенос может ввести наступление в период или вывести из него. Исполненная сумма берется
+        из текущих данных операций исполнения: мягко удаленная операция не учитывается
+        (наступление снова ожидается), восстановленная — учитывается снова. Порядок — по
+        effectiveDate. Без пагинации: период ограничен 731 днем.
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: plannedTransactionId
+          in: query
+          description: Только наступления этого плана.
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedOccurrenceList" }
+        "400":
+          description: Не указан from или to, from позже to либо период длиннее 731 дня.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /planned-transactions/{id}/occurrences/{date}/skip:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - $ref: "#/components/parameters/OccurrenceDateParam"
+    post:
+      tags: [Planning]
+      summary: Пропустить наступление
+      operationId: skipPlannedOccurrence
+      description: >
+        Пропущенное наступление больше не ожидается (в том числе остаток частично исполненного).
+        Повторный пропуск ничего не меняет.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedOccurrence" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: План завершен либо наступление уже исполнено полностью.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /planned-transactions/{id}/occurrences/{date}/unskip:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - $ref: "#/components/parameters/OccurrenceDateParam"
+    post:
+      tags: [Planning]
+      summary: Отменить пропуск наступления
+      operationId: unskipPlannedOccurrence
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedOccurrence" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: План завершен либо наступление не пропущено.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /planned-transactions/{id}/occurrences/{date}/move:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - $ref: "#/components/parameters/OccurrenceDateParam"
+    post:
+      tags: [Planning]
+      summary: Перенести наступление на другую дату
+      operationId: movePlannedOccurrence
+      description: Перенос на исходную дату отменяет перенос. Ограничений на новую дату нет.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date]
+              properties:
+                date: { type: string, format: date }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedOccurrence" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: План завершен.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /planned-transactions/{id}/occurrences/{date}/amount:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - $ref: "#/components/parameters/OccurrenceDateParam"
+    put:
+      tags: [Planning]
+      summary: Изменить сумму одного наступления
+      operationId: changePlannedOccurrenceAmount
+      description: amount = null (или сумма плана) возвращает наступление к сумме плана.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount: { type: [string, "null"], format: decimal }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedOccurrence" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: План завершен.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /planned-transactions/{id}/occurrences/{date}/execute:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - $ref: "#/components/parameters/OccurrenceDateParam"
+    post:
+      tags: [Planning]
+      summary: Исполнить наступление — создать обычную операцию
+      operationId: executePlannedOccurrence
+      description: >
+        В одной транзакции создается обычная операция дохода/расхода (как POST /operations:
+        баланс, история баланса, корректирующие суммы, аудит) и связывается с наступлением.
+        По умолчанию: кошелек плана, сумма — остаток ожидаемой, дата операции — фактическая
+        дата наступления. Кошелек — в валюте плана; дата — в [accountingStartDate кошелька ..
+        сегодня]. Сумма меньше остатка — частичное исполнение: остаток по-прежнему ожидается;
+        больше остатка допустима, наступление считается исполненным. Описание плана в операцию
+        не переносится (у операции нет описания). Параллельные команды по одному плану
+        выполняются по очереди (блокировка строки плана).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlannedOccurrenceExecuteRequest" }
+      responses:
+        "201":
+          description: Операция создана; Location — /operations/{operationId}
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedOccurrenceExecutionResult" }
+        "400":
+          description: >
+            Нет кошелька ни в плане, ни в запросе; кошелек не найден или в другой валюте; дата
+            операции вне допустимого диапазона (в том числе будущая фактическая дата по умолчанию);
+            сумма не положительна; тип операции деактивирован.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: План завершен; наступление пропущено или уже исполнено полностью.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
   # ---------- Debts (ADR-0010 §3) ----------
   /creditors:
     get:
@@ -1932,6 +2250,12 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    OccurrenceDateParam:
+      name: date
+      in: path
+      required: true
+      description: Исходная дата наступления по расписанию (occurrenceDate), в том числе после переноса.
+      schema: { type: string, format: date }
     CursorParam:
       name: cursor
       in: query
@@ -2395,6 +2719,121 @@ components:
       properties:
         data: { type: array, items: { $ref: "#/components/schemas/AuditEntry" } }
         pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+
+    # ---- Planning (ADR-0010 §6) ----
+    Recurrence:
+      type: object
+      required: [frequency]
+      description: >
+        Правило повторения. День недели/месяца/года берется из startDate; для Monthly при
+        отсутствии числа в месяце — последний день месяца (31 янв → 28/29 фев → 31 мар), для
+        Yearly 29 февраля в невисокосный год — 28 февраля. until и count взаимоисключающие.
+      properties:
+        frequency: { type: string, enum: [Daily, Weekly, Monthly, Yearly] }
+        interval: { type: integer, minimum: 1, maximum: 1000, default: 1 }
+        until: { type: [string, "null"], format: date, description: "Последняя возможная дата наступления (включительно)." }
+        count: { type: [integer, "null"], minimum: 1, description: "Всего наступлений, включая первое." }
+    PlannedTransactionWriteRequest:
+      type: object
+      required: [operationTypeId, amount, currencyId, startDate]
+      properties:
+        operationTypeId: { type: string, format: uuid }
+        amount: { type: string, format: decimal, description: "Положительная; направление — из типа операции." }
+        currencyId: { type: string, format: uuid }
+        walletId: { type: [string, "null"], format: uuid }
+        description: { type: [string, "null"], maxLength: 500 }
+        startDate: { type: string, format: date, description: "Дата первого наступления." }
+        recurrence:
+          description: null — разовая операция.
+          oneOf:
+            - $ref: "#/components/schemas/Recurrence"
+            - type: "null"
+    PlannedTransaction:
+      type: object
+      required: [id, operationTypeId, direction, amount, startDate, status, hasExecutions, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        operationTypeId: { type: string, format: uuid }
+        direction: { type: string, enum: [Income, Expense], readOnly: true }
+        amount: { $ref: "#/components/schemas/Money" }
+        walletId:
+          type: [string, "null"]
+          format: uuid
+          description: Сбрасывается в null, если кошелек удален или сменил валюту.
+        description: { type: [string, "null"] }
+        startDate: { type: string, format: date }
+        recurrence:
+          oneOf:
+            - $ref: "#/components/schemas/Recurrence"
+            - type: "null"
+        status: { type: string, enum: [Active, Finished], readOnly: true }
+        hasExecutions: { type: boolean, readOnly: true }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+        finishedAt: { type: [string, "null"], format: date-time, readOnly: true }
+    PlannedTransactionPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/PlannedTransaction" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+    PlannedOccurrenceExecution:
+      type: object
+      required: [operationId, amount, isOperationDeleted, executedAt]
+      properties:
+        operationId: { type: string, format: uuid }
+        amount:
+          description: Учтенная сумма — текущая сумма операции, 0 для мягко удаленной.
+          allOf:
+            - $ref: "#/components/schemas/Money"
+        isOperationDeleted: { type: boolean }
+        executedAt: { type: string, format: date-time }
+    PlannedOccurrence:
+      type: object
+      required:
+        [plannedTransactionId, occurrenceDate, effectiveDate, operationTypeId, direction, plannedAmount,
+         executedAmount, expectedAmount, status, isOverdue, isMoved, isAmountChanged, executions]
+      properties:
+        plannedTransactionId: { type: string, format: uuid }
+        occurrenceDate: { type: string, format: date, description: "Исходная дата по расписанию — идентификатор наступления в путях." }
+        effectiveDate: { type: string, format: date, description: "Фактическая дата (после переноса)." }
+        operationTypeId: { type: string, format: uuid }
+        direction: { type: string, enum: [Income, Expense] }
+        walletId: { type: [string, "null"], format: uuid }
+        description: { type: [string, "null"] }
+        plannedAmount:
+          description: Сумма плана или измененная сумма наступления.
+          allOf:
+            - $ref: "#/components/schemas/Money"
+        executedAmount: { $ref: "#/components/schemas/Money" }
+        expectedAmount:
+          description: Еще ожидается — plannedAmount − executedAmount; 0 для пропущенного, исполненного и наступления завершенного плана.
+          allOf:
+            - $ref: "#/components/schemas/Money"
+        status: { type: string, enum: [Expected, PartiallyExecuted, Executed, Skipped] }
+        isOverdue: { type: boolean, description: "effectiveDate раньше сегодняшнего дня (UTC), а наступление еще ожидается." }
+        isMoved: { type: boolean }
+        isAmountChanged: { type: boolean }
+        executions: { type: array, items: { $ref: "#/components/schemas/PlannedOccurrenceExecution" } }
+    PlannedOccurrenceList:
+      type: object
+      required: [from, to, data]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        data: { type: array, items: { $ref: "#/components/schemas/PlannedOccurrence" } }
+    PlannedOccurrenceExecuteRequest:
+      type: object
+      properties:
+        walletId: { type: [string, "null"], format: uuid, description: "По умолчанию — кошелек плана." }
+        amount: { type: [string, "null"], format: decimal, description: "По умолчанию — остаток ожидаемой суммы." }
+        operationDate: { type: [string, "null"], format: date, description: "По умолчанию — фактическая дата наступления." }
+    PlannedOccurrenceExecutionResult:
+      type: object
+      required: [occurrence, operationId]
+      properties:
+        occurrence: { $ref: "#/components/schemas/PlannedOccurrence" }
+        operationId: { type: string, format: uuid }
 
     # ---- Debts (ADR-0010 §3) ----
     Creditor:

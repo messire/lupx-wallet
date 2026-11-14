@@ -53,7 +53,7 @@ public sealed class CrossModuleContractsRegistrationTests(ApiTestFixture fixture
     /// ADR-0002, §4: <see cref="IReferenceItemUsageProbe"/> — реализации-владельцы:
     /// <c>Wallets.Infrastructure.WalletsReferenceItemUsageProbe</c> и
     /// <c>Operations.Infrastructure.OperationsReferenceItemUsageProbe</c> (курсы валют использованием не считаются);
-    /// с ADR-0010 — ещё Budgeting (типы операций в категориях, валюта бюджета), Funds (валюта фонда) и Debts (валюта долга/кредита).
+    /// с ADR-0010 — ещё Budgeting (типы операций в категориях, валюта бюджета), Funds (валюта фонда), Debts (валюта долга/кредита) и Planning (тип операции и валюта плана).
     /// </summary>
     [Fact]
     public void ReferenceItemUsageProbe_HasExactlyExpectedNumberOfRegisteredImplementations()
@@ -62,9 +62,9 @@ public sealed class CrossModuleContractsRegistrationTests(ApiTestFixture fixture
 
         var probes = scope.ServiceProvider.GetServices<IReferenceItemUsageProbe>();
 
-        probes.Should().HaveCount(5,
-            "ADR-0002 §4 ожидает ровно 5 владельцев данных использования элементов справочника " +
-            "(Wallets, Operations, Budgeting, Funds, Debts; курсы ExchangeRates использованием не считаются) — если число " +
+        probes.Should().HaveCount(6,
+            "ADR-0002 §4 ожидает ровно 6 владельцев данных использования элементов справочника " +
+            "(Wallets, Operations, Budgeting, Funds, Debts, Planning; курсы ExchangeRates использованием не считаются) — если число " +
             "изменилось, кто-то зарегистрировал лишний пробник либо забыл зарегистрировать " +
             "пробник в Add<Owner>Module, либо ожидание в этом тесте устарело и должно быть " +
             "обновлено осознанно вместе с ADR-0002");

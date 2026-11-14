@@ -16,6 +16,8 @@ using LupexWallet.Funds.Api;
 using LupexWallet.Funds.Infrastructure;
 using LupexWallet.Operations.Api;
 using LupexWallet.Operations.Infrastructure;
+using LupexWallet.Planning.Api;
+using LupexWallet.Planning.Infrastructure;
 using LupexWallet.ReferenceData.Api;
 using LupexWallet.ReferenceData.Infrastructure;
 using LupexWallet.Reporting.Api;
@@ -101,9 +103,10 @@ builder.Services.AddAuditModule(builder.Configuration);
 builder.Services.AddReportingModule(builder.Configuration);
 builder.Services.AddBudgetingModule(builder.Configuration);
 
-// ---- Funds (ADR-0010 §4) ----
+// ---- ADR-0010 modules ----
 builder.Services.AddFundsModule(builder.Configuration);
 builder.Services.AddDebtsModule(builder.Configuration);
+builder.Services.AddPlanningModule(builder.Configuration);
 
 // ---- CORS: разрешённые origin'ы фронтенда — из конфига (Cors:AllowedOrigins), +
 // localhost:4200 в Development. Список пуст в проде, пока не задан деплойментом
@@ -170,9 +173,10 @@ using (var migrationScope = app.Services.CreateScope())
     await services.GetRequiredService<LupexWallet.Audit.Infrastructure.AuditDbContext>().Database.MigrateAsync();
     await services.GetRequiredService<LupexWallet.Budgeting.Infrastructure.BudgetingDbContext>().Database.MigrateAsync();
 
-    // ---- Funds (ADR-0010 §4) ----
+    // ---- ADR-0010 modules ----
     await services.GetRequiredService<LupexWallet.Funds.Infrastructure.FundsDbContext>().Database.MigrateAsync();
     await services.GetRequiredService<LupexWallet.Debts.Infrastructure.DebtsDbContext>().Database.MigrateAsync();
+    await services.GetRequiredService<LupexWallet.Planning.Infrastructure.PlanningDbContext>().Database.MigrateAsync();
 }
 
 if (app.Environment.IsDevelopment())
@@ -209,9 +213,10 @@ api.MapAuditEndpoints();
 api.MapReportingEndpoints();
 api.MapBudgetingEndpoints();
 
-// ---- Funds (ADR-0010 §4) ----
+// ---- ADR-0010 modules ----
 api.MapFundsEndpoints();
 api.MapDebtsEndpoints();
+api.MapPlanningEndpoints();
 
 app.Run();
 

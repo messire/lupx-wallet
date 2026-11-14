@@ -9,14 +9,16 @@ namespace LupexWallet.Wallets.Application;
 /// wallet has no history and it is not primary (Q7, checked by Wallet.EnsureCanBeDeleted).
 /// History = operations, including soft-deleted ones (ADR-0002, §2; IWalletHistorySource, ADR-0001,
 /// §2, way d). Snapshots are not history: BalanceHistory removes them in response to WalletDeleted,
-/// in the same transaction (WalletDeletedHandler).
+/// in the same transaction (WalletDeletedHandler). A wallet holding a reserve of an active fund
+/// cannot be deleted (ADR-0010 §4, IWalletReservationProbe).
 /// </summary>
 public sealed record DeleteWalletCommand(Guid Id) : IRequest, ICommand<Unit>;
 
 public sealed class DeleteWalletCommandHandler(
     IWalletRepository repository,
     IWalletsUnitOfWork unitOfWork,
-    IEnumerable<IWalletHistorySource> historySources) : IRequestHandler<DeleteWalletCommand>
+    IEnumerable<IWalletHistorySource> historySources,
+    IEnumerable<IWalletReservationProbe> reservationProbes) : IRequestHandler<DeleteWalletCommand>
 {
     public async Task Handle(DeleteWalletCommand request, CancellationToken cancellationToken)
     {
@@ -32,6 +34,11 @@ public sealed class DeleteWalletCommandHandler(
         var hasHistory = await historySources.AnyHasHistoryAsync(walletId, cancellationToken);
 
         wallet.EnsureCanBeDeleted(hasHistory);
+
+        if (await reservationProbes.AnyHasActiveReservationsAsync(walletId, cancellationToken))
+        {
+            throw new WalletHasActiveReservationsException();
+        }
 
         wallet.MarkAsDeleted();
         repository.Remove(wallet);

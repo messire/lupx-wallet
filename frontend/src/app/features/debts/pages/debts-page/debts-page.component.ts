@@ -5,6 +5,9 @@ import { RouterLink } from '@angular/router';
 import { Observable, forkJoin } from 'rxjs';
 import { extractErrorMessage } from '../../../../core/http/problem-details';
 import { Creditor, Debt, DebtSummary, PaymentCreateRequest } from '../../../../data-access/debts/debts-api.models';
+import { AppliedRate, DebtsSummaryReport } from '../../../../data-access/reporting/reporting-api.models';
+import { ReportingApiService } from '../../../../data-access/reporting/reporting-api.service';
+import { formatDateText } from '@shared/ui/date-input/calendar-date';
 import { DebtsApiService } from '../../../../data-access/debts/debts-api.service';
 import { Currency, OperationType } from '../../../../data-access/reference-data/reference-data-api.models';
 import { ReferenceDataApiService } from '../../../../data-access/reference-data/reference-data-api.service';
@@ -99,6 +102,11 @@ export class DebtsComponent implements OnInit {
 
   readonly debts = signal<Debt[]>([]);
   readonly summary = signal<DebtSummary | null>(null);
+  /** Totals converted to the primary wallet currency (GET /reporting/debts-summary); null — not available. */
+  readonly primarySummary = signal<DebtsSummaryReport | null>(null);
+  readonly primarySummaryError = signal<string | null>(null);
+  protected readonly formatDate = formatDateText;
+  private readonly reportingService = inject(ReportingApiService);
   readonly nextCursor = signal<string | null>(null);
   readonly hasMore = signal(false);
   readonly isLoading = signal(false);
@@ -188,6 +196,8 @@ export class DebtsComponent implements OnInit {
   }
 
   loadDebts(): void {
+    // Repayments, cancellations and new debts change the converted total as well.
+    this.loadPrimarySummary();
     this.isLoading.set(true);
     this.loadError.set(null);
     const creditorId = this.filterForm.getRawValue().creditorId;
@@ -208,6 +218,28 @@ export class DebtsComponent implements OnInit {
         this.isLoading.set(false);
       },
     });
+  }
+
+  /**
+   * The converted total is loaded separately: without a primary wallet (404) the page still shows the per-currency
+   * summary, and a failure of the report must not hide the debt list.
+   */
+  loadPrimarySummary(): void {
+    this.primarySummaryError.set(null);
+    this.reportingService.getDebtsSummary().subscribe({
+      next: (report) => this.primarySummary.set(report),
+      error: (error: unknown) => {
+        this.primarySummary.set(null);
+        if (error instanceof HttpErrorResponse && error.status === 404) {
+          return;
+        }
+        this.primarySummaryError.set(extractErrorMessage(error, 'Не удалось посчитать общий долг в основной валюте.'));
+      },
+    });
+  }
+
+  rateText(rate: AppliedRate): string {
+    return `1 ${this.currencyCode(rate.fromCurrencyId)} = ${rate.rate} ${this.currencyCode(rate.toCurrencyId)} · курс от ${formatDateText(rate.rateDate)}, ${rate.source}`;
   }
 
   loadMore(): void {

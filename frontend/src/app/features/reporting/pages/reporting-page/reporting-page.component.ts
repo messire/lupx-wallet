@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@ang
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { extractErrorMessage } from '../../../../core/http/problem-details';
 import { formatMoney } from '@shared/money/money';
+import { RouterLink } from '@angular/router';
 import { Currency } from '../../../../data-access/reference-data/reference-data-api.models';
 import { ReferenceDataApiService } from '../../../../data-access/reference-data/reference-data-api.service';
 import { Wallet } from '../../../../data-access/wallets/wallets-api.models';
@@ -29,6 +30,7 @@ import { DateInputComponent } from '@shared/ui/date-input/date-input.component';
   selector: 'app-reporting',
   standalone: true,
   imports: [
+    RouterLink,
     DateInputComponent,
     ReactiveFormsModule,
     CardComponent,
@@ -121,6 +123,10 @@ export class ReportingComponent implements OnInit {
         this.historicalError.set(extractErrorMessage(error, 'Не удалось загрузить сумму на дату.'));
       },
     });
+  }
+
+  isNegative(amount: string): boolean {
+    return amount.trim().startsWith('-');
   }
 
   currencyCode(currencyId: string): string {

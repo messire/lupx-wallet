@@ -1,0 +1,91 @@
+/* Переключатель горизонта прогноза «1 / 3 / 6 / 12 мес.» — сегменты с aria-pressed. */
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--lw-space-1);
+  padding: var(--lw-space-1);
+  border: 1px solid var(--lw-surface-border);
+  border-radius: var(--lw-radius-sm);
+  background: var(--lw-glass);
+}
+
+.segmented__option {
+  min-height: 40px;
+  min-width: 64px;
+  padding: 0 var(--lw-space-3);
+  border: none;
+  border-radius: var(--lw-radius-sm);
+  background: transparent;
+  color: var(--lw-text-secondary);
+  font: inherit;
+  font-size: var(--lw-type-small);
+  cursor: pointer;
+  transition: background var(--lw-motion-fast) ease-out;
+
+  &:hover {
+    background: var(--lw-accent-soft);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--lw-accent);
+    outline-offset: 2px;
+  }
+}
+
+.segmented__option--active {
+  background: var(--lw-accent-soft);
+  color: var(--lw-text);
+  font-weight: 500;
+}
+
+.forecast--stale {
+  opacity: 0.6;
+  transition: opacity var(--lw-motion-fast) ease-out;
+}
+
+.forecast-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--lw-space-2);
+  margin-bottom: var(--lw-space-4);
+}
+
+.section-title {
+  margin: var(--lw-space-6) 0 var(--lw-space-4);
+  font-size: var(--lw-type-section);
+  font-weight: 500;
+}
+
+.movement-list {
+  display: grid;
+  gap: var(--lw-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: var(--lw-space-3);
+  }
+
+  .metadata {
+    grid-column: 1;
+  }
+}
+
+.movement-list__amount {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  text-align: right;
+  white-space: nowrap;
+
+  .metadata {
+    display: block;
+  }
+}
+
+.forecast-row--negative td:first-child {
+  box-shadow: inset 2px 0 0 var(--lw-danger);
+}

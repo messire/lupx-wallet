@@ -559,6 +559,13 @@ input[type='number'].app-field__input {
   margin-bottom: var(--lw-space-6);
 }
 
+.summary-tile {
+  padding: var(--lw-space-4) var(--lw-space-6);
+  border: 1px solid var(--lw-surface-border);
+  border-radius: var(--lw-radius-md);
+  background: var(--lw-glass);
+}
+
 .summary-value {
   display: block;
   margin: var(--lw-space-1) 0;
@@ -642,6 +649,24 @@ input[type='number'].app-field__input {
   min-width: 140px;
   font-weight: 500;
   text-align: center;
+}
+
+/* Примечание отчёта о курсах и исключениях (свободные средства, прогноз, долги). */
+.report-note {
+  margin: var(--lw-space-4) 0 0;
+
+  p,
+  ul {
+    margin: 0 0 var(--lw-space-2);
+  }
+
+  ul {
+    padding-left: var(--lw-space-6);
+  }
+
+  summary {
+    cursor: pointer;
+  }
 }
 
 /* Строка фильтров/переключателей над таблицей экрана v0.4. */

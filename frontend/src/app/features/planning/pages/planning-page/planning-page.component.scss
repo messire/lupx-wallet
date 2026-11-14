@@ -23,3 +23,11 @@
   margin: 0;
   padding-left: var(--lw-space-6);
 }
+
+.overdue-elsewhere {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--lw-space-1) var(--lw-space-2);
+  margin-bottom: var(--lw-space-4);
+}

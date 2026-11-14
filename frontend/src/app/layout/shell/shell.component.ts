@@ -62,6 +62,8 @@ export class ShellComponent {
       // v0.4 (#13, ADR-0010): financial planning — a separate group so the long list stays scannable.
       label: 'Планирование',
       items: [
+        { path: '/free-funds', label: 'Свободные средства' },
+        { path: '/forecast', label: 'Прогноз' },
         { path: '/planning', label: 'Планы' },
         { path: '/budgets', label: 'Бюджеты' },
         { path: '/debts', label: 'Долги' },

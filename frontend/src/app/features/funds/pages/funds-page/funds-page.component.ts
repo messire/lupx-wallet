@@ -17,6 +17,7 @@ import { Money, formatMoney, isZeroAmount, ratioToPercent } from '@shared/money/
 import { appendPage } from '@shared/pagination/cursor-page';
 import { AllocationFormComponent, AllocationWalletOption } from '../../components/allocation-form/allocation-form.component';
 import { FundFormComponent, FundLinkOption } from '../../components/fund-form/fund-form.component';
+import { fundSaveErrorMessage } from '../../funds.models';
 import { BadgeComponent } from '@shared/ui/badge/badge.component';
 import { ButtonComponent } from '@shared/ui/button/button.component';
 import { CheckboxComponent } from '@shared/ui/checkbox/checkbox.component';
@@ -240,10 +241,21 @@ export class FundsComponent implements OnInit {
       return;
     }
     const request$ = state.fund ? this.fundsService.update(state.fund.id, request) : this.fundsService.create(request);
-    this.submit(request$, 'Не удалось сохранить фонд.', () => {
-      this.formState.set(null);
-      this.successMessage.set(state.fund ? 'Фонд сохранён' : 'Фонд создан');
-    });
+    this.submit(
+      request$,
+      'Не удалось сохранить фонд.',
+      () => {
+        this.formState.set(null);
+        this.successMessage.set(state.fund ? 'Фонд сохранён' : 'Фонд создан');
+      },
+      (error) => {
+        const mapped = fundSaveErrorMessage(error, request);
+        if (mapped.reloadLinks) {
+          this.loadLookups();
+        }
+        return mapped.message;
+      },
+    );
   }
 
   openRowActions(fund: Fund): void {
@@ -362,7 +374,12 @@ export class FundsComponent implements OnInit {
     return formatMoney(value, value.currencyCode ?? this.currencyCode(value.currencyId));
   }
 
-  private submit(request$: Observable<unknown>, fallback: string, onSuccess: () => void): void {
+  private submit(
+    request$: Observable<unknown>,
+    fallback: string,
+    onSuccess: () => void,
+    mapError: (error: unknown) => string = (error) => extractErrorMessage(error, fallback),
+  ): void {
     if (this.isSubmitting()) {
       return;
     }
@@ -377,7 +394,7 @@ export class FundsComponent implements OnInit {
       },
       error: (error: unknown) => {
         this.isSubmitting.set(false);
-        this.submitError.set(extractErrorMessage(error, fallback));
+        this.submitError.set(mapError(error));
         if (error instanceof HttpErrorResponse && error.status === 409) {
           // Free funds may have changed since the form opened (an expense, another fund) — refresh the hints.
           this.loadReservations();

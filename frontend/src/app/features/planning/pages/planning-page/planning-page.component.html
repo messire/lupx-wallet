@@ -59,6 +59,14 @@
     @if (overdueCount() > 0) {
       <p class="metadata" role="note">Просрочено наступлений в этом месяце: {{ overdueCount() }}. Исполните или пропустите их.</p>
     }
+    @if (overdueElsewhere().length > 0) {
+      <div class="overdue-elsewhere" role="note">
+        <span class="metadata">Просроченные плановые расходы в других месяцах:</span>
+        @for (entry of overdueElsewhere(); track entry.month) {
+          <app-button variant="ghost" (click)="goToMonth(entry.month)">{{ formatMonthLabel(entry.month) }} — {{ entry.count }}</app-button>
+        }
+      </div>
+    }
 
     @if (occurrencesLoading() && occurrences().length === 0) {
       <app-loading-state label="Загрузка…">

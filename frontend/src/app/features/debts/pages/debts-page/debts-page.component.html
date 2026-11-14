@@ -24,8 +24,53 @@
     [attr.aria-labelledby]="tabsRef.tabElementId('debts')"
     [hidden]="activeTab() !== 'debts'"
   >
+    @if (primarySummary(); as report) {
+      @if (report.debtCount > 0 || report.loanCount > 0) {
+        <section class="summary-grid" aria-label="Общий долг в валюте основного кошелька">
+          <app-card>
+            <span class="metadata">Общий долг · долгов: {{ report.debtCount }}</span>
+            <strong class="summary-value money">{{ money(report.totalDebtAmount) }}</strong>
+            @if (report.creditors.length > 0) {
+              <dl class="detail-list detail-list--compact">
+                @for (creditor of report.creditors; track creditor.creditorId) {
+                  <dt>{{ creditor.creditorName }}</dt>
+                  <dd class="money">{{ money(creditor.amount) }}</dd>
+                }
+              </dl>
+            }
+          </app-card>
+          <app-card>
+            <span class="metadata">Остаток по кредитам · кредитов: {{ report.loanCount }}</span>
+            <strong class="summary-value money">{{ money(report.totalLoanRemainingAmount) }}</strong>
+            <p class="metadata"><a routerLink="/loans">Кредиты</a> — отдельно от долгов, в общий долг не входят.</p>
+          </app-card>
+        </section>
+        <div class="report-note metadata" role="note">
+          <p>
+            Итоги — в валюте основного кошелька по курсам на {{ formatDate(report.ratesAsOfDate) }} (источник: {{ report.rateSource }}).
+            @if (report.rates.length > 0) {
+              @for (rate of report.rates; track rate.fromCurrencyId; let last = $last) {
+                {{ rateText(rate) }}{{ last ? '.' : ';' }}
+              }
+            }
+          </p>
+          @if (report.missingRates.length > 0) {
+            <p><app-badge tone="warning">Не вошло в итог — нет курса</app-badge></p>
+            <ul>
+              @for (missing of report.missingRates; track missing.currencyId) {
+                <li>{{ missing.reason }} Позиций: {{ missing.itemCount }}.</li>
+              }
+            </ul>
+          }
+        </div>
+      }
+    } @else if (primarySummaryError(); as error) {
+      <p class="metadata" role="note">{{ error }}</p>
+    }
+
     @if (summary(); as currentSummary) {
       @if (currentSummary.currencies.length > 0) {
+        <h2 class="dialog-section-title">По валютам долга</h2>
         <section class="summary-grid" aria-label="Общий долг по валютам">
           @for (group of currentSummary.currencies; track group.currencyId) {
             <app-card>

@@ -13,6 +13,8 @@ import {
   PlannedTransactionWriteRequest,
 } from '../../../../data-access/planning/planning-api.models';
 import { PlanningApiService } from '../../../../data-access/planning/planning-api.service';
+import { UpcomingPayment } from '../../../../data-access/reporting/reporting-api.models';
+import { ReportingApiService } from '../../../../data-access/reporting/reporting-api.service';
 import { Currency } from '../../../../data-access/reference-data/reference-data-api.models';
 import { ReferenceDataApiService } from '../../../../data-access/reference-data/reference-data-api.service';
 import { Wallet } from '../../../../data-access/wallets/wallets-api.models';
@@ -92,6 +94,7 @@ interface PeriodTotal {
 })
 export class PlanningComponent implements OnInit {
   private readonly planningService = inject(PlanningApiService);
+  private readonly reportingService = inject(ReportingApiService);
   private readonly walletsService = inject(WalletsApiService);
   private readonly referenceDataService = inject(ReferenceDataApiService);
   private readonly formBuilder = inject(FormBuilder);
@@ -168,6 +171,26 @@ export class PlanningComponent implements OnInit {
 
   readonly overdueCount = computed(() => this.occurrences().filter((occurrence) => occurrence.isOverdue).length);
 
+  /**
+   * Overdue planned expenses of other months (GET /reporting/upcoming-payments, up to 366 days back): the calendar
+   * shows one month, so without this an occurrence forgotten last month would stay unnoticed. Planned income is not
+   * in that report (it lists payments only).
+   */
+  private readonly overduePayments = signal<UpcomingPayment[]>([]);
+  readonly overdueElsewhere = computed(() => {
+    const month = this.month();
+    const planId = this.occurrenceFilter.controls.planId.value;
+    const counts = new Map<string, number>();
+    for (const item of this.overduePayments()) {
+      const itemMonth = item.date.slice(0, 7);
+      if (itemMonth === month || (planId && item.plannedTransactionId !== planId)) {
+        continue;
+      }
+      counts.set(itemMonth, (counts.get(itemMonth) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([itemMonth, count]) => ({ month: itemMonth, count }));
+  });
+
   readonly executeWallets = computed<PlanWalletOption[]>(() => {
     const occurrence = this.executeOccurrence();
     return occurrence ? this.walletOptions().filter((wallet) => wallet.currencyId === occurrence.plannedAmount.currencyId) : [];
@@ -241,7 +264,13 @@ export class PlanningComponent implements OnInit {
     return this.month() === todayIsoDate().slice(0, 7);
   }
 
+  goToMonth(month: string): void {
+    this.month.set(month);
+    this.loadOccurrences();
+  }
+
   loadOccurrences(): void {
+    this.loadOverduePayments();
     const { from, to } = monthRange(this.month());
     const planId = this.occurrenceFilter.getRawValue().planId;
     this.occurrencesLoading.set(true);
@@ -255,6 +284,15 @@ export class PlanningComponent implements OnInit {
         this.occurrencesError.set(extractErrorMessage(error, 'Не удалось загрузить наступления.'));
         this.occurrencesLoading.set(false);
       },
+    });
+  }
+
+  private loadOverduePayments(): void {
+    // days=1: only overdue items matter here; a failure (or no primary wallet) just hides the hint.
+    this.reportingService.getUpcomingPayments(1).subscribe({
+      next: (payments) =>
+        this.overduePayments.set(payments.items.filter((item) => item.kind === 'PlannedExpense' && item.isOverdue)),
+      error: () => this.overduePayments.set([]),
     });
   }
 

@@ -86,6 +86,17 @@ export const routes: Routes = [
           import('./features/reporting/pages/reporting-page/reporting-page.component').then((m) => m.ReportingComponent),
       },
       {
+        // Free funds and upcoming payments (#12, ADR-0010 §7, В9).
+        path: 'free-funds',
+        loadComponent: () =>
+          import('./features/reporting/pages/free-funds-page/free-funds-page.component').then((m) => m.FreeFundsComponent),
+      },
+      {
+        // Cash-flow forecast (#10, ADR-0010 §7).
+        path: 'forecast',
+        loadComponent: () => import('./features/reporting/pages/forecast-page/forecast-page.component').then((m) => m.ForecastComponent),
+      },
+      {
         // UI for managing reference data (UC-26, UC-27 + deactivate/delete; UC-28 — the "Валюты" tab:
         // add from the available list, remove from the active ones).
         // The wallet-type quick-add mini-form stays in features/wallets and reuses the

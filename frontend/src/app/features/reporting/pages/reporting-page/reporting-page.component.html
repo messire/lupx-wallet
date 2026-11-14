@@ -13,8 +13,23 @@
     } @else if (currentError(); as error) {
       <app-error-state [message]="error" (retry)="loadCurrent()" />
     } @else if (currentTotal(); as total) {
-      <p class="amount-widget money">
+      <!-- ADR-0010 В9: the current total is free funds — reserves of active funds reduce it. Actual and reserved
+           amounts are shown next to it so the reduced number is not mistaken for the wallet balances. -->
+      <p class="hint">Свободно — фактический баланс за вычетом резервов фондов</p>
+      <p class="amount-widget money" [class.amount-negative]="isNegative(total.amount.amount)">
         {{ formatMoney(total.amount, currencyCode(total.amount.currencyId)) }}
+      </p>
+      <dl class="detail-list detail-list--compact total-breakdown">
+          <dt>Фактический баланс</dt>
+          <dd class="money">{{ formatMoney(total.actualAmount, currencyCode(total.actualAmount.currencyId)) }}</dd>
+        @if (total.reservedAmount; as reserved) {
+            <dt>Зарезервировано в фондах</dt>
+            <dd class="money">{{ formatMoney(reserved, currencyCode(reserved.currencyId)) }}</dd>
+        }
+      </dl>
+      <p class="hint">
+        <a routerLink="/free-funds">Свободные средства по кошелькам</a> ·
+        <a routerLink="/forecast">Прогноз</a>
       </p>
       @if (ratesNote(total); as note) {
         <p class="hint">Курс по состоянию на {{ note }}.</p>
@@ -59,6 +74,7 @@
       <p class="amount-widget amount-widget--secondary money">
         {{ formatMoney(total.amount, currencyCode(total.amount.currencyId)) }}
       </p>
+      <p class="hint">Фактическая сумма балансов: история резервов фондов не хранится, поэтому на прошлую дату резервы не вычитаются.</p>
       <!-- UC-21: the applied rate date is always shown for a historical total, even when it equals the requested date. -->
       <p class="hint">Курс по состоянию на {{ total.ratesAsOfDate }}.</p>
       @if (total.excludedWallets.length > 0) {

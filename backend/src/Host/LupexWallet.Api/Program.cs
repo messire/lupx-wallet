@@ -8,6 +8,8 @@ using LupexWallet.BalanceHistory.Infrastructure;
 using LupexWallet.BuildingBlocks.Infrastructure;
 using LupexWallet.ExchangeRates.Api;
 using LupexWallet.ExchangeRates.Infrastructure;
+using LupexWallet.Funds.Api;
+using LupexWallet.Funds.Infrastructure;
 using LupexWallet.Operations.Api;
 using LupexWallet.Operations.Infrastructure;
 using LupexWallet.ReferenceData.Api;
@@ -94,6 +96,9 @@ builder.Services.AddExchangeRatesModule(builder.Configuration);
 builder.Services.AddAuditModule(builder.Configuration);
 builder.Services.AddReportingModule(builder.Configuration);
 
+// ---- Funds (ADR-0010 §4) ----
+builder.Services.AddFundsModule(builder.Configuration);
+
 // ---- CORS: разрешённые origin'ы фронтенда — из конфига (Cors:AllowedOrigins), +
 // localhost:4200 в Development. Список пуст в проде, пока не задан деплойментом
 // (Railway/Vercel — разные origin для prod/staging) через Cors__AllowedOrigins__0 и т.д.
@@ -157,6 +162,9 @@ using (var migrationScope = app.Services.CreateScope())
     await services.GetRequiredService<LupexWallet.BalanceHistory.Infrastructure.BalanceHistoryDbContext>().Database.MigrateAsync();
     await services.GetRequiredService<LupexWallet.ExchangeRates.Infrastructure.ExchangeRatesDbContext>().Database.MigrateAsync();
     await services.GetRequiredService<LupexWallet.Audit.Infrastructure.AuditDbContext>().Database.MigrateAsync();
+
+    // ---- Funds (ADR-0010 §4) ----
+    await services.GetRequiredService<LupexWallet.Funds.Infrastructure.FundsDbContext>().Database.MigrateAsync();
 }
 
 if (app.Environment.IsDevelopment())
@@ -191,6 +199,9 @@ api.MapBalanceHistoryEndpoints();
 api.MapExchangeRatesEndpoints();
 api.MapAuditEndpoints();
 api.MapReportingEndpoints();
+
+// ---- Funds (ADR-0010 §4) ----
+api.MapFundsEndpoints();
 
 app.Run();
 

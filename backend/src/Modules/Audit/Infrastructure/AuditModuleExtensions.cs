@@ -2,6 +2,7 @@ using LupexWallet.Audit.Application;
 using LupexWallet.BalanceHistory.Domain;
 using LupexWallet.BuildingBlocks.Infrastructure;
 using LupexWallet.ExchangeRates.Domain;
+using LupexWallet.Funds.Domain;
 using LupexWallet.Operations.Domain;
 using LupexWallet.ReferenceData.Domain;
 using LupexWallet.Wallets.Domain;
@@ -89,5 +90,13 @@ public static class AuditModuleExtensions
         services.AddScoped<INotificationHandler<DomainEventNotification<ExchangeRatesUpdated>>, ExchangeRatesUpdatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<ExchangeRateUpdateFailed>>, ExchangeRateUpdateFailedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<ExchangeRateHistoryLoaded>>, ExchangeRateHistoryLoadedAuditHandler>();
+
+        // ---- Funds (ADR-0010 §4, §8): FundCreated/Updated/Closed/Deleted, FundReserved/Released ----
+        services.AddScoped<INotificationHandler<DomainEventNotification<FundCreated>>, FundCreatedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<FundUpdated>>, FundUpdatedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<FundClosed>>, FundClosedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<FundDeleted>>, FundDeletedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<FundReserved>>, FundReservedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<FundReleased>>, FundReleasedAuditHandler>();
     }
 }

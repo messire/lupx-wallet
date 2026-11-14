@@ -10,7 +10,8 @@ namespace LupexWallet.Wallets.Application;
 /// (Q15; ADR-0002, §2: operations including soft-deleted ones, same IWalletHistorySource as DeleteWalletCommand).
 /// Snapshots are not history: BalanceHistory rebuilds them in the new currency in response to
 /// WalletCurrencyChanged (WalletCurrencyChangedHandler). The new currency must be active, i.e. present
-/// in ReferenceData (ICurrencyLookup); an unknown id is a validation error.
+/// in ReferenceData (ICurrencyLookup); an unknown id is a validation error. A wallet holding a reserve
+/// of an active fund keeps its currency (the fund currency, ADR-0010 §4, IWalletReservationProbe).
 /// </summary>
 public sealed record ChangeWalletCurrencyCommand(Guid Id, Guid CurrencyId) : IRequest<WalletDto>, ICommand<WalletDto>;
 
@@ -18,7 +19,8 @@ public sealed class ChangeWalletCurrencyCommandHandler(
     IWalletRepository repository,
     IWalletsUnitOfWork unitOfWork,
     IEnumerable<IWalletHistorySource> historySources,
-    ICurrencyLookup currencyLookup) : IRequestHandler<ChangeWalletCurrencyCommand, WalletDto>
+    ICurrencyLookup currencyLookup,
+    IEnumerable<IWalletReservationProbe> reservationProbes) : IRequestHandler<ChangeWalletCurrencyCommand, WalletDto>
 {
     public async Task<WalletDto> Handle(ChangeWalletCurrencyCommand request, CancellationToken cancellationToken)
     {
@@ -36,6 +38,12 @@ public sealed class ChangeWalletCurrencyCommandHandler(
             ?? throw new CurrencyReferenceNotFoundException();
 
         var hasHistory = await historySources.AnyHasHistoryAsync(walletId, cancellationToken);
+
+        if (!hasHistory && currencyId != wallet.CurrencyId
+            && await reservationProbes.AnyHasActiveReservationsAsync(walletId, cancellationToken))
+        {
+            throw new WalletHasActiveReservationsException();
+        }
 
         wallet.ChangeCurrency(currencyId, hasHistory);
 

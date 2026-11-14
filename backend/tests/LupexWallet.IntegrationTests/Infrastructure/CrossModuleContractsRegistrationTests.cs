@@ -50,10 +50,10 @@ public sealed class CrossModuleContractsRegistrationTests(ApiTestFixture fixture
     }
 
     /// <summary>
-    /// ADR-0002, §4: <see cref="IReferenceItemUsageProbe"/> — ровно 3 реализации-владельца:
-    /// <c>Wallets.Infrastructure.WalletsReferenceItemUsageProbe</c>,
-    /// <c>Operations.Infrastructure.OperationsReferenceItemUsageProbe</c> и
-    /// <c>Budgeting.Infrastructure.BudgetingReferenceItemUsageProbe</c> (ADR-0010 §5; курсы валют использованием не считаются).
+    /// ADR-0002, §4: <see cref="IReferenceItemUsageProbe"/> — реализации-владельцы:
+    /// <c>Wallets.Infrastructure.WalletsReferenceItemUsageProbe</c> и
+    /// <c>Operations.Infrastructure.OperationsReferenceItemUsageProbe</c> (курсы валют использованием не считаются);
+    /// с ADR-0010 — ещё Budgeting (типы операций в категориях, валюта бюджета) и Funds (валюта фонда).
     /// </summary>
     [Fact]
     public void ReferenceItemUsageProbe_HasExactlyExpectedNumberOfRegisteredImplementations()
@@ -62,9 +62,9 @@ public sealed class CrossModuleContractsRegistrationTests(ApiTestFixture fixture
 
         var probes = scope.ServiceProvider.GetServices<IReferenceItemUsageProbe>();
 
-        probes.Should().HaveCount(3,
-            "ADR-0002 §4 ожидает ровно 3 владельца данных использования элементов справочника " +
-            "(Wallets, Operations, Budgeting; курсы ExchangeRates использованием не считаются) — если число " +
+        probes.Should().HaveCount(4,
+            "ADR-0002 §4 ожидает ровно 4 владельца данных использования элементов справочника " +
+            "(Wallets, Operations, Budgeting, Funds; курсы ExchangeRates использованием не считаются) — если число " +
             "изменилось, кто-то зарегистрировал лишний пробник либо забыл зарегистрировать " +
             "пробник в Add<Owner>Module, либо ожидание в этом тесте устарело и должно быть " +
             "обновлено осознанно вместе с ADR-0002");
@@ -127,5 +127,17 @@ public sealed class CrossModuleContractsRegistrationTests(ApiTestFixture fixture
         recalculated.Should().BeEquivalentTo(["LupexWallet.Audit.Infrastructure", "LupexWallet.BalanceHistory.Infrastructure"]);
         removed.Should().BeEquivalentTo(["LupexWallet.Audit.Infrastructure"], "snapshots are removed by BalanceHistory's own WalletDeleted handler");
         currencyChanged.Should().BeEquivalentTo(["LupexWallet.Audit.Infrastructure"], "a currency change must not start a snapshot cascade");
+    }
+
+    // ---- Funds (ADR-0010 §4) ----
+
+    /// <summary>ADR-0010 §4: <see cref="IWalletReservationProbe"/> — exactly one implementation, Funds.Infrastructure.FundsWalletReservationProbe.</summary>
+    [Fact]
+    public void WalletReservationProbe_HasExactlyOneRegisteredImplementation()
+    {
+        using var scope = Fixture.Factory.Services.CreateScope();
+
+        scope.ServiceProvider.GetServices<IWalletReservationProbe>().Should().ContainSingle(
+            "ADR-0010 §4: резервы кошелька хранит только модуль Funds");
     }
 }

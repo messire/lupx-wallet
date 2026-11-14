@@ -51,6 +51,10 @@ tags:
     description: >
       Месячные бюджеты (месяц + валюта) с лимитами по категориям и исполнение бюджета
       (ADR-0010 §5, В8). Бюджет ничего не резервирует и не меняет балансы.
+  - name: Funds
+    description: >
+      Целевые фонды и резервирование денег кошельков без изменения балансов
+      (ADR-0010, §4).
 
 paths:
   # ---------- Auth ----------
@@ -170,6 +174,8 @@ paths:
           description: >
             У кошелька есть операции (включая удаленные; корректирующие суммы заявленных
             балансов операциями не считаются) — используйте /archive — или он основной.
+            Деньги кошелька зарезервированы в активном фонде (ADR-0010, §4; type
+            https://lupexwallet/errors/wallet-has-reservations).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -189,7 +195,10 @@ paths:
               schema: { $ref: "#/components/schemas/Wallet" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: Нельзя архивировать текущий основной кошелек (решено, Q7).
+          description: >
+            Нельзя архивировать текущий основной кошелек (решено, Q7). Нельзя архивировать
+            кошелек, деньги которого зарезервированы в активном фонде, пока резерв не снят
+            (ADR-0010, §4; type https://lupexwallet/errors/wallet-has-reservations).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -249,7 +258,9 @@ paths:
         "409":
           description: >
             У кошелька уже есть операции (включая удаленные; корректирующие суммы
-            заявленных балансов операциями не считаются).
+            заявленных балансов операциями не считаются). Деньги кошелька зарезервированы
+            в активном фонде — валюта кошелька должна совпадать с валютой фонда (ADR-0010, §4;
+            type https://lupexwallet/errors/wallet-has-reservations).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -1259,6 +1270,226 @@ paths:
               schema: { $ref: "#/components/schemas/BudgetExecution" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  # ---------- Funds (ADR-0010 §4) ----------
+  /funds:
+    get:
+      tags: [Funds]
+      summary: Список фондов (по времени создания)
+      operationId: listFunds
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - name: includeClosed
+          in: query
+          description: Включать закрытые фонды. По умолчанию — только активные.
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FundPage" }
+    post:
+      tags: [Funds]
+      summary: Создать фонд
+      operationId: createFund
+      description: >
+        Фонд в одной валюте (ADR-0010, В6); валюта — активная (GET /currencies).
+        Связь с долгом или кредитом необязательна, указывается не более одной;
+        существование долга/кредита пока не проверяется.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FundCreateRequest" }
+      responses:
+        "201":
+          description: Создан
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Fund" }
+        "400":
+          description: >
+            Пустое или длиннее 200 символов название, целевая сумма не указана или не больше нуля,
+            валюта не активна, указаны одновременно долг и кредит.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /funds/{fundId}:
+    parameters:
+      - $ref: "#/components/parameters/FundIdParam"
+    get:
+      tags: [Funds]
+      summary: Получить фонд
+      operationId: getFund
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Fund" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Funds]
+      summary: Изменить фонд (все поля передаются целиком)
+      operationId: updateFund
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FundUpdateRequest" }
+      responses:
+        "200":
+          description: Обновлен
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Fund" }
+        "400":
+          description: Те же проверки, что при создании.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: >
+            Фонд закрыт; смена валюты фонда, по которому уже были резервы (даже снятые);
+            параллельное изменение фонда.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+    delete:
+      tags: [Funds]
+      summary: Удалить фонд без истории резервов
+      operationId: deleteFund
+      responses:
+        "204": { description: Удален }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: По фонду уже были резервы — фонд не удаляется, а закрывается (ADR-0010, §8).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /funds/{fundId}/close:
+    parameters:
+      - $ref: "#/components/parameters/FundIdParam"
+    post:
+      tags: [Funds]
+      summary: Закрыть фонд — снимает все резервы
+      operationId: closeFund
+      description: Закрытие окончательно; закрытый фонд нельзя изменить, пополнить или открыть снова.
+      responses:
+        "200":
+          description: Закрыт
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Fund" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Фонд уже закрыт.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /funds/{fundId}/reserve:
+    parameters:
+      - $ref: "#/components/parameters/FundIdParam"
+    post:
+      tags: [Funds]
+      summary: Зарезервировать деньги кошелька в фонде (создать или увеличить аллокацию)
+      operationId: reserveFund
+      description: >
+        Баланс кошелька не меняется. Сумма не больше свободных средств кошелька =
+        текущий баланс − резервы всех активных фондов по этому кошельку (ADR-0010, В7).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FundAllocationRequest" }
+      responses:
+        "200":
+          description: Зарезервировано
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Fund" }
+        "400":
+          description: Сумма не указана или не больше нуля; кошелек не найден; валюта кошелька не совпадает с валютой фонда.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: >
+            Недостаточно свободных средств (type
+            https://lupexwallet/errors/fund-insufficient-free-funds, в detail — доступная сумма);
+            кошелек архивный; фонд закрыт; параллельное изменение.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /funds/{fundId}/release:
+    parameters:
+      - $ref: "#/components/parameters/FundIdParam"
+    post:
+      tags: [Funds]
+      summary: Снять резерв фонда с кошелька (уменьшить аллокацию)
+      operationId: releaseFund
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FundAllocationRequest" }
+      responses:
+        "200":
+          description: Резерв снят
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Fund" }
+        "400":
+          description: Сумма не указана или не больше нуля.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Сумма больше резерва фонда по этому кошельку; фонд закрыт; параллельное изменение.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /funds/wallet-reservations:
+    get:
+      tags: [Funds]
+      summary: Резервы по всем кошелькам — баланс, зарезервировано, свободно, дефицит
+      operationId: listWalletReservations
+      description: >
+        Все кошельки, включая архивные (у архивного резерв всегда 0). Без пагинации:
+        список кошельков небольшой и нужен целиком (как GET /currencies/available).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/WalletReservation" }
+
+  /funds/wallet-reservations/{walletId}:
+    parameters:
+      - $ref: "#/components/parameters/WalletIdParam"
+    get:
+      tags: [Funds]
+      summary: Резервы одного кошелька
+      operationId: getWalletReservation
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WalletReservation" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
 components:
   parameters:
     WalletIdParam:
@@ -1268,6 +1499,11 @@ components:
       schema: { type: string, format: uuid }
     OperationIdParam:
       name: operationId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    FundIdParam:
+      name: fundId
       in: path
       required: true
       schema: { type: string, format: uuid }
@@ -1872,6 +2108,100 @@ components:
           type: array
           description: Расходы, не вошедшие в суммы из-за отсутствия курса.
           items: { $ref: "#/components/schemas/BudgetExcludedOperation" }
+
+    # ---- Funds (ADR-0010 §4) ----
+    Fund:
+      type: object
+      required:
+        [id, name, currencyId, targetAmount, reserved, progress, deficit, status,
+         hasAllocationHistory, allocations, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        name: { type: string, maxLength: 200 }
+        currencyId: { type: string, format: uuid }
+        targetAmount: { $ref: "#/components/schemas/Money" }
+        reserved:
+          $ref: "#/components/schemas/Money"
+          description: Сумма аллокаций фонда.
+        progress:
+          type: string
+          format: decimal
+          description: reserved / targetAmount, без округления (ADR-0005); 1 и больше — цель достигнута.
+          example: "0.5"
+        deficit:
+          $ref: "#/components/schemas/Money"
+          description: Сумма дефицитов обеспечения по аллокациям фонда (0 у закрытого фонда).
+        linkedDebtId: { type: [string, "null"], format: uuid }
+        linkedLoanId: { type: [string, "null"], format: uuid }
+        status: { type: string, enum: [Active, Closed] }
+        hasAllocationHistory:
+          type: boolean
+          description: По фонду были резервы (даже снятые) — фонд нельзя удалить и сменить ему валюту.
+        allocations:
+          type: array
+          description: Ненулевые аллокации в порядке создания.
+          items: { $ref: "#/components/schemas/FundAllocation" }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+        closedAt: { type: [string, "null"], format: date-time, readOnly: true }
+    FundAllocation:
+      type: object
+      required: [walletId, amount, deficit]
+      properties:
+        walletId: { type: string, format: uuid }
+        amount: { $ref: "#/components/schemas/Money" }
+        deficit:
+          $ref: "#/components/schemas/Money"
+          description: >
+            Дефицит обеспечения кошелька (его резервы всех фондов − баланс, не больше резервов),
+            ограниченный суммой этой аллокации.
+    FundCreateRequest:
+      type: object
+      required: [name, targetAmount, currencyId]
+      properties:
+        name: { type: string, maxLength: 200 }
+        targetAmount: { type: string, format: decimal }
+        currencyId: { type: string, format: uuid }
+        linkedDebtId: { type: [string, "null"], format: uuid }
+        linkedLoanId: { type: [string, "null"], format: uuid }
+    FundUpdateRequest:
+      type: object
+      required: [name, targetAmount, currencyId]
+      description: Все поля передаются целиком; пропущенная связь с долгом/кредитом снимается.
+      properties:
+        name: { type: string, maxLength: 200 }
+        targetAmount: { type: string, format: decimal }
+        currencyId: { type: string, format: uuid }
+        linkedDebtId: { type: [string, "null"], format: uuid }
+        linkedLoanId: { type: [string, "null"], format: uuid }
+    FundAllocationRequest:
+      type: object
+      required: [walletId, amount]
+      properties:
+        walletId: { type: string, format: uuid }
+        amount: { type: string, format: decimal, description: "Больше нуля, в валюте фонда" }
+    FundPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Fund" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+    WalletReservation:
+      type: object
+      required: [walletId, currencyId, balance, reserved, free, deficit]
+      properties:
+        walletId: { type: string, format: uuid }
+        currencyId: { type: string, format: uuid }
+        balance: { $ref: "#/components/schemas/Money" }
+        reserved:
+          $ref: "#/components/schemas/Money"
+          description: Сумма аллокаций активных фондов по кошельку.
+        free:
+          $ref: "#/components/schemas/Money"
+          description: balance − reserved; может быть отрицательной, если расходы опустили баланс ниже резервов.
+        deficit:
+          $ref: "#/components/schemas/Money"
+          description: Дефицит обеспечения резерва = reserved − balance, если больше нуля, но не больше reserved.
 
   responses:
     BadRequest:

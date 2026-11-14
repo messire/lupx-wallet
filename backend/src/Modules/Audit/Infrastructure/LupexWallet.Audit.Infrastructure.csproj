@@ -13,6 +13,11 @@
     <ProjectReference Include="..\..\Budgeting\Domain\LupexWallet.Budgeting.Domain.csproj" />
   </ItemGroup>
 
+  <!-- Funds (ADR-0010 §4): event types only. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\Funds\Domain\LupexWallet.Funds.Domain.csproj" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="MediatR" />
   </ItemGroup>

@@ -351,6 +351,52 @@ CREATE INDEX ix_budget_category_limits_category ON budgeting.budget_category_lim
 - Тип операции, входящий в категорию (активную или нет), и валюта бюджета считаются «используемыми» для правил удаления ReferenceData (`BudgetingReferenceItemUsageProbe`).
 - Категория, на которую ссылается лимит, не удаляется (`ON DELETE RESTRICT`, в приложении — 409 с предложением деактивации). Бюджет удаляется физически вместе с лимитами.
 
+## Схема `funds`
+
+Фонды и резервирование денег ([ADR-0010](../architecture/adr/0010-financial-planning.md), §4). Резерв не меняет балансы кошельков — это только пометка «эти деньги заняты».
+
+```sql
+CREATE SCHEMA funds;
+
+CREATE TABLE funds.funds (
+    id              uuid PRIMARY KEY,
+    name            varchar(200) NOT NULL,
+    target_amount   numeric      NOT NULL,
+    currency_id     uuid         NOT NULL,          -- reference_data.currencies.id (без FK между схемами)
+    linked_debt_id  uuid,                            -- Debts: долг, на погашение которого копится фонд (без FK)
+    linked_loan_id  uuid,                            -- Debts: кредит (без FK)
+    status          varchar(16)  NOT NULL,           -- 'Active' | 'Closed'
+    created_at      timestamptz  NOT NULL,
+    updated_at      timestamptz  NOT NULL,           -- токен оптимистичной блокировки агрегата
+    closed_at       timestamptz,
+    CONSTRAINT ck_funds_target_positive CHECK (target_amount > 0),
+    CONSTRAINT ck_funds_single_link     CHECK (linked_debt_id IS NULL OR linked_loan_id IS NULL),
+    CONSTRAINT ck_funds_status          CHECK (status IN ('Active', 'Closed')),
+    CONSTRAINT ck_funds_closed_at       CHECK ((status = 'Closed') = (closed_at IS NOT NULL))
+);
+CREATE INDEX ix_funds_created_at  ON funds.funds (created_at);
+CREATE INDEX ix_funds_currency    ON funds.funds (currency_id);
+CREATE INDEX ix_funds_linked_debt ON funds.funds (linked_debt_id) WHERE linked_debt_id IS NOT NULL;
+CREATE INDEX ix_funds_linked_loan ON funds.funds (linked_loan_id) WHERE linked_loan_id IS NOT NULL;
+
+CREATE TABLE funds.fund_allocations (
+    id          uuid PRIMARY KEY,
+    fund_id     uuid        NOT NULL REFERENCES funds.funds (id) ON DELETE CASCADE,
+    wallet_id   uuid        NOT NULL,                -- wallets.wallets.id (без FK между схемами)
+    amount      numeric     NOT NULL,
+    created_at  timestamptz NOT NULL,
+    updated_at  timestamptz NOT NULL,
+    CONSTRAINT ck_fund_allocations_amount_non_negative CHECK (amount >= 0)
+);
+CREATE UNIQUE INDEX ux_fund_allocations_fund_wallet ON funds.fund_allocations (fund_id, wallet_id);
+CREATE INDEX ix_fund_allocations_wallet ON funds.fund_allocations (wallet_id);
+```
+
+- **Одна аллокация на пару (фонд, кошелек).** Повторный резерв увеличивает `amount`, снятие — уменьшает. Снятая до нуля аллокация не удаляется: это история резервов, из-за которой фонд нельзя удалить физически (только закрыть, ADR-0010 §8). Закрытие фонда обнуляет все его аллокации.
+- **Валюта аллокации** — валюта фонда; кошелек обязан быть в той же валюте (проверка в приложении, отдельной колонки нет).
+- **Зарезервировано по кошельку** = сумма `amount` аллокаций кошелька по фондам со `status = 'Active'`. Свободные средства и дефицит обеспечения резерва вычисляются при чтении (текущий баланс берется из `wallets`), не хранятся.
+- **Конкурентный доступ.** Создание и увеличение резерва выполняются под тем же advisory lock кошелька, что и команды Operations/Wallets (`pg_advisory_xact_lock(hashtextextended(wallet_id, 0))`), поэтому два резерва на один кошелек не могут оба пройти проверку свободных средств. Параллельное изменение одного фонда отсекается проверкой `updated_at` (EF Core concurrency token) → `409`.
+
 ## Сводная таблица: схема ↔ модуль ↔ таблицы
 
 | Схема | Модуль | Таблицы |
@@ -362,5 +408,6 @@ CREATE INDEX ix_budget_category_limits_category ON budgeting.budget_category_lim
 | `exchange_rates` | ExchangeRates | `latest_exchange_rates`, `historical_exchange_rates`, `historical_rate_coverage` |
 | `audit` | Audit | `audit_entries` |
 | `budgeting` | Budgeting | `expense_categories`, `expense_category_operation_types`, `budgets`, `budget_category_limits` |
+| `funds` | Funds | `funds`, `fund_allocations` |
 
 `Reporting` не владеет таблицами — читает через узкие read-контракты остальных модулей или (как будущая оптимизация) через SQL-представления, объединяющие несколько схем на чтение.

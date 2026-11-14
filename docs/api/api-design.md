@@ -131,3 +131,14 @@ Rate limiting за пределами `/auth/login` не предусмотре�
 ## Соответствие пользовательским сценариям
 
 Каждый эндпоинт в `openapi.yaml` ссылается в `summary` на номер UC из [user-scenarios.md](../requirements/user-scenarios.md), где это применимо — так контракт остается трассируемым к бизнес-требованиям без дублирования их текста здесь.
+
+## Фонды и резервирование (ADR-0010, §4)
+
+Тег `Funds` в [openapi.yaml](./openapi.yaml); ресурс `/funds` — агрегат `Fund` модуля Funds, аллокации (`FundAllocation`) — его дочерние сущности. Резерв не меняет балансы кошельков.
+
+- `POST /funds` → `201`; `PATCH /funds/{id}` (все поля целиком, как у кошелька) → `200`; `DELETE /funds/{id}` → `204` только без истории резервов, иначе `409` (фонд закрывается); `POST /funds/{id}/close` → `200`: все резервы снимаются, статус `Closed` окончательный (дальнейшие изменения → `409`).
+- `POST /funds/{id}/reserve` и `POST /funds/{id}/release` с телом `{ walletId, amount }` → `200` с фондом. Резерв не больше свободных средств кошелька (баланс − резервы всех активных фондов по кошельку): иначе `409` с `type` `https://lupexwallet/errors/fund-insufficient-free-funds` и доступной суммой в `detail`. Кошелек другой валюты или не найден → `400`, архивный → `409`. Снятие больше резерва фонда по кошельку → `409`.
+- В `Fund`: `reserved`, `progress` (= reserved / targetAmount строкой без округления), `deficit`, ненулевые `allocations[]` с `deficit` по каждой. `GET /funds` — курсорная пагинация по времени создания, закрытые — только с `includeClosed=true`.
+- `GET /funds/wallet-reservations` (массив без пагинации, все кошельки) и `GET /funds/wallet-reservations/{walletId}`: `balance`, `reserved`, `free` (= balance − reserved, может быть отрицательным), `deficit` — дефицит обеспечения резерва = reserved − balance, если больше нуля, но не больше reserved. Расходы не блокируются (В7).
+- Кошелек с резервом активного фонда нельзя архивировать, удалить и сменить ему валюту: `409` с `type` `https://lupexwallet/errors/wallet-has-reservations` на `POST /wallets/{id}/archive`, `DELETE /wallets/{id}`, `PUT /wallets/{id}/currency`. Валюту, используемую фондом (включая закрытые), нельзя убрать из активных (`DELETE /currencies/{id}` → `409`).
+- Аудит: `GET /audit-entries?entityType=Fund&entityId=…` — действия `Created`, `Updated`, `Closed`, `Deleted`, `Reserved`, `Released`; у резерва и снятия — поле `Allocation[<walletId>]` (старая и новая сумма аллокации), у снятия ещё `ReleaseReason` (`Manual`, `FundClosed`, `LinkedPayment`).

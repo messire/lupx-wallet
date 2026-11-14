@@ -65,3 +65,11 @@ public readonly record struct BudgetId(Guid Value)
     public static BudgetId New() => new(Guid.NewGuid());
     public override string ToString() => Value.ToString();
 }
+
+// ---- Funds (ADR-0010 §4) ----
+
+public readonly record struct FundId(Guid Value)
+{
+    public static FundId New() => new(Guid.NewGuid());
+    public override string ToString() => Value.ToString();
+}

@@ -252,10 +252,14 @@ export async function pickOrCreateWalletType(page: Page): Promise<void> {
   // races the request and could create a type that already exists (500 on the unique constraint).
   await expect(trigger).not.toHaveText('Загрузка…');
   await trigger.click();
+  // `count()` does not wait: let the panel render (its last row is always "+ добавить новый") before counting,
+  // otherwise an empty count right after the click makes every test try to create the same type again.
+  const createRow = page.getByRole('option', { name: '+ добавить новый' });
+  await expect(createRow).toBeVisible();
   const options = page.getByRole('option');
   const first = options.first();
   if ((await options.count()) <= 1) {
-    await page.getByRole('option', { name: '+ добавить новый' }).click();
+    await createRow.click();
     const dialog = page.getByRole('dialog', { name: 'Новый тип кошелька' });
     await dialog.locator('input[formcontrolname="name"]').fill('E2E тип кошелька');
     await dialog.getByRole('button', { name: 'Добавить' }).click();

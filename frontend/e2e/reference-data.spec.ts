@@ -18,7 +18,7 @@ test('adds a currency from the available ones and removes it from the active one
 
   await page.goto('/reference-data');
   await page.getByRole('tab', { name: 'Валюты' }).click();
-  const panel = page.locator('.tab-panel:not([hidden])');
+  const panel = page.getByRole('tabpanel', { name: 'Валюты' });
   const row = panel.locator('.ref-table tr', { hasText: code });
   await expect(row).toHaveCount(0);
 

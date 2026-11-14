@@ -133,11 +133,45 @@ export const test = base.extend({
 
 export { expect };
 
+const TOKEN_KEY = 'lupexwallet.auth.token';
+const EXPIRES_AT_KEY = 'lupexwallet.auth.expiresAt';
+
+/** Session of the first UI login in this worker, reused by later tests (see `login`). */
+let cachedSession: { token: string; expiresAt: string } | null = null;
+
+/**
+ * Logs in. The first call in a worker goes through the login form; later calls put the same token into
+ * localStorage, the way the app keeps it after a login. `POST /auth/login` is rate limited to 5 requests a minute
+ * (`RateLimiting.cs`), so a form login in every test made later tests fail with "Неверный пароль" once the suite
+ * ran faster than that. The login form itself keeps its own coverage through the first call.
+ */
 export async function login(page: Page): Promise<void> {
   await page.goto('/login');
+  const session = cachedSession;
+  if (session && new Date(session.expiresAt).getTime() - Date.now() > 60_000) {
+    await page.evaluate(
+      ({ token, expiresAt, tokenKey, expiresAtKey }) => {
+        localStorage.setItem(tokenKey, token);
+        localStorage.setItem(expiresAtKey, expiresAt);
+      },
+      { ...session, tokenKey: TOKEN_KEY, expiresAtKey: EXPIRES_AT_KEY },
+    );
+    await page.goto('/wallets');
+    await expect(page).toHaveURL(/\/wallets$/);
+    return;
+  }
+
   await page.getByLabel('Пароль').fill(DEV_PASSWORD);
   await page.getByRole('button', { name: 'Войти' }).click();
   await expect(page).toHaveURL(/\/wallets$/);
+  cachedSession = await page.evaluate(
+    ({ tokenKey, expiresAtKey }) => {
+      const token = localStorage.getItem(tokenKey);
+      const expiresAt = localStorage.getItem(expiresAtKey);
+      return token && expiresAt ? { token, expiresAt } : null;
+    },
+    { tokenKey: TOKEN_KEY, expiresAtKey: EXPIRES_AT_KEY },
+  );
 }
 
 /**
@@ -351,10 +385,9 @@ export async function ensureOperationType(
     return;
   }
 
-  // Reference Data keeps all three tab panels in the DOM ([hidden] toggles the
-  // active one) — scope to the visible panel to avoid matching the wallet-types
-  // form's same-named `name` field.
-  const panel = page.locator('.tab-panel:not([hidden])');
+  // Reference Data keeps all three tab panels in the DOM; the panel is found by its tab's name, so the lookup waits
+  // for the switch to "Типы операций" instead of catching the previous panel that was still shown.
+  const panel = page.getByRole('tabpanel', { name: 'Типы операций' });
   await panel.locator('input[formcontrolname="name"]').fill(name);
   await chooseOption(panel, 'behaviorKindId', behaviorKindLabel);
   await panel.getByRole('button', { name: 'Добавить', exact: true }).click();

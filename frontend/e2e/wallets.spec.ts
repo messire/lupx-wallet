@@ -75,7 +75,7 @@ test('a wallet in a currency that is not active yet activates it: the currency s
 
   await page.goto('/reference-data');
   await page.getByRole('tab', { name: 'Валюты' }).click();
-  const panel = page.locator('.tab-panel:not([hidden])');
+  const panel = page.getByRole('tabpanel', { name: 'Валюты' });
   await expect(panel.locator('.ref-table tr', { hasText: code })).toBeVisible();
   // ... and it is no longer offered for adding: it is active.
   const combobox = panel.getByRole('combobox', { name: 'Добавить в активные' });

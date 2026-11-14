@@ -41,6 +41,9 @@ public static class AuditModuleExtensions
 
         RegisterEventHandlers(services);
 
+        // Planning (ADR-0010 §6, §8)
+        PlanningAuditHandlers.Register(services);
+
         return services;
     }
 

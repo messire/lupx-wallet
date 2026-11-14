@@ -12,6 +12,11 @@
     <ProjectReference Include="..\..\ExchangeRates\Domain\LupexWallet.ExchangeRates.Domain.csproj" />
   </ItemGroup>
 
+  <!-- Planning (ADR-0010 §6) -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\Planning\Domain\LupexWallet.Planning.Domain.csproj" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="MediatR" />
   </ItemGroup>

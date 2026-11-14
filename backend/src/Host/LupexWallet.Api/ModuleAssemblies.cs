@@ -21,5 +21,6 @@ public static class ModuleAssemblies
 
         // ---- Funds (ADR-0010 §4) ----
         typeof(LupexWallet.Funds.Application.AssemblyMarker).Assembly,
+        typeof(LupexWallet.Debts.Application.AssemblyMarker).Assembly,
     ];
 }

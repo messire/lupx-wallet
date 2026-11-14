@@ -1,6 +1,7 @@
 using LupexWallet.Audit.Infrastructure;
 using LupexWallet.BalanceHistory.Infrastructure;
 using LupexWallet.Budgeting.Infrastructure;
+using LupexWallet.Debts.Infrastructure;
 using LupexWallet.ExchangeRates.Infrastructure;
 using LupexWallet.Operations.Infrastructure;
 using LupexWallet.ReferenceData.Infrastructure;
@@ -73,6 +74,7 @@ public sealed class LupexWalletApiFactory : WebApplicationFactory<Program>
 
         // ---- Funds (ADR-0010 §4) ----
         await sp.GetRequiredService<LupexWallet.Funds.Infrastructure.FundsDbContext>().Database.MigrateAsync();
+        await sp.GetRequiredService<DebtsDbContext>().Database.MigrateAsync();
     }
 
     /// <summary>

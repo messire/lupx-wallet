@@ -16,6 +16,7 @@
   <!-- Funds (ADR-0010 §4): event types only. -->
   <ItemGroup>
     <ProjectReference Include="..\..\Funds\Domain\LupexWallet.Funds.Domain.csproj" />
+    <ProjectReference Include="..\..\Debts\Domain\LupexWallet.Debts.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>

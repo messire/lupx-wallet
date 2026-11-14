@@ -43,6 +43,12 @@ tags:
     description: Общая сумма по всем кошелькам — текущая и историческая.
   - name: Audit
     description: Неизменяемый журнал изменений финансовых данных.
+  - name: Creditors
+    description: Справочник кредиторов модуля Debts — общий для долгов и кредитов (ADR-0010 §3).
+  - name: Debts
+    description: Долги перед кредиторами; погашение — обычный расход из кошелька (ADR-0010 §3, issue #6).
+  - name: Loans
+    description: Кредиты с графиком платежей, без процентов (ADR-0010 §3, В5, issue #8).
   - name: ExpenseCategories
     description: >
       Справочник категорий расходов модуля Budgeting (ADR-0010 §5, В1): название и
@@ -1021,6 +1027,420 @@ paths:
               schema: { $ref: "#/components/schemas/AuditEntryPage" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  # ---------- Debts (ADR-0010 §3) ----------
+  /creditors:
+    get:
+      tags: [Creditors]
+      summary: Список кредиторов (по названию)
+      operationId: listCreditors
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - name: includeInactive
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreditorPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Creditors]
+      summary: Добавить кредитора
+      operationId: createCreditor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreditorRequest" }
+      responses:
+        "201":
+          description: Создан
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Creditor" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /creditors/{id}:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    patch:
+      tags: [Creditors]
+      summary: Переименовать кредитора
+      operationId: renameCreditor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreditorRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Creditor" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Creditors]
+      summary: Удалить неиспользуемого кредитора (ADR-0002 §4)
+      operationId: deleteCreditor
+      responses:
+        "204": { description: Удален }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Кредитор используется долгом или кредитом (включая отменённые) — используйте деактивацию.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /creditors/{id}/deactivate:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    post:
+      tags: [Creditors]
+      summary: Деактивировать кредитора (нельзя выбрать в новом или изменяемом долге/кредите)
+      operationId: deactivateCreditor
+      responses:
+        "200":
+          description: Деактивирован
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Creditor" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /debts:
+    get:
+      tags: [Debts]
+      summary: Список долгов (по дате создания)
+      operationId: listDebts
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - name: creditorId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DebtPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Debts]
+      summary: Завести долг (#6). Операция не создаётся (ADR-0010, В3)
+      operationId: createDebt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DebtCreateRequest" }
+      responses:
+        "201":
+          description: Создан
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Debt" }
+        "400":
+          description: Нет обязательного поля, сумма ≤ 0, кредитор не найден или деактивирован, валюта не активна.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /debts/summary:
+    get:
+      tags: [Debts]
+      summary: Общий долг и разбивка по кредиторам (#6), по валютам
+      description: >
+        Учитываются неотменённые долги с остатком > 0. Суммы сгруппированы по валюте долга;
+        пересчёт в валюту основного кошелька — задача Reporting (ADR-0010 §7), здесь не выполняется.
+      operationId: getDebtSummary
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DebtSummary" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /debts/{id}:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    get:
+      tags: [Debts]
+      summary: Долг с историей погашений
+      operationId: getDebt
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Debt" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Debts]
+      summary: Изменить долг (кредитор, название, исходная сумма, дата). Валюта неизменна
+      operationId: updateDebt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DebtUpdateRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Debt" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [Debts]
+      summary: Удалить долг без погашений (ADR-0010 §8)
+      operationId: deleteDebt
+      responses:
+        "204": { description: Удален }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: По долгу есть погашения (включая погашения удалённых операций) — используйте отмену.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /debts/{id}/cancel:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    post:
+      tags: [Debts]
+      summary: Отменить долг (конечный статус Cancelled)
+      operationId: cancelDebt
+      responses:
+        "200":
+          description: Отменён
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Debt" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /debts/{id}/repayments:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    post:
+      tags: [Debts]
+      summary: Зафиксировать погашение (частичное или полное) расходом из кошелька (ADR-0010, В4)
+      description: >
+        В одной транзакции создаёт обычную операцию расхода (через Operations — баланс, история,
+        аудит как у POST /operations) и связывает её с долгом. Мягкое удаление этой операции
+        исключает погашение из расчёта, восстановление — возвращает.
+      operationId: recordDebtRepayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaymentCreateRequest" }
+      responses:
+        "201":
+          description: Погашение зафиксировано; в ответе — долг с обновлённым остатком
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Debt" }
+        "400":
+          description: >
+            Нет обязательного поля; сумма ≤ 0; кошелёк или тип операции не найден; тип операции
+            деактивирован или не «Расход»; дата вне [дата начала учёта кошелька .. сегодня].
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Долг отменён; остаток равен нулю; сумма больше остатка; валюта кошелька ≠ валюте долга.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /loans:
+    get:
+      tags: [Loans]
+      summary: Список кредитов (по дате создания)
+      operationId: listLoans
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - name: creditorId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoanPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Loans]
+      summary: Завести кредит (#8). Операция не создаётся (ADR-0010, В3)
+      operationId: createLoan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoanCreateRequest" }
+      responses:
+        "201":
+          description: Создан (график пуст)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Loan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /loans/{id}:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    get:
+      tags: [Loans]
+      summary: Кредит с графиком, статусами пунктов, ближайшим платежом и платежами
+      operationId: getLoan
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Loan" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Loans]
+      summary: Изменить условия кредита (кредитор, название, сумма к погашению, дата начала). Валюта неизменна
+      operationId: updateLoan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoanUpdateRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Loan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [Loans]
+      summary: Удалить кредит без платежей (график удаляется вместе с ним, ADR-0010 §8)
+      operationId: deleteLoan
+      responses:
+        "204": { description: Удален }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: По кредиту есть платежи — используйте отмену.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /loans/{id}/schedule:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    put:
+      tags: [Loans]
+      summary: Заменить график целиком (перенос даты, изменение сумм, добавление/удаление пунктов)
+      description: >
+        Сумма графика не обязана совпадать с суммой к погашению — расхождение видно по
+        scheduledAmount. Пункты с одной датой допускаются и упорядочиваются в порядке ввода.
+      operationId: replaceLoanSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoanScheduleReplaceRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Loan" }
+        "400":
+          description: Нет обязательного поля пункта или сумма пункта ≤ 0.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /loans/{id}/schedule/generate:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    post:
+      tags: [Loans]
+      summary: Сгенерировать график из N равных ежемесячных платежей (заменяет текущий)
+      description: >
+        Платёж = сумма к погашению / N, округлённая вниз до 2 знаков; последний платёж
+        получает остаток, так что сумма графика равна сумме к погашению. Даты — ежемесячно
+        от firstPaymentDate; если числа нет в месяце — последний день месяца.
+      operationId: generateLoanSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoanScheduleGenerateRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Loan" }
+        "400":
+          description: N вне [1..600] или платёж после округления равен нулю.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /loans/{id}/cancel:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    post:
+      tags: [Loans]
+      summary: Отменить кредит (конечный статус Cancelled)
+      operationId: cancelLoan
+      responses:
+        "200":
+          description: Отменён
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Loan" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /loans/{id}/payments:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    post:
+      tags: [Loans]
+      summary: Зафиксировать платёж по кредиту расходом из кошелька (ADR-0010, В4)
+      description: >
+        В одной транзакции создаёт операцию расхода и связывает её с кредитом. Учтённые платежи
+        закрывают самые ранние неоплаченные пункты графика.
+      operationId: recordLoanPayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaymentCreateRequest" }
+      responses:
+        "201":
+          description: Платёж зафиксирован; в ответе — кредит с пересчитанным графиком
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Loan" }
+        "400":
+          description: Как у POST /debts/{id}/repayments.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Кредит отменён; остаток равен нулю; сумма больше остатка; валюта кошелька ≠ валюте кредита.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
   # ---------- Budgeting (ADR-0010 §5) ----------
   /expense-categories:
     get:
@@ -1974,6 +2394,199 @@ components:
       required: [data, pagination]
       properties:
         data: { type: array, items: { $ref: "#/components/schemas/AuditEntry" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+
+    # ---- Debts (ADR-0010 §3) ----
+    Creditor:
+      type: object
+      required: [id, name, isActive]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 200 }
+        isActive: { type: boolean }
+    CreditorRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 200 }
+    CreditorPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Creditor" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+    ObligationStatus:
+      type: string
+      enum: [Active, Repaid, Cancelled]
+      description: >
+        Repaid вычисляется: учтённые платежи покрывают сумму. Если операцию платежа удалили,
+        статус возвращается в Active. Cancelled — конечный статус.
+    Payment:
+      type: object
+      description: >
+        Связь долга/кредита с операцией расхода. Сумма, дата и кошелёк берутся из операции в
+        её текущем виде. isCounted = операция не удалена, остаётся расходом и в валюте долга/кредита.
+      required: [id, operationId, walletId, amount, paymentDate, isCounted, isOperationDeleted, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        operationId: { type: string, format: uuid }
+        walletId: { type: string, format: uuid }
+        amount: { $ref: "#/components/schemas/Money" }
+        paymentDate: { type: string, format: date }
+        isCounted: { type: boolean }
+        isOperationDeleted: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    PaymentCreateRequest:
+      type: object
+      required: [walletId, operationTypeId, amount, paymentDate]
+      properties:
+        walletId: { type: string, format: uuid, description: Кошелёк в валюте долга/кредита }
+        operationTypeId: { type: string, format: uuid, description: Активный тип операции с поведением Expense }
+        amount: { type: string, format: decimal, description: "> 0 и не больше остатка" }
+        paymentDate: { type: string, format: date }
+    Debt:
+      type: object
+      required: [id, creditorId, name, currencyId, originalAmount, repaidAmount, remainingAmount, startDate, status, cancelledAt, createdAt, updatedAt, repayments]
+      properties:
+        id: { type: string, format: uuid }
+        creditorId: { type: string, format: uuid }
+        name: { type: string }
+        currencyId: { type: string, format: uuid }
+        originalAmount: { $ref: "#/components/schemas/Money" }
+        repaidAmount: { $ref: "#/components/schemas/Money" }
+        remainingAmount:
+          allOf: [{ $ref: "#/components/schemas/Money" }]
+          description: max(0, originalAmount − repaidAmount)
+        startDate: { type: string, format: date }
+        status: { $ref: "#/components/schemas/ObligationStatus" }
+        cancelledAt: { type: [string, "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        repayments: { type: array, items: { $ref: "#/components/schemas/Payment" } }
+    DebtCreateRequest:
+      type: object
+      required: [creditorId, name, currencyId, originalAmount, startDate]
+      properties:
+        creditorId: { type: string, format: uuid }
+        name: { type: string, maxLength: 200 }
+        currencyId: { type: string, format: uuid }
+        originalAmount: { type: string, format: decimal }
+        startDate: { type: string, format: date }
+    DebtUpdateRequest:
+      type: object
+      required: [creditorId, name, originalAmount, startDate]
+      properties:
+        creditorId: { type: string, format: uuid }
+        name: { type: string, maxLength: 200 }
+        originalAmount: { type: string, format: decimal }
+        startDate: { type: string, format: date }
+    DebtPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Debt" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+    DebtSummary:
+      type: object
+      required: [currencies]
+      properties:
+        currencies:
+          type: array
+          items:
+            type: object
+            required: [currencyId, totalRemainingAmount, debtCount, creditors]
+            properties:
+              currencyId: { type: string, format: uuid }
+              totalRemainingAmount: { $ref: "#/components/schemas/Money" }
+              debtCount: { type: integer }
+              creditors:
+                type: array
+                items:
+                  type: object
+                  required: [creditorId, creditorName, remainingAmount, debtCount]
+                  properties:
+                    creditorId: { type: string, format: uuid }
+                    creditorName: { type: string }
+                    remainingAmount: { $ref: "#/components/schemas/Money" }
+                    debtCount: { type: integer }
+    LoanScheduleItem:
+      type: object
+      required: [dueDate, amount, paidAmount, outstandingAmount, status]
+      properties:
+        dueDate: { type: string, format: date }
+        amount: { $ref: "#/components/schemas/Money" }
+        paidAmount: { $ref: "#/components/schemas/Money" }
+        outstandingAmount: { $ref: "#/components/schemas/Money" }
+        status:
+          type: string
+          enum: [Paid, Partial, Overdue, Expected]
+          description: >
+            Paid — покрыт полностью; Overdue — дата < сегодня (UTC), покрыт не полностью;
+            Partial — покрыт частично, дата ≥ сегодня; Expected — не покрыт, дата ≥ сегодня.
+    Loan:
+      type: object
+      required: [id, creditorId, name, currencyId, amountToRepay, paidAmount, remainingAmount, scheduledAmount, startDate, status, nextPayment, schedule, payments, cancelledAt, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        creditorId: { type: string, format: uuid }
+        name: { type: string }
+        currencyId: { type: string, format: uuid }
+        amountToRepay: { $ref: "#/components/schemas/Money" }
+        paidAmount: { $ref: "#/components/schemas/Money" }
+        remainingAmount: { $ref: "#/components/schemas/Money" }
+        scheduledAmount:
+          allOf: [{ $ref: "#/components/schemas/Money" }]
+          description: Сумма пунктов графика (может отличаться от amountToRepay)
+        startDate: { type: string, format: date }
+        status: { $ref: "#/components/schemas/ObligationStatus" }
+        nextPayment:
+          oneOf: [{ $ref: "#/components/schemas/LoanScheduleItem" }, { type: "null" }]
+          description: Самый ранний не полностью оплаченный пункт (включая просроченный); null у отменённого кредита
+        schedule: { type: array, items: { $ref: "#/components/schemas/LoanScheduleItem" } }
+        payments: { type: array, items: { $ref: "#/components/schemas/Payment" } }
+        cancelledAt: { type: [string, "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    LoanCreateRequest:
+      type: object
+      required: [creditorId, name, currencyId, amountToRepay, startDate]
+      properties:
+        creditorId: { type: string, format: uuid }
+        name: { type: string, maxLength: 200 }
+        currencyId: { type: string, format: uuid }
+        amountToRepay: { type: string, format: decimal }
+        startDate: { type: string, format: date }
+    LoanUpdateRequest:
+      type: object
+      required: [creditorId, name, amountToRepay, startDate]
+      properties:
+        creditorId: { type: string, format: uuid }
+        name: { type: string, maxLength: 200 }
+        amountToRepay: { type: string, format: decimal }
+        startDate: { type: string, format: date }
+    LoanScheduleReplaceRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [dueDate, amount]
+            properties:
+              dueDate: { type: string, format: date }
+              amount: { type: string, format: decimal }
+    LoanScheduleGenerateRequest:
+      type: object
+      required: [firstPaymentDate, numberOfPayments]
+      properties:
+        firstPaymentDate: { type: string, format: date }
+        numberOfPayments: { type: integer, minimum: 1, maximum: 600 }
+    LoanPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Loan" } }
         pagination: { $ref: "#/components/schemas/CursorPageMeta" }
 
     # ---- Budgeting (ADR-0010 §5) ----

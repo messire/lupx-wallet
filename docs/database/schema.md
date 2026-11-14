@@ -397,6 +397,92 @@ CREATE INDEX ix_fund_allocations_wallet ON funds.fund_allocations (wallet_id);
 - **Зарезервировано по кошельку** = сумма `amount` аллокаций кошелька по фондам со `status = 'Active'`. Свободные средства и дефицит обеспечения резерва вычисляются при чтении (текущий баланс берется из `wallets`), не хранятся.
 - **Конкурентный доступ.** Создание и увеличение резерва выполняются под тем же advisory lock кошелька, что и команды Operations/Wallets (`pg_advisory_xact_lock(hashtextextended(wallet_id, 0))`), поэтому два резерва на один кошелек не могут оба пройти проверку свободных средств. Параллельное изменение одного фонда отсекается проверкой `updated_at` (EF Core concurrency token) → `409`.
 
+## Схема `debts`
+
+Модуль Debts (ADR-0010 §3): справочник кредиторов, долги (#6) и кредиты с графиком (#8). Денег схема не хранит: погашение и платёж — обычные операции расхода в `operations.operations`, здесь только связь по `operation_id`.
+
+```sql
+CREATE SCHEMA debts;
+
+CREATE TABLE debts.creditors (
+    id          uuid PRIMARY KEY,
+    name        varchar(200) NOT NULL,
+    is_active   boolean      NOT NULL,
+    created_at  timestamptz  NOT NULL,
+    updated_at  timestamptz  NOT NULL
+);
+CREATE INDEX ix_creditors_name ON debts.creditors (name, created_at);
+
+CREATE TABLE debts.debts (
+    id               uuid PRIMARY KEY,
+    creditor_id      uuid         NOT NULL REFERENCES debts.creditors (id) ON DELETE RESTRICT,
+    name             varchar(200) NOT NULL,
+    currency_id      uuid         NOT NULL,  -- reference_data.currencies.id, без FK
+    original_amount  numeric      NOT NULL CHECK (original_amount > 0),
+    start_date       date         NOT NULL,
+    cancelled_at     timestamptz  NULL,      -- NOT NULL = статус Cancelled
+    created_at       timestamptz  NOT NULL,
+    updated_at       timestamptz  NOT NULL
+);
+CREATE INDEX ix_debts_creditor    ON debts.debts (creditor_id);
+CREATE INDEX ix_debts_currency    ON debts.debts (currency_id);
+CREATE INDEX ix_debts_created_at  ON debts.debts (created_at);
+
+CREATE TABLE debts.debt_repayments (
+    id              uuid PRIMARY KEY,
+    debt_id         uuid        NOT NULL REFERENCES debts.debts (id) ON DELETE CASCADE,
+    operation_id    uuid        NOT NULL,  -- operations.operations.id, без FK
+    wallet_id       uuid        NOT NULL,  -- wallets.wallets.id, без FK
+    amount          numeric     NOT NULL CHECK (amount > 0),  -- сумма на момент связи
+    repayment_date  date        NOT NULL,
+    created_at      timestamptz NOT NULL
+);
+CREATE UNIQUE INDEX ux_debt_repayments_operation ON debts.debt_repayments (operation_id);
+CREATE INDEX ix_debt_repayments_debt ON debts.debt_repayments (debt_id);
+
+CREATE TABLE debts.loans (
+    id               uuid PRIMARY KEY,
+    creditor_id      uuid         NOT NULL REFERENCES debts.creditors (id) ON DELETE RESTRICT,
+    name             varchar(200) NOT NULL,
+    currency_id      uuid         NOT NULL,  -- reference_data.currencies.id, без FK
+    amount_to_repay  numeric      NOT NULL CHECK (amount_to_repay > 0),
+    start_date       date         NOT NULL,
+    cancelled_at     timestamptz  NULL,
+    created_at       timestamptz  NOT NULL,
+    updated_at       timestamptz  NOT NULL
+);
+CREATE INDEX ix_loans_creditor    ON debts.loans (creditor_id);
+CREATE INDEX ix_loans_currency    ON debts.loans (currency_id);
+CREATE INDEX ix_loans_created_at  ON debts.loans (created_at);
+
+CREATE TABLE debts.loan_schedule_items (
+    id        uuid PRIMARY KEY,
+    loan_id   uuid    NOT NULL REFERENCES debts.loans (id) ON DELETE CASCADE,
+    due_date  date    NOT NULL,
+    amount    numeric NOT NULL CHECK (amount > 0),
+    position  integer NOT NULL  -- порядок ввода, при равных датах
+);
+CREATE INDEX ix_loan_schedule_items_loan_date ON debts.loan_schedule_items (loan_id, due_date);
+
+CREATE TABLE debts.loan_payments (
+    id            uuid PRIMARY KEY,
+    loan_id       uuid        NOT NULL REFERENCES debts.loans (id) ON DELETE CASCADE,
+    operation_id  uuid        NOT NULL,  -- operations.operations.id, без FK
+    wallet_id     uuid        NOT NULL,
+    amount        numeric     NOT NULL CHECK (amount > 0),
+    payment_date  date        NOT NULL,
+    created_at    timestamptz NOT NULL
+);
+CREATE UNIQUE INDEX ux_loan_payments_operation ON debts.loan_payments (operation_id);
+CREATE INDEX ix_loan_payments_loan ON debts.loan_payments (loan_id);
+```
+
+**Что не хранится.** Остаток, статус `Repaid` и статусы пунктов графика («оплачен / частично / просрочен / ожидается») вычисляются при чтении. Источник — факты операций (`IOperationFactsLookup`, удалённые операции включены). Платёж учитывается, если операция не удалена, остаётся расходом и в валюте долга/кредита; сумма берётся из операции в текущем виде. Поэтому мягкое удаление или восстановление операции в Operations не требует синхронизации этой схемы.
+
+**Жизненный цикл (ADR-0010 §8).** Долг или кредит со связанными платежами (включая платежи удалённых операций) не удаляется — `cancelled_at` переводит его в `Cancelled`. Без платежей запись удаляется физически, график — каскадом. Кредитор, на которого ссылается долг или кредит, не удаляется (`ON DELETE RESTRICT` + проверка в приложении), а деактивируется.
+
+**Блокировка.** Команды платежа и изменения берут `SELECT ... FOR UPDATE` по строке долга/кредита до чтения остатка, поэтому два параллельных платежа не превысят остаток.
+
 ## Сводная таблица: схема ↔ модуль ↔ таблицы
 
 | Схема | Модуль | Таблицы |
@@ -409,5 +495,6 @@ CREATE INDEX ix_fund_allocations_wallet ON funds.fund_allocations (wallet_id);
 | `audit` | Audit | `audit_entries` |
 | `budgeting` | Budgeting | `expense_categories`, `expense_category_operation_types`, `budgets`, `budget_category_limits` |
 | `funds` | Funds | `funds`, `fund_allocations` |
+| `debts` | Debts | `creditors`, `debts`, `debt_repayments`, `loans`, `loan_schedule_items`, `loan_payments` |
 
 `Reporting` не владеет таблицами — читает через узкие read-контракты остальных модулей или (как будущая оптимизация) через SQL-представления, объединяющие несколько схем на чтение.

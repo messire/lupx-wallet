@@ -8,6 +8,8 @@ using LupexWallet.BalanceHistory.Infrastructure;
 using LupexWallet.BuildingBlocks.Infrastructure;
 using LupexWallet.Budgeting.Api;
 using LupexWallet.Budgeting.Infrastructure;
+using LupexWallet.Debts.Api;
+using LupexWallet.Debts.Infrastructure;
 using LupexWallet.ExchangeRates.Api;
 using LupexWallet.ExchangeRates.Infrastructure;
 using LupexWallet.Funds.Api;
@@ -101,6 +103,7 @@ builder.Services.AddBudgetingModule(builder.Configuration);
 
 // ---- Funds (ADR-0010 §4) ----
 builder.Services.AddFundsModule(builder.Configuration);
+builder.Services.AddDebtsModule(builder.Configuration);
 
 // ---- CORS: разрешённые origin'ы фронтенда — из конфига (Cors:AllowedOrigins), +
 // localhost:4200 в Development. Список пуст в проде, пока не задан деплойментом
@@ -169,6 +172,7 @@ using (var migrationScope = app.Services.CreateScope())
 
     // ---- Funds (ADR-0010 §4) ----
     await services.GetRequiredService<LupexWallet.Funds.Infrastructure.FundsDbContext>().Database.MigrateAsync();
+    await services.GetRequiredService<LupexWallet.Debts.Infrastructure.DebtsDbContext>().Database.MigrateAsync();
 }
 
 if (app.Environment.IsDevelopment())
@@ -207,6 +211,7 @@ api.MapBudgetingEndpoints();
 
 // ---- Funds (ADR-0010 §4) ----
 api.MapFundsEndpoints();
+api.MapDebtsEndpoints();
 
 app.Run();
 

@@ -592,7 +592,7 @@ describe('TransfersComponent', () => {
 
   // ---- A3: an empty filtered result is a distinct state from "no transfers at all" ----
 
-  it('shows a dedicated "nothing found" state with a reset action when the applied filter returns no transfers', () => {
+  it('shows a dedicated "nothing found" state when the applied filter returns no transfers, with no duplicate reset button', () => {
     const fixture = createComponent();
     const component = fixture.componentInstance;
 
@@ -611,8 +611,10 @@ describe('TransfersComponent', () => {
     expect(compiled.textContent).toContain('По этим условиям ничего не найдено');
     expect(compiled.textContent).not.toContain('Переводов пока нет');
 
-    const resetButton = Array.from(compiled.querySelectorAll('button')).find((btn) => btn.textContent?.includes('Сбросить фильтры'));
-    expect(resetButton).toBeTruthy();
+    // The filter panel's "Сбросить" is the one reset action; the empty state does not repeat it.
+    const buttons = Array.from(compiled.querySelectorAll('button')).map((btn) => btn.textContent?.trim());
+    expect(buttons.filter((text) => text?.startsWith('Сбросить'))).toEqual(['Сбросить']);
+    expect(compiled.querySelector('app-empty-state button')).toBeNull();
   });
 
   it('shows the plain "no transfers yet" state (without a reset button) when there is no active filter', () => {

@@ -25,26 +25,33 @@
 
   @if (listVisible()) {
     <ul
-      class="options"
+      class="app-listbox"
       [id]="listboxId"
       role="listbox"
       [attr.aria-label]="ariaLabel() ?? 'Валюты'"
+      [appAnchoredPanel]="inputElement"
       (mousedown)="$event.preventDefault()"
     >
       @for (currency of filteredCurrencies(); track currency.code; let i = $index) {
         <li
           [id]="listboxId + '-option-' + i"
           role="option"
+          class="app-listbox__option"
           [attr.aria-selected]="i === highlightedIndex()"
-          [class.highlighted]="i === highlightedIndex()"
+          [class.is-highlighted]="i === highlightedIndex()"
           (mousedown)="selectAt(i)"
         >
           {{ currency.code }} — {{ currency.name }}
         </li>
       }
     </ul>
+  } @else if (emptyMessage(); as message) {
+    <div class="app-listbox__empty" aria-hidden="true" [appAnchoredPanel]="inputElement" (mousedown)="$event.preventDefault()">
+      {{ message }}
+    </div>
   }
 
-  <!-- Always in the DOM so that the text appearing in it is announced (a live region inserted together with its text often is not). -->
-  <p class="options empty" aria-live="polite" [hidden]="!emptyMessage()" (mousedown)="$event.preventDefault()">{{ emptyMessage() }}</p>
+  <!-- Always in the DOM so that the text appearing in it is announced (a live region inserted together with its text often is not).
+       Visually hidden: the visible copy is the anchored panel above. -->
+  <p class="visually-hidden empty" aria-live="polite" [hidden]="!emptyMessage()">{{ emptyMessage() }}</p>
 </div>

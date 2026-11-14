@@ -2,12 +2,11 @@
   <p class="metadata form-intro">Между разными кошельками одной валюты. Сумма списания равна сумме зачисления.</p>
 
   <app-field label="Кошелек-источник" [error]="sourceWalletError()" [required]="true">
-    <select appFieldControl formControlName="sourceWalletId">
-      <option value="" disabled>— выберите кошелек —</option>
+    <app-select formControlName="sourceWalletId" placeholder="— выберите кошелек —">
       @for (wallet of wallets(); track wallet.id) {
-        <option [value]="wallet.id">{{ wallet.name }}</option>
+        <app-select-option [value]="wallet.id" [label]="wallet.name" />
       }
-    </select>
+    </app-select>
   </app-field>
 
   <app-field
@@ -17,12 +16,11 @@
     [required]="true"
     [disabled]="form.controls.targetWalletId.disabled"
   >
-    <select appFieldControl formControlName="targetWalletId">
-      <option value="" disabled>{{ form.controls.sourceWalletId.value ? '— выберите кошелек —' : 'Сначала выберите источник' }}</option>
+    <app-select formControlName="targetWalletId" [placeholder]="form.controls.sourceWalletId.value ? '— выберите кошелек —' : 'Сначала выберите источник'">
       @for (wallet of targetWalletOptions(); track wallet.id) {
-        <option [value]="wallet.id">{{ wallet.name }}</option>
+        <app-select-option [value]="wallet.id" [label]="wallet.name" />
       }
-    </select>
+    </app-select>
   </app-field>
 
   <app-field label="Сумма" [error]="amountError()" [required]="true">
@@ -35,13 +33,7 @@
   </app-field>
 
   <app-field label="Дата" [error]="transferDateError()" [hint]="transferDateHint()" [required]="true">
-    <input
-      appFieldControl
-      type="date"
-      formControlName="transferDate"
-      [attr.min]="minTransferDate()"
-      [attr.max]="maxTransferDate"
-    />
+    <app-date-input formControlName="transferDate" [min]="minTransferDate()" [max]="maxTransferDate" />
   </app-field>
 
   @if (form.errors?.['sameWallet'] && form.controls.targetWalletId.touched) {

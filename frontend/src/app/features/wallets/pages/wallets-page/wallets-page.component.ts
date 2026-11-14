@@ -24,6 +24,11 @@ import { LoadingStateComponent } from '@shared/ui/loading-state/loading-state.co
 import { ErrorStateComponent } from '@shared/ui/error-state/error-state.component';
 import { SkeletonComponent } from '@shared/ui/skeleton/skeleton.component';
 import { ToastComponent } from '@shared/ui/toast/toast.component';
+import { CurrencyActivateDialogComponent } from '../../components/currency-activate-dialog/currency-activate-dialog.component';
+import { WalletTypeCreateDialogComponent } from '../../components/wallet-type-create-dialog/wallet-type-create-dialog.component';
+import { SelectComponent } from '@shared/ui/select/select.component';
+import { SelectOptionDirective } from '@shared/ui/select/select-option.directive';
+import { DateInputComponent } from '@shared/ui/date-input/date-input.component';
 
 /** An action awaiting user confirmation before an irreversible API call. */
 interface PendingWalletAction {
@@ -37,17 +42,21 @@ type WalletMenuAction = 'edit' | 'primary' | 'archive' | 'currency' | 'delete';
 /**
  * UC-01 (create), UC-02…UC-06 (edit, archive, set primary, change currency,
  * delete) and UC-07 (list) — docs/requirements/user-scenarios.md. walletTypeId is
- * chosen from the ReferenceData module's wallet-type list, with a quick-add
- * mini-form next to it (the same list is managed on features/reference-data). A
- * new wallet's currency is chosen by code from the list of available currencies
- * provided by the exchange-rate service (ADR-0004 §7) — the server activates it
- * on creation, so there is no quick-add for currencies; changing the currency of
- * an existing wallet picks from the active ones.
+ * chosen from the ReferenceData module's wallet-type list; the dropdown ends with
+ * "+ добавить новый", which opens a dialog and selects the created type (ADR-0009 §7;
+ * the same list is managed on features/reference-data). A new wallet's currency is
+ * chosen by code from the list of available currencies provided by the
+ * exchange-rate service (ADR-0004 §7) — the server activates it on creation, so
+ * that picker has no "add" row; changing the currency of an existing wallet picks
+ * from the active ones, with "+ добавить новый" activating one more.
  */
 @Component({
   selector: 'app-wallets',
   standalone: true,
   imports: [
+    SelectComponent,
+    SelectOptionDirective,
+    DateInputComponent,
     ReactiveFormsModule,
     FormsModule,
     RouterLink,
@@ -64,6 +73,8 @@ type WalletMenuAction = 'edit' | 'primary' | 'archive' | 'currency' | 'delete';
     ErrorStateComponent,
     SkeletonComponent,
     ToastComponent,
+    WalletTypeCreateDialogComponent,
+    CurrencyActivateDialogComponent,
   ],
   templateUrl: './wallets-page.component.html',
   styleUrl: './wallets-page.component.scss',
@@ -118,10 +129,10 @@ export class WalletsComponent implements OnInit {
   /** Brief success confirmation (ui-kit §5 "Empty, loading, error, feedback") — app-toast, auto-dismisses. */
   readonly successMessage = signal<string | null>(null);
 
-  readonly isAddingWalletType = signal(false);
-  readonly newWalletTypeName = signal('');
-  readonly isSubmittingWalletType = signal(false);
-  readonly addWalletTypeError = signal<string | null>(null);
+  /** "+ добавить новый" of a wallet-type dropdown (ADR-0009 §7): which form gets the created type; `null` — dialog closed. */
+  readonly walletTypeDialogTarget = signal<'create' | 'edit' | null>(null);
+  /** "+ добавить новый" of the active-currency dropdown in "Сменить валюту". */
+  readonly isActivatingCurrency = signal(false);
 
   readonly form = this.formBuilder.nonNullable.group({
     name: ['', Validators.required],
@@ -193,7 +204,7 @@ export class WalletsComponent implements OnInit {
    *  from a menu selection, since "Изменить"/"Сменить валюту" hand focus to the
    *  opened form rather than back to the "···" trigger. */
   private readonly editNameInput = viewChild<ElementRef<HTMLInputElement>>('editNameInput');
-  private readonly currencyFormSelect = viewChild<ElementRef<HTMLSelectElement>>('currencyFormSelect');
+  private readonly currencyFormSelect = viewChild<SelectComponent>('currencyFormSelect');
   private readonly currencySelect = viewChild(CurrencySelectComponent);
 
   constructor() {
@@ -204,7 +215,7 @@ export class WalletsComponent implements OnInit {
     });
     effect(() => {
       if (this.changingCurrencyWalletId()) {
-        this.currencyFormSelect()?.nativeElement.focus();
+        this.currencyFormSelect()?.focus();
       }
     });
   }
@@ -359,34 +370,27 @@ export class WalletsComponent implements OnInit {
     return extractErrorMessage(error, 'Не удалось создать кошелек.');
   }
 
-  toggleAddWalletType(): void {
-    this.isAddingWalletType.set(!this.isAddingWalletType());
-    this.newWalletTypeName.set('');
-    this.addWalletTypeError.set(null);
+  openWalletTypeDialog(target: 'create' | 'edit'): void {
+    this.walletTypeDialogTarget.set(target);
   }
 
-  submitNewWalletType(): void {
-    const name = this.newWalletTypeName().trim();
-    if (!name || this.isSubmittingWalletType()) {
-      return;
-    }
+  /** The created type joins the list at once (so the field shows its name) and is selected in the form that asked for it. */
+  onWalletTypeCreated(created: ReferenceItem): void {
+    const target = this.walletTypeDialogTarget();
+    this.walletTypeDialogTarget.set(null);
+    this.walletTypes.update((types) => [...types.filter((type) => type.id !== created.id), created]);
+    const control = target === 'edit' ? this.editForm.controls.walletTypeId : this.form.controls.walletTypeId;
+    control.setValue(created.id);
+    control.markAsTouched();
+    this.loadWalletTypes();
+  }
 
-    this.isSubmittingWalletType.set(true);
-    this.addWalletTypeError.set(null);
-
-    this.referenceDataService
-      .createWalletType(name)
-      .pipe(finalize(() => this.isSubmittingWalletType.set(false)))
-      .subscribe({
-        next: (created) => {
-          this.loadWalletTypes();
-          this.form.patchValue({ walletTypeId: created.id });
-          this.isAddingWalletType.set(false);
-          this.newWalletTypeName.set('');
-        },
-        // Input is deliberately not cleared — the user can adjust and resubmit.
-        error: (error: unknown) => this.addWalletTypeError.set(extractErrorMessage(error, 'Не удалось добавить тип кошелька.')),
-      });
+  /** "Сменить валюту": the newly activated currency joins the active list and is selected. */
+  onCurrencyActivated(created: Currency): void {
+    this.isActivatingCurrency.set(false);
+    this.currencies.update((currencies) => [...currencies.filter((currency) => currency.id !== created.id), created]);
+    this.currencyForm.controls.currencyId.setValue(created.id);
+    this.currencyForm.controls.currencyId.markAsTouched();
   }
 
   // ---- UC-02: edit wallet (PATCH, no currency) ----

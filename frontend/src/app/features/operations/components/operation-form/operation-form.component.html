@@ -1,20 +1,23 @@
 <form class="entity-form" [formGroup]="form" (ngSubmit)="submit()">
   <app-field label="Кошелек" [error]="walletError()" [required]="true">
-    <select appFieldControl formControlName="walletId">
-      <option value="" disabled>— выберите кошелек —</option>
+    <app-select formControlName="walletId" placeholder="— выберите кошелек —">
       @for (wallet of wallets(); track wallet.id) {
-        <option [value]="wallet.id">{{ wallet.name }}</option>
+        <app-select-option [value]="wallet.id" [label]="wallet.name" />
       }
-    </select>
+    </app-select>
   </app-field>
 
   <app-field label="Тип операции" [error]="operationTypeError()" [required]="true">
-    <select appFieldControl formControlName="operationTypeId">
-      <option value="" disabled>— выберите тип —</option>
+    <app-select
+      formControlName="operationTypeId"
+      placeholder="— выберите тип —"
+      createLabel="+ добавить новый"
+      (createRequested)="isCreatingOperationType.set(true)"
+    >
       @for (type of operationTypes(); track type.id) {
-        <option [value]="type.id">{{ type.name }}</option>
+        <app-select-option [value]="type.id" [label]="type.name" />
       }
-    </select>
+    </app-select>
   </app-field>
 
   <app-field
@@ -32,7 +35,7 @@
   </app-field>
 
   <app-field label="Дата" [error]="operationDateError()" [required]="true">
-    <input appFieldControl type="date" formControlName="operationDate" />
+    <app-date-input formControlName="operationDate" />
   </app-field>
 
   @if (errorMessage()) {
@@ -46,3 +49,9 @@
     <app-button type="button" variant="secondary" (click)="onCancel()">Отмена</app-button>
   </div>
 </form>
+
+<app-operation-type-create-dialog
+  [open]="isCreatingOperationType()"
+  (created)="onOperationTypeCreated($event)"
+  (dismissed)="isCreatingOperationType.set(false)"
+/>

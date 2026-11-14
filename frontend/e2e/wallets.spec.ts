@@ -8,6 +8,7 @@ import {
   removeCurrencyIfActive,
   selectWalletCurrency,
   trackCurrencyForCleanup,
+  pickOrCreateWalletType,
 } from './fixtures';
 
 test.beforeEach(async ({ page }) => {
@@ -39,18 +40,8 @@ test('shows a readable save error and keeps the entered data when the create req
 
   // The currency comes from the list of available currencies, filled only by a rates refresh (ADR-0004 §7).
   await ensureAvailableCurrencyOnPage(page, 'EUR');
-  await page.getByRole('button', { name: 'Добавить кошелек' }).first().click();
-
-  const typeSelect = page.locator('select[formcontrolname="walletTypeId"]');
-  await expect(typeSelect).toBeEnabled();
-  if ((await typeSelect.locator('option').count()) <= 1) {
-    await page.getByRole('button', { name: '+ добавить тип' }).click();
-    await page.getByPlaceholder('Название типа').fill('E2E тип кошелька');
-    const typeQuickAdd = page.locator('.quick-add').filter({ has: page.getByPlaceholder('Название типа') });
-    await typeQuickAdd.getByRole('button', { name: 'Добавить' }).click();
-    await expect(typeSelect.locator('option')).not.toHaveCount(1);
-  }
-  await typeSelect.selectOption({ index: 1 });
+  await page.getByRole('button', { name: 'Добавить кошелек' }).click();
+  await pickOrCreateWalletType(page);
 
   await selectWalletCurrency(page, 'EUR');
 
@@ -84,7 +75,7 @@ test('a wallet in a currency that is not active yet activates it: the currency s
 
   await page.goto('/reference-data');
   await page.getByRole('tab', { name: 'Валюты' }).click();
-  const panel = page.locator('.tab-panel:not([hidden])');
+  const panel = page.getByRole('tabpanel', { name: 'Валюты' });
   await expect(panel.locator('.ref-table tr', { hasText: code })).toBeVisible();
   // ... and it is no longer offered for adding: it is active.
   const combobox = panel.getByRole('combobox', { name: 'Добавить в активные' });

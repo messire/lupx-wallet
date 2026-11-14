@@ -1,0 +1,96 @@
+<div #wrapper class="app-date-input">
+  <input
+    #textInput
+    type="text"
+    inputmode="numeric"
+    autocomplete="off"
+    class="app-field__input app-date-input__text"
+    [attr.id]="field?.controlId() ?? null"
+    [attr.aria-label]="ariaLabel()"
+    [attr.aria-describedby]="field?.describedBy() ?? null"
+    [attr.aria-invalid]="field?.invalid() ? 'true' : null"
+    [attr.aria-required]="field?.required() ? 'true' : null"
+    [placeholder]="placeholder()"
+    [value]="text()"
+    [disabled]="disabled()"
+    (input)="onTextInput($any($event.target).value)"
+    (blur)="onTextBlur($event)"
+    (keydown)="onTextKeydown($event)"
+  />
+  <button
+    type="button"
+    class="app-date-input__toggle"
+    aria-label="Выбрать дату в календаре"
+    aria-haspopup="dialog"
+    [attr.aria-expanded]="isOpen()"
+    [attr.aria-controls]="isOpen() ? panelId : null"
+    [disabled]="disabled()"
+    (click)="toggle()"
+  >
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <rect x="2" y="3.5" width="12" height="10.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.4" />
+      <path d="M2 7h12M5.5 2v3M10.5 2v3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+    </svg>
+  </button>
+</div>
+
+@if (isOpen()) {
+  <div
+    class="app-date-input__panel"
+    role="dialog"
+    aria-label="Выбор даты"
+    [id]="panelId"
+    [appAnchoredPanel]="wrapperElement()"
+    [matchWidth]="false"
+    (keydown)="onPanelKeydown($event)"
+    (focusout)="onPanelFocusout($event)"
+  >
+    <div class="app-date-input__header">
+      <button type="button" class="app-date-input__nav" aria-label="Предыдущий месяц" (click)="showMonth(-1)">‹</button>
+      <span class="app-date-input__title" aria-live="polite">{{ monthTitle() }}</span>
+      <button type="button" class="app-date-input__nav" aria-label="Следующий месяц" (click)="showMonth(1)">›</button>
+    </div>
+
+    <table #grid class="app-date-input__grid" role="grid" [attr.aria-label]="monthTitle()" (keydown)="onGridKeydown($event)">
+      <thead>
+        <tr>
+          @for (weekday of weekdays; track weekday) {
+            <th scope="col" [attr.abbr]="weekday">{{ weekday }}</th>
+          }
+        </tr>
+      </thead>
+      <tbody>
+        @for (week of weeks(); track week[0]) {
+          <tr>
+            @for (day of week; track day) {
+              <td>
+                <button
+                  type="button"
+                  class="app-date-input__day"
+                  [class.is-other-month]="isOtherMonth(day)"
+                  [class.is-today]="day === today()"
+                  [class.is-selected]="day === value()"
+                  [attr.data-active]="day === activeDate() ? 'true' : null"
+                  [attr.tabindex]="day === activeDate() ? 0 : -1"
+                  [attr.aria-label]="dayLabel(day)"
+                  [attr.aria-pressed]="day === value() ? 'true' : 'false'"
+                  [attr.aria-current]="day === today() ? 'date' : null"
+                  [attr.aria-disabled]="isOutOfRange(day) ? 'true' : null"
+                  (click)="choose(day)"
+                >
+                  {{ dayNumber(day) }}
+                </button>
+              </td>
+            }
+          </tr>
+        }
+      </tbody>
+    </table>
+
+    <div class="app-date-input__footer">
+      <button type="button" class="app-date-input__link" [attr.aria-disabled]="isOutOfRange(today()) ? 'true' : null" (click)="chooseToday()">
+        Сегодня
+      </button>
+    </div>
+  </div>
+}

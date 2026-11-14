@@ -1,15 +1,14 @@
 <form class="entity-form" [formGroup]="form" (ngSubmit)="submit()">
   <app-field label="Кошелек" [error]="walletError()" [required]="true">
-    <select appFieldControl formControlName="walletId">
-      <option value="" disabled>— выберите кошелек —</option>
+    <app-select formControlName="walletId" placeholder="— выберите кошелек —">
       @for (wallet of wallets(); track wallet.id) {
-        <option [value]="wallet.id">{{ wallet.name }}</option>
+        <app-select-option [value]="wallet.id" [label]="wallet.name" />
       }
-    </select>
+    </app-select>
   </app-field>
 
   <app-field label="Дата" [error]="dateError()" [required]="true">
-    <input appFieldControl type="date" formControlName="date" [attr.min]="minDate()" [attr.max]="today" />
+    <app-date-input formControlName="date" [min]="minDate()" [max]="today" />
 
     <!-- Живая подсказка. Область присутствует всегда (иначе скринридер не объявит появление текста);
          ошибка запроса не блокирует форму — это не role="alert". -->

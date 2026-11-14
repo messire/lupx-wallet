@@ -1,4 +1,4 @@
-import { test as base, expect, Page } from '@playwright/test';
+import { test as base, expect, Locator, Page } from '@playwright/test';
 
 /** Dev-only password from backend/README.md / appsettings.Development.json — never used in production. */
 export const DEV_PASSWORD = 'ChangeMe123!';
@@ -133,11 +133,45 @@ export const test = base.extend({
 
 export { expect };
 
+const TOKEN_KEY = 'lupexwallet.auth.token';
+const EXPIRES_AT_KEY = 'lupexwallet.auth.expiresAt';
+
+/** Session of the first UI login in this worker, reused by later tests (see `login`). */
+let cachedSession: { token: string; expiresAt: string } | null = null;
+
+/**
+ * Logs in. The first call in a worker goes through the login form; later calls put the same token into
+ * localStorage, the way the app keeps it after a login. `POST /auth/login` is rate limited to 5 requests a minute
+ * (`RateLimiting.cs`), so a form login in every test made later tests fail with "Неверный пароль" once the suite
+ * ran faster than that. The login form itself keeps its own coverage through the first call.
+ */
 export async function login(page: Page): Promise<void> {
   await page.goto('/login');
+  const session = cachedSession;
+  if (session && new Date(session.expiresAt).getTime() - Date.now() > 60_000) {
+    await page.evaluate(
+      ({ token, expiresAt, tokenKey, expiresAtKey }) => {
+        localStorage.setItem(tokenKey, token);
+        localStorage.setItem(expiresAtKey, expiresAt);
+      },
+      { ...session, tokenKey: TOKEN_KEY, expiresAtKey: EXPIRES_AT_KEY },
+    );
+    await page.goto('/wallets');
+    await expect(page).toHaveURL(/\/wallets$/);
+    return;
+  }
+
   await page.getByLabel('Пароль').fill(DEV_PASSWORD);
   await page.getByRole('button', { name: 'Войти' }).click();
   await expect(page).toHaveURL(/\/wallets$/);
+  cachedSession = await page.evaluate(
+    ({ tokenKey, expiresAtKey }) => {
+      const token = localStorage.getItem(tokenKey);
+      const expiresAt = localStorage.getItem(expiresAtKey);
+      return token && expiresAt ? { token, expiresAt } : null;
+    },
+    { tokenKey: TOKEN_KEY, expiresAtKey: EXPIRES_AT_KEY },
+  );
 }
 
 /**
@@ -205,6 +239,31 @@ export function trackCurrencyForCleanup(page: Page, code: string): void {
 }
 
 /**
+ * Picks the option labelled `label` in a themed dropdown (`app-select`, ADR-0009 §6): opens it with a click on its
+ * `role="combobox"` trigger and clicks the matching `role="option"` row. `target` is either the trigger itself
+ * (e.g. `page.getByLabel('Кошелек')`) or a scope plus the `formcontrolname` of the field.
+ */
+export async function chooseOption(target: Locator, controlNameOrLabel: string, label?: string): Promise<void> {
+  const trigger = label === undefined ? target : target.locator(`app-select[formcontrolname="${controlNameOrLabel}"]`).getByRole('combobox');
+  const optionLabel = label ?? controlNameOrLabel;
+  await expect(trigger).toBeEnabled();
+  await trigger.click();
+  await trigger.page().getByRole('option', { name: optionLabel, exact: true }).click();
+  await expect(trigger).toHaveText(optionLabel);
+}
+
+/** The text box of a themed date field (`app-date-input`, ADR-0009 §6); `fill()` accepts `YYYY-MM-DD` and `ДД.ММ.ГГГГ`. */
+export function dateField(scope: Page | Locator, controlName: string): Locator {
+  return scope.locator(`app-date-input[formcontrolname="${controlName}"] input`);
+}
+
+/** `YYYY-MM-DD` → `ДД.ММ.ГГГГ`, the way a themed date field shows a date. */
+export function ruDate(isoDate: string): string {
+  const [year, month, day] = isoDate.split('-');
+  return `${day}.${month}.${year}`;
+}
+
+/**
  * Picks `code` in the wallet form's currency combobox (ADR-0004 §7: the choice comes from the list of
  * available currencies, there is no quick-add): type the code, choose the matching "CODE — name" option.
  */
@@ -218,7 +277,35 @@ export async function selectWalletCurrency(page: Page, code: string): Promise<vo
 }
 
 /**
- * Creates a wallet type via the Wallets create-form quick-add row if none exists yet, picks the currency
+ * In the open wallet create form: picks the first wallet type, or — on an empty reference list — creates
+ * "E2E тип кошелька" through the dropdown's "+ добавить новый" row and its dialog (ADR-0009 §7), which selects it.
+ */
+export async function pickOrCreateWalletType(page: Page): Promise<void> {
+  const trigger = page.locator('app-select[formcontrolname="walletTypeId"]').getByRole('combobox');
+  // The placeholder says "Загрузка…" until the list has loaded — without waiting for it the option count below
+  // races the request and could create a type that already exists (500 on the unique constraint).
+  await expect(trigger).not.toHaveText('Загрузка…');
+  await trigger.click();
+  // `count()` does not wait: let the panel render (its last row is always "+ добавить новый") before counting,
+  // otherwise an empty count right after the click makes every test try to create the same type again.
+  const createRow = page.getByRole('option', { name: '+ добавить новый' });
+  await expect(createRow).toBeVisible();
+  const options = page.getByRole('option');
+  const first = options.first();
+  if ((await options.count()) <= 1) {
+    await createRow.click();
+    const dialog = page.getByRole('dialog', { name: 'Новый тип кошелька' });
+    await dialog.locator('input[formcontrolname="name"]').fill('E2E тип кошелька');
+    await dialog.getByRole('button', { name: 'Добавить' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(trigger).toHaveText('E2E тип кошелька');
+  } else {
+    await first.click();
+  }
+}
+
+/**
+ * Creates a wallet type via the Wallets create-form "+ добавить новый" row if none exists yet, picks the currency
  * from the available ones (default EUR — every caller assumes it: transfer/balance-history/exchange-rates
  * scenarios need same-currency wallets), then fills and submits the form. Returns once the new wallet
  * card is visible, and returns the created wallet's id (also tracked automatically for teardown by the
@@ -236,25 +323,9 @@ export async function createWallet(
   const currencyCode = options.currencyCode ?? 'EUR';
   await ensureAvailableCurrencyOnPage(page, currencyCode);
 
-  // `.first()`: on an empty database the page shows the empty state, which has its own
-  // "Добавить кошелек" button next to the heading one (strict-mode violation otherwise).
-  await page.getByRole('button', { name: 'Добавить кошелек' }).first().click();
+  await page.getByRole('button', { name: 'Добавить кошелек' }).click();
 
-  const typeSelect = page.locator('select[formcontrolname="walletTypeId"]');
-  // `[disabled]="walletTypesLoading()"` clears once the list has actually loaded —
-  // without waiting for it, the option count below is a race against that request
-  // (count() has no auto-retry, unlike `expect(locator)...`) and can read the
-  // placeholder-only state, quick-adding a type that already exists and getting a
-  // 500 (unique constraint) instead of just selecting it.
-  await expect(typeSelect).toBeEnabled();
-  if ((await typeSelect.locator('option').count()) <= 1) {
-    await page.getByRole('button', { name: '+ добавить тип' }).click();
-    await page.getByPlaceholder('Название типа').fill('E2E тип кошелька');
-    const typeQuickAdd = page.locator('.quick-add').filter({ has: page.getByPlaceholder('Название типа') });
-    await typeQuickAdd.getByRole('button', { name: 'Добавить' }).click();
-    await expect(typeSelect.locator('option')).not.toHaveCount(1);
-  }
-  await typeSelect.selectOption({ index: 1 });
+  await pickOrCreateWalletType(page);
 
   await selectWalletCurrency(page, currencyCode);
 
@@ -266,7 +337,7 @@ export async function createWallet(
   if (options.accountingStartDate) {
     // Defaults to today; operations/transfers dated before it are rejected, so scenarios that
     // create a past-dated record (ADR-0002: deletable with any date) need an earlier start date.
-    await page.locator('input[formcontrolname="accountingStartDate"]').fill(options.accountingStartDate);
+    await dateField(page, 'accountingStartDate').fill(options.accountingStartDate);
   }
 
   const [response] = await Promise.all([
@@ -314,12 +385,11 @@ export async function ensureOperationType(
     return;
   }
 
-  // Reference Data keeps all three tab panels in the DOM ([hidden] toggles the
-  // active one) — scope to the visible panel to avoid matching the wallet-types
-  // form's same-named `name` field.
-  const panel = page.locator('.tab-panel:not([hidden])');
+  // Reference Data keeps all three tab panels in the DOM; the panel is found by its tab's name, so the lookup waits
+  // for the switch to "Типы операций" instead of catching the previous panel that was still shown.
+  const panel = page.getByRole('tabpanel', { name: 'Типы операций' });
   await panel.locator('input[formcontrolname="name"]').fill(name);
-  await panel.locator('select[formcontrolname="behaviorKindId"]').selectOption({ label: behaviorKindLabel });
+  await chooseOption(panel, 'behaviorKindId', behaviorKindLabel);
   await panel.getByRole('button', { name: 'Добавить', exact: true }).click();
   await expect(page.locator('.ref-table', { hasText: name })).toBeVisible();
 }
@@ -379,7 +449,7 @@ async function ensureOperationsPage(page: Page): Promise<void> {
  */
 export async function filterOperationsByWallet(page: Page, walletName: string): Promise<void> {
   await ensureOperationsPage(page);
-  await page.locator('.filters select[formcontrolname="walletId"]').selectOption({ label: walletName });
+  await chooseOption(page.locator(".filters"), 'walletId', walletName);
   await page.locator('.filters').getByRole('button', { name: 'Применить' }).click();
 }
 
@@ -397,11 +467,11 @@ export async function createOperation(
 
   const dialog = page.getByRole('dialog', { name: 'Новая операция' });
   await expect(dialog).toBeVisible();
-  await dialog.locator('select[formcontrolname="walletId"]').selectOption({ label: options.walletName });
-  await dialog.locator('select[formcontrolname="operationTypeId"]').selectOption({ label: options.typeName });
+  await chooseOption(dialog, 'walletId', options.walletName);
+  await chooseOption(dialog, 'operationTypeId', options.typeName);
   await dialog.locator('input[formcontrolname="amount"]').fill(options.amount);
   if (options.date) {
-    await dialog.locator('input[formcontrolname="operationDate"]').fill(options.date);
+    await dateField(dialog, 'operationDate').fill(options.date);
   }
   await dialog.getByRole('button', { name: 'Создать', exact: true }).click();
 
@@ -424,8 +494,8 @@ export async function setStatedBalance(
 
   const dialog = page.getByRole('dialog', { name: 'Указать баланс на дату' });
   await expect(dialog).toBeVisible();
-  await dialog.locator('select[formcontrolname="walletId"]').selectOption({ label: options.walletName });
-  await dialog.locator('input[formcontrolname="date"]').fill(options.date);
+  await chooseOption(dialog, 'walletId', options.walletName);
+  await dateField(dialog, 'date').fill(options.date);
   await dialog.locator('input[formcontrolname="amount"]').fill(options.amount);
 
   const [response] = await Promise.all([

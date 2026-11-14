@@ -6,12 +6,12 @@
   <app-card class="filters-card">
     <div class="filters filters--compact">
       <app-field label="Кошелек" class="filters__field">
-        <select appFieldControl id="walletId" [formControl]="walletForm.controls.walletId">
-          <option value="">— выберите кошелек —</option>
+        <app-select [formControl]="walletForm.controls.walletId">
+          <app-select-option value="" label="— выберите кошелек —" />
           @for (wallet of wallets(); track wallet.id) {
-            <option [value]="wallet.id">{{ wallet.name }}</option>
+            <app-select-option [value]="wallet.id" [label]="wallet.name" />
           }
-        </select>
+        </app-select>
       </app-field>
     </div>
   </app-card>
@@ -28,7 +28,7 @@
           <h2>Баланс на дату</h2>
           <form class="inline-form" [formGroup]="balanceDateForm" (ngSubmit)="showBalanceOnDate()">
             <app-field label="Дата" hint="Оставьте дату пустой — увидите текущий баланс">
-              <input appFieldControl type="date" formControlName="date" />
+              <app-date-input formControlName="date" />
             </app-field>
             <app-button type="submit" variant="secondary" class="app-field-align" [loading]="balanceLoading()" loadingText="Загрузка…">
               Показать
@@ -76,10 +76,10 @@
 
       <form class="inline-form" [formGroup]="rangeForm" (ngSubmit)="showHistory()">
         <app-field label="С даты">
-          <input appFieldControl type="date" formControlName="from" />
+          <app-date-input formControlName="from" />
         </app-field>
         <app-field label="По дату">
-          <input appFieldControl type="date" formControlName="to" />
+          <app-date-input formControlName="to" />
         </app-field>
         <app-button type="submit" variant="secondary" class="app-field-align" [loading]="historyLoading()" loadingText="Загрузка…">
           Показать историю

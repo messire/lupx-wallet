@@ -3,6 +3,7 @@ import { HttpTestingController, TestRequest, provideHttpClientTesting } from '@a
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { environment } from '../../../../../environments/environment';
 import { Operation } from '../../../../data-access/operations/operations-api.models';
+import { chooseSelectValue, dateInputBounds, dateTextInput, selectTrigger, typeDate } from '@shared/testing/form-controls.testing';
 import { StatedBalanceFormComponent, StatedBalanceFormValue } from './stated-balance-form.component';
 
 describe('StatedBalanceFormComponent', () => {
@@ -106,9 +107,7 @@ describe('StatedBalanceFormComponent', () => {
     fixture.detectChanges();
 
     expect(component.form.controls.date.hasError('dateBeforeStart')).toBe(true);
-    const date = (fixture.nativeElement as HTMLElement).querySelector('input[type="date"]') as HTMLInputElement;
-    expect(date.getAttribute('min')).toBe('2026-03-01');
-    expect(date.getAttribute('max')).toBe(component.today);
+    expect(dateInputBounds(fixture.debugElement)).toEqual({ min: '2026-03-01', max: component.today });
   });
 
   it('shows the wallet currency next to the amount', () => {
@@ -178,7 +177,7 @@ describe('StatedBalanceFormComponent', () => {
     expect(component.form.controls.date.valid).toBe(true);
     expect(component.minDate()).toBeNull();
     fixture.detectChanges();
-    expect((root().querySelector('input[type="date"]') as HTMLInputElement).hasAttribute('min')).toBe(false);
+    expect(dateInputBounds(fixture.debugElement).min).toBeNull();
 
     component.form.controls.date.setValue(shiftDate(component.today, 1));
     expect(component.form.controls.date.hasError('dateInFuture')).toBe(true);
@@ -202,7 +201,7 @@ describe('StatedBalanceFormComponent', () => {
     component.submit();
     fixture.detectChanges();
 
-    const error = root().querySelector('input[type="date"]')?.closest('app-field')?.querySelector('.app-field__error');
+    const error = dateTextInput(root()).closest('app-field')?.querySelector('.app-field__error');
     expect(error?.textContent).toContain('начала учёта кошелька (2026-03-01)');
     expect(error?.getAttribute('role')).toBe('alert');
   });
@@ -311,12 +310,8 @@ describe('StatedBalanceFormComponent', () => {
 
   it('submits what the user typed: the chosen wallet, the date and the signed amount', () => {
     const values = emitted();
-    const select = root().querySelector('select') as HTMLSelectElement;
-    select.value = 'wallet-2';
-    select.dispatchEvent(new Event('change'));
-    const date = root().querySelector('input[type="date"]') as HTMLInputElement;
-    date.value = '2026-04-15';
-    date.dispatchEvent(new Event('input'));
+    chooseSelectValue(root(), 'walletId', 'wallet-2', () => fixture.detectChanges());
+    typeDate(dateTextInput(root()), '15.04.2026');
     amountInput().value = '-120.75';
     amountInput().dispatchEvent(new Event('input'));
     fixture.detectChanges();
@@ -332,7 +327,7 @@ describe('StatedBalanceFormComponent', () => {
     fixture.componentRef.setInput('isSubmitting', true);
     fixture.detectChanges();
 
-    for (const control of Array.from(root().querySelectorAll('select, input'))) {
+    for (const control of Array.from(root().querySelectorAll('button[role="combobox"], input'))) {
       expect((control as HTMLInputElement).disabled, control.outerHTML).toBe(true);
     }
     const submit = root().querySelector('button[type="submit"]') as HTMLButtonElement;
@@ -363,7 +358,7 @@ describe('StatedBalanceFormComponent', () => {
     fixture.detectChanges();
 
     expect(component.form.enabled).toBe(true);
-    expect((root().querySelector('select') as HTMLSelectElement).disabled).toBe(false);
+    expect(selectTrigger(root()).disabled).toBe(false);
     expect(amountInput().disabled).toBe(false);
     expect(amountInput().value).toBe('350');
     expect(root().querySelector('p.form-error[role="alert"]')?.textContent).toContain('Запись изменена параллельно.');

@@ -19,10 +19,11 @@ import { DialogComponent } from '@shared/ui/dialog/dialog.component';
 import { EmptyStateComponent } from '@shared/ui/empty-state/empty-state.component';
 import { ErrorStateComponent } from '@shared/ui/error-state/error-state.component';
 import { FieldComponent } from '@shared/ui/field/field.component';
-import { FieldControlDirective } from '@shared/ui/field/field-control.directive';
 import { LoadingStateComponent } from '@shared/ui/loading-state/loading-state.component';
 import { SkeletonComponent } from '@shared/ui/skeleton/skeleton.component';
 import { ToastComponent } from '@shared/ui/toast/toast.component';
+import { SelectComponent } from '@shared/ui/select/select.component';
+import { SelectOptionDirective } from '@shared/ui/select/select-option.directive';
 
 /**
  * UC-16 (transfer between wallets of the same currency), UC-17 (transfers
@@ -35,6 +36,8 @@ import { ToastComponent } from '@shared/ui/toast/toast.component';
   selector: 'app-transfers',
   standalone: true,
   imports: [
+    SelectComponent,
+    SelectOptionDirective,
     ReactiveFormsModule,
     RouterLink,
     TransferFormComponent,
@@ -45,7 +48,6 @@ import { ToastComponent } from '@shared/ui/toast/toast.component';
     EmptyStateComponent,
     ErrorStateComponent,
     FieldComponent,
-    FieldControlDirective,
     LoadingStateComponent,
     SkeletonComponent,
     ToastComponent,

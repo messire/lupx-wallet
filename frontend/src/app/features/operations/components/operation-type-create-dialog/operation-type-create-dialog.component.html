@@ -1,0 +1,29 @@
+<app-dialog [open]="open()" titleText="Новый тип операции" size="sm" (dismissRequested)="onDismissRequested($event)" (closed)="cancel()">
+  @if (open()) {
+    <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+      <app-field label="Название" [required]="true" [error]="nameError()">
+        <input appFieldControl type="text" formControlName="name" placeholder="Например, «Зарплата»" />
+      </app-field>
+
+      <app-field label="Вид поведения" [required]="true" [error]="behaviorKindError()">
+        <app-select formControlName="behaviorKindId" placeholder="— вид поведения —">
+          @for (kind of creatableBehaviorKinds(); track kind.id) {
+            <app-select-option [value]="kind.id" [label]="kind.name" />
+          }
+        </app-select>
+      </app-field>
+      @if (kindsLoadError()) {
+        <app-button variant="ghost" type="button" (click)="loadBehaviorKinds()">Повторить</app-button>
+      }
+
+      @if (error(); as message) {
+        <p class="form-error" role="alert">{{ message }}</p>
+      }
+
+      <div class="form-actions">
+        <app-button type="submit" variant="primary" [loading]="isSubmitting()" loadingText="Сохранение…">Добавить</app-button>
+        <app-button type="button" variant="secondary" [disabled]="isSubmitting()" (click)="cancel()">Отмена</app-button>
+      </div>
+    </form>
+  }
+</app-dialog>

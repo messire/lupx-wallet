@@ -8,6 +8,10 @@ import { OperationTypeOption } from '../../operations.models';
 import { ButtonComponent } from '@shared/ui/button/button.component';
 import { FieldComponent } from '@shared/ui/field/field.component';
 import { FieldControlDirective } from '@shared/ui/field/field-control.directive';
+import { DateInputComponent } from '@shared/ui/date-input/date-input.component';
+import { SelectComponent } from '@shared/ui/select/select.component';
+import { SelectOptionDirective } from '@shared/ui/select/select-option.directive';
+import { CreatedOperationType, OperationTypeCreateDialogComponent } from '../operation-type-create-dialog/operation-type-create-dialog.component';
 
 export interface WalletOption {
   id: string;
@@ -24,6 +28,9 @@ export interface WalletOption {
  * a sign and `adjustmentMode = Delta` is sent. A new balance value is stated with a
  * separate form (`StatedBalanceFormComponent`).
  *
+ * The operation-type dropdown ends with "+ добавить новый" (ADR-0009 §7): a dialog creates
+ * a type and the form selects it at once.
+ *
  * The wallet field is also available in edit mode (UC-13) — changing the
  * operation's wallet moves it to another wallet with both balances
  * recalculated (OperationUpdateRequest.walletId, openapi.yaml).
@@ -31,7 +38,16 @@ export interface WalletOption {
 @Component({
   selector: 'app-operation-form',
   standalone: true,
-  imports: [ReactiveFormsModule, ButtonComponent, FieldComponent, FieldControlDirective],
+  imports: [
+    ReactiveFormsModule,
+    ButtonComponent,
+    FieldComponent,
+    FieldControlDirective,
+    SelectComponent,
+    SelectOptionDirective,
+    DateInputComponent,
+    OperationTypeCreateDialogComponent,
+  ],
   templateUrl: './operation-form.component.html',
   styleUrl: './operation-form.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -49,6 +65,11 @@ export class OperationFormComponent {
 
   readonly save = output<CreateOperationRequest | UpdateOperationRequest>();
   readonly cancel = output<void>();
+  /** A new operation type was created from the "+ добавить новый" row — the caller adds it to `operationTypes`. */
+  readonly operationTypeCreated = output<CreatedOperationType>();
+
+  /** The "+ добавить новый" dialog of the operation-type dropdown is open (ADR-0009 §7). */
+  readonly isCreatingOperationType = signal(false);
 
   readonly isEditMode = computed(() => this.editingOperation() !== null);
   readonly selectedBehaviorKindCode = signal<string | null>(null);
@@ -129,6 +150,15 @@ export class OperationFormComponent {
       ...adjustment,
     };
     this.save.emit(request);
+  }
+
+  /** The new type is selected right away; its behavior kind is taken from the dialog, as the `operationTypes` input updates later. */
+  onOperationTypeCreated(created: CreatedOperationType): void {
+    this.isCreatingOperationType.set(false);
+    this.operationTypeCreated.emit(created);
+    this.form.controls.operationTypeId.setValue(created.operationType.id);
+    this.form.controls.operationTypeId.markAsTouched();
+    this.selectedBehaviorKindCode.set(created.behaviorKindCode || null);
   }
 
   onCancel(): void {

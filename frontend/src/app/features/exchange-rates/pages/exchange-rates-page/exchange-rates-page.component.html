@@ -58,11 +58,8 @@
         </app-button>
       </app-empty-state>
     } @else {
-      <app-empty-state [title]="emptyRates().title" [description]="emptyRates().description">
-        <app-button variant="secondary" [loading]="isRefreshing()" loadingText="Обновление…" (click)="refresh()">
-          Обновить сейчас
-        </app-button>
-      </app-empty-state>
+      <!-- Без кнопки: «Обновить сейчас» уже есть в заголовке страницы (не дублировать действие). -->
+      <app-empty-state [title]="emptyRates().title" [description]="emptyRates().description" />
     }
   } @else {
     <section class="rates-list" aria-labelledby="rates-heading">

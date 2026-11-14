@@ -9,6 +9,9 @@ import { FieldComponent } from '@shared/ui/field/field.component';
 import { FieldControlDirective } from '@shared/ui/field/field-control.directive';
 import { StatedBalanceLookupService } from '../../stated-balance-lookup.service';
 import { WalletOption } from '../operation-form/operation-form.component';
+import { SelectComponent } from '@shared/ui/select/select.component';
+import { SelectOptionDirective } from '@shared/ui/select/select-option.directive';
+import { DateInputComponent } from '@shared/ui/date-input/date-input.component';
 
 /** Value emitted by {@link StatedBalanceFormComponent}: the balance at the end of `date`. */
 export interface StatedBalanceFormValue {
@@ -47,7 +50,7 @@ interface LookupKey {
 @Component({
   selector: 'app-stated-balance-form',
   standalone: true,
-  imports: [ReactiveFormsModule, ButtonComponent, FieldComponent, FieldControlDirective],
+  imports: [SelectComponent, SelectOptionDirective, DateInputComponent, ReactiveFormsModule, ButtonComponent, FieldComponent, FieldControlDirective],
   templateUrl: './stated-balance-form.component.html',
   styleUrl: './stated-balance-form.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

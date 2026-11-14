@@ -1,12 +1,15 @@
 :host {
   display: block;
-  margin-bottom: var(--lw-space-6);
 }
 
 .entity-form {
   display: flex;
   flex-direction: column;
   gap: var(--lw-space-4);
+}
+
+.form-intro {
+  margin: 0;
 }
 
 .form-actions {

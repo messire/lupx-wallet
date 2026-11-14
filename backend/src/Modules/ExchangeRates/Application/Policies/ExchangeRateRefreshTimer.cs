@@ -1,7 +1,7 @@
 namespace LupexWallet.ExchangeRates.Application;
 
 /// <summary>
-/// Pure scheduling logic for the daily auto-refresh (ADR-0001 p.2/3) — extracted from
+/// Pure scheduling logic for the daily auto-refresh (ADR-0004 p.2/3) — extracted from
 /// ExchangeRateRefreshBackgroundService (Infrastructure) to be testable without a real
 /// Task.Delay/BackgroundService (like
 /// BalanceHistory.Infrastructure.BalanceSnapshotSchedulerHostedService.NextRunDelay, also a
@@ -23,7 +23,7 @@ public sealed class ExchangeRateRefreshTimer(DateTimeOffset initialLastRunAt)
 
     /// <summary>
     /// A manual refresh (or a successful/failed scheduled run) resets the daily countdown
-    /// from this moment (ADR-0001 p.3).
+    /// from this moment (ADR-0004 p.3).
     /// </summary>
     public void Reset(DateTimeOffset at) => LastRunAt = at;
 }

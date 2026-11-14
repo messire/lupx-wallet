@@ -16,7 +16,7 @@ public static class ReferenceDataModuleExtensions
     {
         var connectionString = configuration.GetConnectionString("LupexWallet")
             ?? throw new InvalidOperationException(
-                "Не задана строка подключения ConnectionStrings:LupexWallet — требуется всем модулям (ADR-0006: одна база, схема на модуль).");
+                "Не задана строка подключения ConnectionStrings:LupexWallet — требуется всем модулям (ADR-0001: одна база, схема на модуль).");
 
         services.AddScoped<DispatchDomainEventsInterceptor>();
 
@@ -28,12 +28,18 @@ public static class ReferenceDataModuleExtensions
         services.AddScoped<IWalletTypeRepository, WalletTypeRepository>();
         services.AddScoped<IOperationTypeRepository, OperationTypeRepository>();
         services.AddScoped<ICurrencyRepository, CurrencyRepository>();
+        services.AddScoped<IAvailableCurrencyRepository, AvailableCurrencyRepository>();
+        services.AddScoped<CurrencyActivationPolicy>();
         services.AddScoped<IOperationBehaviorKindRepository, OperationBehaviorKindRepository>();
         services.AddScoped<IReferenceDataUnitOfWork, ReferenceDataUnitOfWork>();
         services.AddScoped<IOperationTypeLookup, OperationTypeLookup>();
         services.AddScoped<ICurrencyLookup, CurrencyLookup>();
 
-        // W2.5, случай d: разрешение типа кошелька для CreateWalletCommand/UpdateWalletCommand.
+        // Ports published for other modules (ADR-0001 §2, way c).
+        services.AddScoped<IAvailableCurrencyCatalog, AvailableCurrencyCatalog>();
+        services.AddScoped<ICurrencyActivation, CurrencyActivation>();
+
+        // Wallet type resolution for the Wallets create/update commands.
         services.AddScoped<IWalletTypeLookup, WalletTypeLookup>();
 
         return services;

@@ -5,12 +5,16 @@ using MediatR;
 namespace LupexWallet.Audit.Infrastructure;
 
 /// <summary>
-/// Subscribers to Operations events (ADR-0010). Unlike BalanceHistory.Infrastructure.
+/// Subscribers to Operations events (ADR-0006). Unlike BalanceHistory.Infrastructure.
 /// OperationEventHandlers, this module needs separate TransferCreated/TransferDeleted handlers:
 /// BalanceHistory doesn't need them (both "legs" of a transfer already raise their own
 /// OperationCreated/OperationDeleted), but Audit must create a separate record for the Transfer
 /// itself (UC-25 — "record change history", including transfers), not only for its pair of
 /// operations.
+///
+/// Deletion is soft (ADR-0002): the aggregate is Modified, not Deleted, so the ChangeTracker
+/// diff for Deleted/Restored contains the DeletedAt change (set / cleared) rather than a full
+/// snapshot of the row.
 /// </summary>
 public sealed class OperationCreatedAuditHandler(AuditRecorder recorder) : INotificationHandler<DomainEventNotification<OperationCreated>>
 {
@@ -30,6 +34,37 @@ public sealed class OperationDeletedAuditHandler(AuditRecorder recorder) : INoti
         recorder.RecordFromChangeTrackerAsync(notification.DomainEvent, "Operation", notification.DomainEvent.OperationId.Value, "Deleted", cancellationToken);
 }
 
+public sealed class OperationRestoredAuditHandler(AuditRecorder recorder) : INotificationHandler<DomainEventNotification<OperationRestored>>
+{
+    public Task Handle(DomainEventNotification<OperationRestored> notification, CancellationToken cancellationToken) =>
+        recorder.RecordFromChangeTrackerAsync(notification.DomainEvent, "Operation", notification.DomainEvent.OperationId.Value, "Restored", cancellationToken);
+}
+
+/// <summary>
+/// Balance correction (ADR-0003, §6). Stating or replacing a balance reuses
+/// OperationCreated/OperationUpdated (the diff carries the stated balance and the amount); the
+/// handlers below cover the system-initiated changes. The entity type stays "Operation": a
+/// correction is a row of the same aggregate.
+/// </summary>
+public sealed class CorrectionRecalculatedAuditHandler(AuditRecorder recorder) : INotificationHandler<DomainEventNotification<CorrectionRecalculated>>
+{
+    public Task Handle(DomainEventNotification<CorrectionRecalculated> notification, CancellationToken cancellationToken) =>
+        recorder.RecordFromChangeTrackerAsync(notification.DomainEvent, "Operation", notification.DomainEvent.OperationId.Value, "Recalculated", cancellationToken);
+}
+
+/// <summary>The correction row is physically removed with its wallet, so the diff holds the old values only.</summary>
+public sealed class CorrectionRemovedAuditHandler(AuditRecorder recorder) : INotificationHandler<DomainEventNotification<CorrectionRemoved>>
+{
+    public Task Handle(DomainEventNotification<CorrectionRemoved> notification, CancellationToken cancellationToken) =>
+        recorder.RecordFromChangeTrackerAsync(notification.DomainEvent, "Operation", notification.DomainEvent.OperationId.Value, "Deleted", cancellationToken);
+}
+
+public sealed class CorrectionCurrencyChangedAuditHandler(AuditRecorder recorder) : INotificationHandler<DomainEventNotification<CorrectionCurrencyChanged>>
+{
+    public Task Handle(DomainEventNotification<CorrectionCurrencyChanged> notification, CancellationToken cancellationToken) =>
+        recorder.RecordFromChangeTrackerAsync(notification.DomainEvent, "Operation", notification.DomainEvent.OperationId.Value, "Updated", cancellationToken);
+}
+
 public sealed class TransferCreatedAuditHandler(AuditRecorder recorder) : INotificationHandler<DomainEventNotification<TransferCreated>>
 {
     public Task Handle(DomainEventNotification<TransferCreated> notification, CancellationToken cancellationToken) =>
@@ -40,4 +75,10 @@ public sealed class TransferDeletedAuditHandler(AuditRecorder recorder) : INotif
 {
     public Task Handle(DomainEventNotification<TransferDeleted> notification, CancellationToken cancellationToken) =>
         recorder.RecordFromChangeTrackerAsync(notification.DomainEvent, "Transfer", notification.DomainEvent.TransferId.Value, "Deleted", cancellationToken);
+}
+
+public sealed class TransferRestoredAuditHandler(AuditRecorder recorder) : INotificationHandler<DomainEventNotification<TransferRestored>>
+{
+    public Task Handle(DomainEventNotification<TransferRestored> notification, CancellationToken cancellationToken) =>
+        recorder.RecordFromChangeTrackerAsync(notification.DomainEvent, "Transfer", notification.DomainEvent.TransferId.Value, "Restored", cancellationToken);
 }

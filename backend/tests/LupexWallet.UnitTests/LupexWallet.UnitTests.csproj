@@ -25,9 +25,11 @@
 
     <ProjectReference Include="..\..\src\Modules\Operations\Domain\LupexWallet.Operations.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Operations\Application\LupexWallet.Operations.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Operations\Infrastructure\LupexWallet.Operations.Infrastructure.csproj" />
 
     <ProjectReference Include="..\..\src\Modules\BalanceHistory\Domain\LupexWallet.BalanceHistory.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\BalanceHistory\Application\LupexWallet.BalanceHistory.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\BalanceHistory\Infrastructure\LupexWallet.BalanceHistory.Infrastructure.csproj" />
 
     <ProjectReference Include="..\..\src\Modules\ExchangeRates\Domain\LupexWallet.ExchangeRates.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\ExchangeRates\Application\LupexWallet.ExchangeRates.Application.csproj" />
@@ -38,6 +40,9 @@
     <ProjectReference Include="..\..\src\Modules\Audit\Domain\LupexWallet.Audit.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Audit\Application\LupexWallet.Audit.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Audit\Infrastructure\LupexWallet.Audit.Infrastructure.csproj" />
+
+    <!-- Host owns the module composition (ModuleAssemblies) that the pipeline registration tests mirror. -->
+    <ProjectReference Include="..\..\src\Host\LupexWallet.Api\LupexWallet.Api.csproj" />
   </ItemGroup>
 
 </Project>

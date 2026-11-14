@@ -50,7 +50,7 @@ public sealed class BalanceSnapshot : IHasDomainEvents
 
     /// <summary>
     /// Recalculates the snapshot value (cascading recalculation, ADR-0003, or the scheduled/
-    /// backfill job, ADR-0004) — the caller (BalanceRecalculationService) does not call this
+    /// backfill job, ADR-0003) — the caller (BalanceRecalculationService) does not call this
     /// method when the new value matches the current one, to avoid extra audit entries when
     /// nothing actually changed.
     /// </summary>
@@ -68,6 +68,12 @@ public sealed class BalanceSnapshot : IHasDomainEvents
 
         Raise(new BalanceSnapshotUpdated(WalletId, SnapshotDate, oldBalance, newBalance));
     }
+
+    /// <summary>
+    /// Raises <see cref="BalanceSnapshotDeleted"/> with the balance before removal (ADR-0002, §2).
+    /// The caller removes the snapshot from the repository (wallet deletion, currency change).
+    /// </summary>
+    public void MarkAsDeleted() => Raise(new BalanceSnapshotDeleted(WalletId, SnapshotDate, Balance));
 
     private void Raise(IDomainEvent domainEvent) => _domainEvents.Add(domainEvent);
 

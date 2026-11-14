@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LupexWallet.Wallets.Infrastructure;
 
-/// <summary>Schema "wallets" (schema.md) — a dedicated DbContext per module (ADR-0006).</summary>
+/// <summary>Schema "wallets" (schema.md) — a dedicated DbContext per module (ADR-0001).</summary>
 public sealed class WalletsDbContext(DbContextOptions<WalletsDbContext> options) : DbContext(options)
 {
     public DbSet<Wallet> Wallets => Set<Wallet>();

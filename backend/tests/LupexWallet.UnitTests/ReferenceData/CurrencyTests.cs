@@ -30,17 +30,39 @@ public sealed class CurrencyTests
         var currency = Currency.Create(CurrencyId.New(), " usd ", "Доллар США");
 
         currency.Code.Should().Be("USD");
-        currency.IsActive.Should().BeTrue();
     }
 
     [Fact]
-    public void Deactivate_SetsIsActiveFalse()
+    public void Rename_ChangedName_UpdatesNameAndRaisesCurrencyRenamed()
     {
         var currency = Currency.Create(CurrencyId.New(), "EUR", "Евро");
+        currency.ClearDomainEvents();
 
-        currency.Deactivate();
+        currency.Rename(" Euro ");
 
-        currency.IsActive.Should().BeFalse();
+        currency.Name.Should().Be("Euro");
+        currency.DomainEvents.Should().ContainSingle().Which.Should().BeOfType<CurrencyRenamed>();
+    }
+
+    [Fact]
+    public void Rename_SameName_DoesNotRaiseEvent()
+    {
+        var currency = Currency.Create(CurrencyId.New(), "EUR", "Euro");
+        currency.ClearDomainEvents();
+
+        currency.Rename("Euro");
+
+        currency.DomainEvents.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Rename_BlankName_ThrowsReferenceItemNameRequiredException()
+    {
+        var currency = Currency.Create(CurrencyId.New(), "EUR", "Euro");
+
+        var act = () => currency.Rename(" ");
+
+        act.Should().Throw<ReferenceItemNameRequiredException>();
     }
 
     [Fact]

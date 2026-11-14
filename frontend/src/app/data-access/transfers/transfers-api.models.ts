@@ -12,6 +12,10 @@ export interface Transfer {
   amount: Money;
   transferDate: string;
   createdAt: string;
+  /** Soft-delete flag (ADR-0002): a deleted transfer stays in the list and can be restored. */
+  isDeleted: boolean;
+  /** Soft-delete timestamp (ISO 8601), `null` while the transfer is not deleted. */
+  deletedAt: string | null;
 }
 
 export type TransferPage = CursorPage<Transfer>;

@@ -1,9 +1,20 @@
 namespace LupexWallet.Operations.Domain;
 
-public abstract class OperationsDomainException(string message) : Exception(message);
+public abstract class OperationsDomainException(string message, Exception? innerException = null) : Exception(message, innerException);
 
 public sealed class AdjustmentModeRequiredException()
-    : OperationsDomainException("Для операции с поведением Adjustment обязателен способ ввода (Absolute/Delta) — решено, Q3.");
+    : OperationsDomainException("Для операции с поведением Adjustment обязателен способ ввода корректировки.");
+
+/// <summary>
+/// Setting an absolute balance through an operation is no longer supported; the user states the
+/// balance for a date instead (ADR-0003, §6). Answered with 400.
+/// </summary>
+public sealed class AbsoluteAdjustmentNotSupportedException()
+    : OperationsDomainException("Новое значение баланса задаётся действием „Указать баланс на дату“.");
+
+/// <summary>The adjustmentMode value is not a name of <see cref="AdjustmentMode"/>; answered with 400.</summary>
+public sealed class AdjustmentModeUnknownException()
+    : OperationsDomainException("Неизвестный способ ввода корректировки (adjustmentMode).");
 
 public sealed class AdjustmentModeNotAllowedException()
     : OperationsDomainException("Способ ввода корректировки (adjustmentMode) допустим только для операций с поведением Adjustment.");
@@ -14,52 +25,110 @@ public sealed class OperationAmountMustBePositiveException()
 public sealed class DirectOperationCreationNotAllowedForBehaviorException(string behaviorCode)
     : OperationsDomainException($"Операцию с поведением '{behaviorCode}' нельзя создать напрямую через /operations — используйте соответствующий эндпоинт (например, /transfers для Transfer).");
 
-public sealed class OperationPartOfTransferException(Guid operationId)
-    : OperationsDomainException($"Операция ({operationId}) — часть перевода; редактируется/удаляется только через перевод целиком (раздел 4 требований).");
-
 public sealed class OperationCurrencyImmutableException()
     : OperationsDomainException("Валюта операции неизменяема после создания (совпадает с валютой кошелька на момент создания).");
 
 public sealed class TransferSameWalletException()
-    : OperationsDomainException("Исходный и целевой кошельки перевода должны различаться (раздел 4 требований).");
+    : OperationsDomainException("Исходный и целевой кошельки перевода должны различаться.");
 
 public sealed class TransferCurrencyMismatchException()
-    : OperationsDomainException("Перевод разрешен только между кошельками одной валюты (раздел 4 требований).");
+    : OperationsDomainException("Перевод разрешен только между кошельками одной валюты.");
 
-public sealed class TransferDeletionNotAllowedException(Guid transferId)
-    : OperationsDomainException($"Перевод ({transferId}) уже учтен в истории баланса и не может быть удален.");
+// Soft-delete lifecycle conflicts (ADR-0002, §3) — all map to HTTP 409. The message goes to
+// Problem.detail and is shown to the user as is, so it carries no identifiers.
+
+public sealed class OperationPartOfTransferException(Guid operationId)
+    : OperationsDomainException("Операция входит в перевод: изменяйте, удаляйте и восстанавливайте перевод целиком.")
+{
+    public Guid OperationId { get; } = operationId;
+}
+
+public sealed class OperationAlreadyDeletedException(Guid operationId)
+    : OperationsDomainException("Операция уже удалена.")
+{
+    public Guid OperationId { get; } = operationId;
+}
+
+public sealed class OperationNotDeletedException(Guid operationId)
+    : OperationsDomainException("Операция не удалена — восстанавливать нечего.")
+{
+    public Guid OperationId { get; } = operationId;
+}
+
+/// <summary>A soft-deleted operation cannot be edited or moved until restored.</summary>
+public sealed class OperationIsDeletedException(Guid operationId)
+    : OperationsDomainException("Операция удалена — сначала восстановите её.")
+{
+    public Guid OperationId { get; } = operationId;
+}
 
 /// <summary>
-/// UC-14 (see ADR-0009, case b): an operation can only be deleted if its date is today; an
-/// operation dated strictly before today is considered already reflected in the balance
-/// history (after the 12:00 UTC scheduled recalculation) and cannot be deleted — only edited
-/// (UC-13).
+/// A balance correction is calculated by the system (ADR-0003, §6) and is not soft-deletable
+/// (ADR-0002, §3): editing, moving, deleting and restoring it is rejected with 409.
 /// </summary>
-public sealed class OperationDeletionNotAllowedException(Guid operationId)
-    : OperationsDomainException($"Операция ({operationId}) уже учтена в истории баланса (дата раньше сегодняшней) и не может быть удалена.");
+public sealed class CorrectionNotEditableException(Guid operationId)
+    : OperationsDomainException("Это корректирующая сумма — её рассчитывает система. Чтобы изменить сумму, добавьте недостающую операцию или исправьте существующую; чтобы заменить заявленный баланс, укажите его на ту же дату заново.")
+{
+    public Guid OperationId { get; } = operationId;
+}
+
+public sealed class TransferAlreadyDeletedException(Guid transferId)
+    : OperationsDomainException("Перевод уже удалён.")
+{
+    public Guid TransferId { get; } = transferId;
+}
+
+public sealed class TransferNotDeletedException(Guid transferId)
+    : OperationsDomainException("Перевод не удалён — восстанавливать нечего.")
+{
+    public Guid TransferId { get; } = transferId;
+}
+
+/// <summary>
+/// Internal invariant violation (corrupted data, not a client error): the operations passed to
+/// Transfer.SoftDelete/Restore are not this transfer's legs. Answered with 500; the message is
+/// for logs only.
+/// </summary>
+public sealed class TransferLegMismatchException(Guid transferId)
+    : OperationsDomainException($"Переданные операции не являются «ногами» перевода ({transferId}).");
 
 public sealed class NoActiveOperationTypeForTransferException()
     : OperationsDomainException("Нет ни одного активного типа операции с поведением Transfer — создайте его в справочнике типов операций перед переводом.");
 
 public sealed class OperationTypeReferenceNotFoundException(Guid operationTypeId)
-    : OperationsDomainException($"Тип операции ({operationTypeId}) не найден.");
+    : OperationsDomainException("Тип операции не найден.")
+{
+    public Guid OperationTypeId { get; } = operationTypeId;
+}
 
 public sealed class OperationTypeReferenceInactiveException(Guid operationTypeId)
-    : OperationsDomainException($"Тип операции ({operationTypeId}) деактивирован — нельзя ссылаться на него в новой операции.");
+    : OperationsDomainException("Тип операции деактивирован — нельзя ссылаться на него в новой операции.")
+{
+    public Guid OperationTypeId { get; } = operationTypeId;
+}
 
 public sealed class WalletReferenceNotFoundException(Guid walletId)
-    : OperationsDomainException($"Кошелек ({walletId}) не найден.");
+    : OperationsDomainException("Кошелек не найден.")
+{
+    public Guid WalletId { get; } = walletId;
+}
 
 /// <summary>
 /// Operation/transfer date must be within [Wallet.AccountingStartDate .. today] (UTC) — the
 /// same bounds that already govern balance history materialization (Q13: "balance before
 /// accounting_start_date is zero, snapshots are not materialized"; today is the upper bound
 /// of the daily snapshot, requirements §5). Without this check, an out-of-range operation
-/// would still change Wallet.CurrentBalance (synchronously, ADR-0007) but would not be
+/// would still change Wallet.CurrentBalance (synchronously, ADR-0001) but would not be
 /// correctly reflected in the balance history — a discrepancy found while implementing
-/// BalanceHistory (ADR-0008).
+/// BalanceHistory (ADR-0003).
 /// </summary>
 public sealed class OperationDateOutOfRangeException(DateOnly operationDate, DateOnly accountingStartDate, DateOnly today)
     : OperationsDomainException(
         $"Дата операции ({operationDate:yyyy-MM-dd}) должна быть не раньше даты начала учета кошелька " +
+        $"({accountingStartDate:yyyy-MM-dd}) и не позже сегодняшнего дня ({today:yyyy-MM-dd} UTC).");
+
+/// <summary>Same bounds as <see cref="OperationDateOutOfRangeException"/>, worded for the date of a stated balance.</summary>
+public sealed class StatedBalanceDateOutOfRangeException(DateOnly date, DateOnly accountingStartDate, DateOnly today)
+    : OperationsDomainException(
+        $"Дата баланса ({date:yyyy-MM-dd}) должна быть не раньше даты начала учета кошелька " +
         $"({accountingStartDate:yyyy-MM-dd}) и не позже сегодняшнего дня ({today:yyyy-MM-dd} UTC).");

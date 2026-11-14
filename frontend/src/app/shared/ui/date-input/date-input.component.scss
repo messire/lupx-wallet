@@ -1,0 +1,174 @@
+:host {
+  display: block;
+}
+
+.app-date-input {
+  position: relative;
+}
+
+/* Внешний вид поля — общий `.app-field__input`; справа место под кнопку календаря. */
+.app-date-input__text {
+  padding-right: 48px;
+}
+
+.app-date-input__toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: calc(var(--lw-radius-sm) - 2px);
+  background: transparent;
+  color: var(--lw-text-secondary);
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: background var(--lw-motion-fast) ease-out;
+
+  &:hover:not(:disabled),
+  &[aria-expanded='true'] {
+    background: var(--lw-accent-soft);
+    color: var(--lw-accent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--lw-accent);
+    outline-offset: 1px;
+  }
+
+  &:disabled {
+    color: var(--lw-disabled-text);
+    cursor: not-allowed;
+  }
+}
+
+.app-date-input__panel {
+  --app-panel-max: 420px;
+  width: 296px;
+  padding: var(--lw-space-3);
+}
+
+.app-date-input__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--lw-space-2);
+}
+
+.app-date-input__title {
+  font-size: var(--lw-type-body);
+  font-weight: 500;
+}
+
+.app-date-input__nav,
+.app-date-input__day,
+.app-date-input__link {
+  border: 0;
+  background: transparent;
+  color: var(--lw-text);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--lw-motion-fast) ease-out;
+
+  &:focus-visible {
+    outline: 2px solid var(--lw-accent);
+    outline-offset: 1px;
+  }
+}
+
+.app-date-input__nav {
+  width: 36px;
+  height: 36px;
+  border-radius: calc(var(--lw-radius-sm) - 2px);
+  font-size: 20px;
+  line-height: 1;
+
+  &:hover {
+    background: var(--lw-accent-soft);
+  }
+}
+
+.app-date-input__grid {
+  width: 100%;
+  border-collapse: collapse;
+
+  th {
+    padding: var(--lw-space-1) 0;
+    color: var(--lw-text-muted);
+    font-size: var(--lw-type-badge);
+    font-weight: 500;
+    text-align: center;
+  }
+
+  td {
+    padding: 1px;
+    text-align: center;
+  }
+}
+
+.app-date-input__day {
+  width: 36px;
+  height: 36px;
+  border-radius: calc(var(--lw-radius-sm) - 2px);
+  font-size: var(--lw-type-small);
+  font-variant-numeric: tabular-nums;
+
+  &:hover:not([aria-disabled='true']) {
+    background: var(--lw-accent-soft);
+  }
+
+  &.is-other-month {
+    color: var(--lw-text-muted);
+  }
+
+  /* Сегодня — контур, не только цвет. */
+  &.is-today {
+    box-shadow: inset 0 0 0 1px var(--lw-accent);
+  }
+
+  &.is-selected {
+    background: var(--lw-primary-fill);
+    color: var(--lw-on-accent);
+    font-weight: 600;
+  }
+
+  &[aria-disabled='true'] {
+    color: var(--lw-disabled-text);
+    text-decoration: line-through;
+    cursor: not-allowed;
+  }
+}
+
+.app-date-input__footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--lw-space-2);
+  padding-top: var(--lw-space-2);
+  border-top: 1px solid var(--lw-divider);
+}
+
+.app-date-input__link {
+  padding: var(--lw-space-1) var(--lw-space-2);
+  border-radius: calc(var(--lw-radius-sm) - 2px);
+  color: var(--lw-accent);
+  font-size: var(--lw-type-small);
+  font-weight: 500;
+
+  &:hover:not([aria-disabled='true']) {
+    background: var(--lw-accent-soft);
+  }
+
+  &[aria-disabled='true'] {
+    color: var(--lw-disabled-text);
+    cursor: not-allowed;
+  }
+}
+
+@media (forced-colors: active) {
+  .app-date-input__day.is-selected {
+    outline: 2px solid Highlight;
+  }
+}

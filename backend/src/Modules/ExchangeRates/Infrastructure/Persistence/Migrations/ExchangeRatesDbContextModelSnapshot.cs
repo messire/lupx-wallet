@@ -84,6 +84,39 @@ namespace LupexWallet.ExchangeRates.Infrastructure.Migrations
                             t.HasCheckConstraint("ck_historical_rates_positive", "rate > 0");
                         });
                 });
+
+            modelBuilder.Entity("LupexWallet.ExchangeRates.Domain.HistoricalRateCoverage", b =>
+                {
+                    b.Property<Guid>("FromCurrencyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("from_currency_id");
+
+                    b.Property<Guid>("ToCurrencyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("to_currency_id");
+
+                    b.Property<DateOnly>("CoveredFrom")
+                        .HasColumnType("date")
+                        .HasColumnName("covered_from");
+
+                    b.Property<DateOnly>("CoveredTo")
+                        .HasColumnType("date")
+                        .HasColumnName("covered_to");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("FromCurrencyId", "ToCurrencyId")
+                        .HasName("pk_historical_rate_coverage");
+
+                    b.ToTable("historical_rate_coverage", "exchange_rates", t =>
+                        {
+                            t.HasCheckConstraint("ck_historical_coverage_distinct_currencies", "from_currency_id <> to_currency_id");
+
+                            t.HasCheckConstraint("ck_historical_coverage_range", "covered_from <= covered_to");
+                        });
+                });
 #pragma warning restore 612, 618
         }
     }

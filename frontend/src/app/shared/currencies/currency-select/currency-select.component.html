@@ -1,37 +1,57 @@
 <div class="currency-select">
   <input
+    #inputElement
     type="text"
     role="combobox"
-    [attr.id]="id()"
+    [attr.id]="field?.controlId() ?? null"
     autocomplete="off"
-    [attr.aria-expanded]="isOpen()"
-    [attr.aria-controls]="listboxId"
+    [attr.aria-expanded]="listVisible()"
+    [attr.aria-controls]="listVisible() ? listboxId : null"
+    [attr.aria-label]="ariaLabel()"
+    [attr.aria-describedby]="field?.describedBy() ?? null"
+    [attr.aria-invalid]="field?.invalid() ? 'true' : null"
+    [attr.aria-required]="field?.required() ? 'true' : null"
     [attr.aria-activedescendant]="activeOptionId()"
     aria-autocomplete="list"
     [placeholder]="placeholder()"
     [value]="inputValue()"
     [disabled]="disabled()"
     (focus)="onFocus()"
+    (click)="onClick()"
+    (blur)="onBlur()"
     (input)="onInput($any($event.target).value)"
     (keydown)="onKeydown($event)"
   />
 
-  @if (isOpen()) {
-    <ul class="options" [id]="listboxId" role="listbox">
-      @if (filteredCurrencies().length === 0) {
-        <li class="empty">Ничего не найдено</li>
-      }
+  @if (listVisible()) {
+    <ul
+      class="app-listbox"
+      [id]="listboxId"
+      role="listbox"
+      [attr.aria-label]="ariaLabel() ?? 'Валюты'"
+      [appAnchoredPanel]="inputElement"
+      (mousedown)="$event.preventDefault()"
+    >
       @for (currency of filteredCurrencies(); track currency.code; let i = $index) {
         <li
           [id]="listboxId + '-option-' + i"
           role="option"
+          class="app-listbox__option"
           [attr.aria-selected]="i === highlightedIndex()"
-          [class.highlighted]="i === highlightedIndex()"
+          [class.is-highlighted]="i === highlightedIndex()"
           (mousedown)="selectAt(i)"
         >
           {{ currency.code }} — {{ currency.name }}
         </li>
       }
     </ul>
+  } @else if (emptyMessage(); as message) {
+    <div class="app-listbox__empty" aria-hidden="true" [appAnchoredPanel]="inputElement" (mousedown)="$event.preventDefault()">
+      {{ message }}
+    </div>
   }
+
+  <!-- Always in the DOM so that the text appearing in it is announced (a live region inserted together with its text often is not).
+       Visually hidden: the visible copy is the anchored panel above. -->
+  <p class="visually-hidden empty" aria-live="polite" [hidden]="!emptyMessage()">{{ emptyMessage() }}</p>
 </div>

@@ -1,6 +1,6 @@
 // Pure, framework-agnostic rules for the backend project-reference graph
-// (high-level-architecture.md §2 "правило границы модуля"; ADR-0006 — one
-// bounded context = one module; ADR-0007/ADR-0009 — the documented
+// (high-level-architecture.md §2 "правило границы модуля"; ADR-0001 — one
+// bounded context = one module; ADR-0001 — the documented
 // exceptions that let one module's layer reference another's). No filesystem
 // or .csproj parsing here, so the rules are unit-testable with synthetic
 // examples (see module-rules.test.mjs).
@@ -10,12 +10,12 @@
 //   Domain         -> shared-kernel only. Not even its own module's other
 //                      layers ("Domain не зависит ни от чего").
 //   Application    -> own module's Domain, shared-kernel, ANY module's
-//                      Application (ADR-0007: explicit narrow contracts,
+//                      Application (ADR-0001: explicit narrow contracts,
 //                      e.g. Operations.Application -> Wallets.Application).
 //   Infrastructure -> own module's Application, own module's Domain,
 //                      shared-kernel, building-blocks-infrastructure,
 //                      ANY module's Domain (domain-event handlers) and ANY
-//                      module's Application (ADR-0009: reverse ports, e.g.
+//                      module's Application (ADR-0001: reverse ports, e.g.
 //                      Wallets.Infrastructure -> ReferenceData.Application).
 //   Api            -> own module's Application, shared-kernel. Not even its
 //                      own module's Infrastructure ("Api зависит от
@@ -27,7 +27,7 @@
 
 /**
  * Classifies a project path relative to `backend/src` (forward slashes) using
- * the ADR-0012 §2 module template. Returns null for anything outside the
+ * the ADR-0007 §2 module template. Returns null for anything outside the
  * tracked areas (there should be none under backend/src).
  */
 export function classifyProject(relPath) {
@@ -77,12 +77,12 @@ export function checkProjectEdge(source, target) {
     case 'Application':
       if (target.area === 'shared-kernel') return null;
       if (targetIsOwnModule && target.layer === 'Domain') return null;
-      if (target.area === 'module' && target.layer === 'Application') return null; // ADR-0007: explicit cross-module contract
-      return `${projectLabel(source)} must not reference ${projectLabel(target)} — Application may only depend on its own Domain and on other modules' Application (ADR-0007)`;
+      if (target.area === 'module' && target.layer === 'Application') return null; // ADR-0001: explicit cross-module contract
+      return `${projectLabel(source)} must not reference ${projectLabel(target)} — Application may only depend on its own Domain and on other modules' Application (ADR-0001)`;
     case 'Infrastructure':
       if (target.area === 'shared-kernel' || target.area === 'building-blocks-infrastructure') return null;
       if (targetIsOwnModule && (target.layer === 'Application' || target.layer === 'Domain')) return null;
-      if (target.area === 'module' && (target.layer === 'Domain' || target.layer === 'Application')) return null; // ADR-0009: domain-event handlers / reverse ports
+      if (target.area === 'module' && (target.layer === 'Domain' || target.layer === 'Application')) return null; // ADR-0001: domain-event handlers / reverse ports
       return `${projectLabel(source)} must not reference ${projectLabel(target)} — Infrastructure may depend on Domain/Application of any module, but not another module's Infrastructure or Api`;
     case 'Api':
       if (target.area === 'shared-kernel') return null;
@@ -124,7 +124,7 @@ export function checkPackageReference(project, packageId) {
 }
 
 /** Same cycle-detection algorithm as the frontend checker (kept duplicated,
- * not shared, per ADR-0012 §1: backend and frontend are self-contained). */
+ * not shared, per ADR-0007 §1: backend and frontend are self-contained). */
 export function findCycles(edges) {
   const adjacency = new Map();
   for (const { from, to } of edges) {

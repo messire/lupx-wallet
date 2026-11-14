@@ -1,20 +1,17 @@
 namespace LupexWallet.ReferenceData.Application;
 
 /// <summary>
-/// Inverted read contract (ADR-0009, case c): "is this reference item used by at least one
-/// record" — used by Delete{WalletType|OperationType|Currency}CommandHandler (decided, Q11;
-/// ADR-0002) to compute isUsed. Port declared here, in the consumer's (ReferenceData)
-/// Application layer; implementations live in the data-owning modules' Infrastructure: at
-/// least Wallets.Infrastructure.WalletsReferenceItemUsageProbe (WalletType/Currency,
-/// AddWalletsModule) and Operations.Infrastructure.OperationsReferenceItemUsageProbe
-/// (OperationType/Currency, AddOperationsModule) are expected;
-/// ExchangeRates.Infrastructure.ExchangeRatesReferenceItemUsageProbe (Currency) — see
-/// docs/PROGRESS.md, W1.1/"Known simplification". The consumer injects
-/// IEnumerable&lt;IReferenceItemUsageProbe&gt; and treats isUsed as true if any source
-/// confirms it; an empty implementation list is a DI configuration error (fail-fast), not
-/// "not used" (ADR-0009, "Mandatory condition"). An implementation for which a given kind
-/// is not relevant returns false for it (it is still registered, it just holds no
-/// references of that item kind).
+/// Consumer-owned port (ADR-0001 §2, way d; usage rule — ADR-0002 §4): "is this reference
+/// item used by at least one record". Used by Delete{WalletType|OperationType|Currency}
+/// CommandHandler. Exactly two implementations are expected, one per data owner:
+/// Wallets.Infrastructure.WalletsReferenceItemUsageProbe (WalletType/Currency, archived
+/// wallets included) and Operations.Infrastructure.OperationsReferenceItemUsageProbe
+/// (OperationType/Currency, soft-deleted operations included). Exchange rates do not count as
+/// usage: they are deleted together with the currency (ExchangeRates CurrencyDeletedHandler).
+/// The consumer injects IEnumerable&lt;IReferenceItemUsageProbe&gt; and treats isUsed as true if
+/// any source confirms it; an empty list is a DI configuration error (fail-fast), not "not
+/// used" (ADR-0001 §2, mandatory condition). An implementation for which a kind is not
+/// relevant returns false for it.
 /// </summary>
 public interface IReferenceItemUsageProbe
 {
@@ -31,7 +28,7 @@ public enum ReferenceItemKind
 /// <summary>
 /// Shared aggregation point for port consumers (Delete{WalletType|OperationType|Currency}
 /// CommandHandler) — mirrors Wallets.Application.WalletHistorySourceExtensions.
-/// AnyHasHistoryAsync (ADR-0009), to avoid duplicating the "empty implementation list is a
+/// AnyHasHistoryAsync (ADR-0001), to avoid duplicating the "empty implementation list is a
 /// DI configuration error" check in every handler.
 /// </summary>
 public static class ReferenceItemUsageProbeExtensions
@@ -46,10 +43,11 @@ public static class ReferenceItemUsageProbeExtensions
         if (materializedProbes.Count == 0)
         {
             throw new InvalidOperationException(
-                "Не зарегистрировано ни одной реализации IReferenceItemUsageProbe — ожидались как " +
-                "минимум Wallets.Infrastructure.WalletsReferenceItemUsageProbe (AddWalletsModule) и " +
-                "Operations.Infrastructure.OperationsReferenceItemUsageProbe (AddOperationsModule). " +
-                "Пустой список — ошибка конфигурации DI, не «не используется» (ADR-0009, «Обязательное " +
+                "Не зарегистрировано ни одной реализации IReferenceItemUsageProbe — ожидались ровно две: " +
+                "Wallets.Infrastructure.WalletsReferenceItemUsageProbe (AddWalletsModule) и " +
+                "Operations.Infrastructure.OperationsReferenceItemUsageProbe (AddOperationsModule; " +
+                "удалённые операции считаются, курсы валют — нет). " +
+                "Пустой список — ошибка конфигурации DI, не «не используется» (ADR-0001, «Обязательное " +
                 "условие: пустой список реализаций — ошибка, не «false»»).");
         }
 

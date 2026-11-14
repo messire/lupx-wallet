@@ -2,11 +2,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Application\LupexWallet.Operations.Application.csproj" />
+    <ProjectReference Include="..\..\Wallets\Domain\LupexWallet.Wallets.Domain.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\Infrastructure\LupexWallet.BuildingBlocks.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="EFCore.NamingConventions" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />

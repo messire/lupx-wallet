@@ -1,6 +1,6 @@
 # Только для локальной разработки через docker-compose (см. docker-compose.frontend.yml
 # в корне репозитория) — не используется для production-деплоя, который идёт через
-# Vercel по vercel.json (см. ADR-0013). Исходники монтируются volume'ом поверх образа,
+# Vercel по vercel.json (см. ADR-0008). Исходники монтируются volume'ом поверх образа,
 # поэтому COPY . . здесь нужен только для первого запуска без volume.
 FROM node:22-alpine
 WORKDIR /app

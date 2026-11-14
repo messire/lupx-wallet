@@ -14,7 +14,7 @@ public static class WalletsModuleExtensions
     {
         var connectionString = configuration.GetConnectionString("LupexWallet")
             ?? throw new InvalidOperationException(
-                "Не задана строка подключения ConnectionStrings:LupexWallet — требуется всем модулям (ADR-0006: одна база, схема на модуль).");
+                "Не задана строка подключения ConnectionStrings:LupexWallet — требуется всем модулям (ADR-0001: одна база, схема на модуль).");
 
         // Интерцептор регистрируется в DI и резолвится через (provider, options) — не через
         // services.BuildServiceProvider() (антипаттерн: создаёт отдельный root-провайдер,
@@ -34,7 +34,7 @@ public static class WalletsModuleExtensions
         services.AddScoped<IWalletCurrencySet, WalletCurrencySet>();
         services.AddScoped<IWalletTotalsSource, WalletTotalsSource>();
 
-        // ADR-0009, случай c: одна из реализаций ReferenceData.Application.IReferenceItemUsageProbe.
+        // ADR-0002, §4: одна из реализаций ReferenceData.Application.IReferenceItemUsageProbe.
         services.AddScoped<IReferenceItemUsageProbe, WalletsReferenceItemUsageProbe>();
 
         return services;

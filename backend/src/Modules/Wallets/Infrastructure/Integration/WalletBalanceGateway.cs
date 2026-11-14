@@ -19,7 +19,7 @@ public sealed class WalletBalanceGateway(IWalletRepository repository, IWalletsU
     public async Task ApplyDeltaAsync(WalletId id, Money delta, CancellationToken cancellationToken)
     {
         var wallet = await repository.GetByIdAsync(id, cancellationToken)
-            ?? throw new WalletNotFoundException(id.Value);
+            ?? throw new WalletNotFoundException();
 
         wallet.ApplyBalanceDelta(delta);
         await unitOfWork.SaveChangesAsync(cancellationToken);

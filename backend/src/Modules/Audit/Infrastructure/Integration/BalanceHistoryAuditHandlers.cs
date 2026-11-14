@@ -7,7 +7,7 @@ using MediatR;
 namespace LupexWallet.Audit.Infrastructure;
 
 /// <summary>
-/// Subscribers to BalanceHistory events (ADR-0010) — enriched manually from event fields
+/// Subscribers to BalanceHistory events (ADR-0006) — enriched manually from event fields
 /// instead of via DispatchDomainEventsInterceptor.TakeChanges: BalanceSnapshot is identified by
 /// a composite key (WalletId, SnapshotDate) with no surrogate Id, and SnapshotDate is part of
 /// the primary key, so the default ChangeTracker diff (which excludes key properties) would not
@@ -16,7 +16,7 @@ namespace LupexWallet.Audit.Infrastructure;
 /// explicit field in changes.
 ///
 /// ddd-model.md §6 requires one AuditEntry per recalculated snapshot (not one aggregated record
-/// per cascading recalculation run) — see ADR-0010, audit scope section.
+/// per cascading recalculation run) — see ADR-0006, audit scope section.
 /// </summary>
 public sealed class BalanceSnapshotCreatedAuditHandler(AuditRecorder recorder)
     : INotificationHandler<DomainEventNotification<BalanceSnapshotCreated>>
@@ -51,5 +51,25 @@ public sealed class BalanceSnapshotUpdatedAuditHandler(AuditRecorder recorder)
         ];
 
         return recorder.RecordAsync("BalanceSnapshot", domainEvent.WalletId.Value, "SnapshotUpdated", changes, cancellationToken);
+    }
+}
+
+/// <summary>
+/// One record per deleted snapshot (ADR-0002 §2): raised when a wallet is deleted or its
+/// currency changes and the history is rebuilt.
+/// </summary>
+public sealed class BalanceSnapshotDeletedAuditHandler(AuditRecorder recorder)
+    : INotificationHandler<DomainEventNotification<BalanceSnapshotDeleted>>
+{
+    public Task Handle(DomainEventNotification<BalanceSnapshotDeleted> notification, CancellationToken cancellationToken)
+    {
+        var domainEvent = notification.DomainEvent;
+        IReadOnlyList<AuditFieldChange> changes =
+        [
+            new AuditFieldChange("SnapshotDate", domainEvent.SnapshotDate.ToString("O", CultureInfo.InvariantCulture), null),
+            new AuditFieldChange("Balance", domainEvent.Balance.Amount.ToString(CultureInfo.InvariantCulture), null),
+        ];
+
+        return recorder.RecordAsync("BalanceSnapshot", domainEvent.WalletId.Value, "SnapshotDeleted", changes, cancellationToken);
     }
 }

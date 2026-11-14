@@ -2,6 +2,8 @@ using LupexWallet.BuildingBlocks.Infrastructure;
 using LupexWallet.Operations.Application;
 using LupexWallet.ReferenceData.Application;
 using LupexWallet.Wallets.Application;
+using LupexWallet.Wallets.Domain;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,7 +20,7 @@ public static class OperationsModuleExtensions
     {
         var connectionString = configuration.GetConnectionString("LupexWallet")
             ?? throw new InvalidOperationException(
-                "Не задана строка подключения ConnectionStrings:LupexWallet — требуется всем модулям (ADR-0006: одна база, схема на модуль).");
+                "Не задана строка подключения ConnectionStrings:LupexWallet — требуется всем модулям (ADR-0001: одна база, схема на модуль).");
 
         services.AddScoped<DispatchDomainEventsInterceptor>();
 
@@ -31,12 +33,23 @@ public static class OperationsModuleExtensions
         services.AddScoped<ITransferRepository, TransferRepository>();
         services.AddScoped<IOperationsUnitOfWork, OperationsUnitOfWork>();
         services.AddScoped<IWalletOperationsLookup, WalletOperationsLookup>();
+        services.AddScoped<IWalletCorrectionsReconciler, WalletCorrectionsReconciler>();
 
-        // ADR-0009, случай a: одна из двух реализаций Wallets.Application.IWalletHistorySource.
+        // ADR-0002, §2: единственная реализация Wallets.Application.IWalletHistorySource
+        // (удалённые операции считаются историей).
         services.AddScoped<IWalletHistorySource, OperationsWalletHistorySource>();
 
-        // ADR-0009, случай c: одна из реализаций ReferenceData.Application.IReferenceItemUsageProbe.
+        // ADR-0002, §4: одна из двух реализаций ReferenceData.Application.IReferenceItemUsageProbe
+        // (удалённые операции считаются использованием).
         services.AddScoped<IReferenceItemUsageProbe, OperationsReferenceItemUsageProbe>();
+
+        // ADR-0002, §2: balance corrections are removed with the wallet and follow its currency.
+        // Registered manually: MediatR scans only *.Application assemblies in Program.cs.
+        services.AddScoped<INotificationHandler<DomainEventNotification<WalletDeleted>>, WalletDeletedHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<WalletCurrencyChanged>>, WalletCurrencyChangedHandler>();
+
+        // ADR-0003, §6: startup reconciliation of the balance corrections.
+        services.AddHostedService<StatedBalanceReconciliationHostedService>();
 
         return services;
     }

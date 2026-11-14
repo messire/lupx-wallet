@@ -3,24 +3,33 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, injec
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { amountValidator } from '@shared/money/money';
 import { fieldError } from '@shared/forms/field-error';
-import { AdjustmentMode, CreateOperationRequest, Operation, UpdateOperationRequest } from '../../../../data-access/operations/operations-api.models';
+import { CreateOperationRequest, Operation, UpdateOperationRequest } from '../../../../data-access/operations/operations-api.models';
 import { OperationTypeOption } from '../../operations.models';
 import { ButtonComponent } from '@shared/ui/button/button.component';
-import { CardComponent } from '@shared/ui/card/card.component';
 import { FieldComponent } from '@shared/ui/field/field.component';
 import { FieldControlDirective } from '@shared/ui/field/field-control.directive';
-import { RadioGroupComponent } from '@shared/ui/radio/radio-group.component';
-import { RadioOptionComponent } from '@shared/ui/radio/radio-option.component';
+import { DateInputComponent } from '@shared/ui/date-input/date-input.component';
+import { SelectComponent } from '@shared/ui/select/select.component';
+import { SelectOptionDirective } from '@shared/ui/select/select-option.directive';
+import { CreatedOperationType, OperationTypeCreateDialogComponent } from '../operation-type-create-dialog/operation-type-create-dialog.component';
 
 export interface WalletOption {
   id: string;
   name: string;
+  currencyCode: string;
+  /** Start of the wallet accounting (yyyy-MM-dd); the lower bound of a stated-balance date. */
+  accountingStartDate?: string;
 }
 
 /**
  * Operation create/edit form (UC-11 income, UC-12 expense, UC-13 edit, UC-24
- * adjustment). The adjustment mode (Absolute/Delta, Q3) is shown only when the
- * selected operation type has behaviorKind = Adjustment.
+ * adjustment). An adjustment (selected operation type has behaviorKind = Adjustment)
+ * is always a signed change of the balance (ADR-0003 §6): the amount is entered with
+ * a sign and `adjustmentMode = Delta` is sent. A new balance value is stated with a
+ * separate form (`StatedBalanceFormComponent`).
+ *
+ * The operation-type dropdown ends with "+ добавить новый" (ADR-0009 §7): a dialog creates
+ * a type and the form selects it at once.
  *
  * The wallet field is also available in edit mode (UC-13) — changing the
  * operation's wallet moves it to another wallet with both balances
@@ -32,11 +41,12 @@ export interface WalletOption {
   imports: [
     ReactiveFormsModule,
     ButtonComponent,
-    CardComponent,
     FieldComponent,
     FieldControlDirective,
-    RadioGroupComponent,
-    RadioOptionComponent,
+    SelectComponent,
+    SelectOptionDirective,
+    DateInputComponent,
+    OperationTypeCreateDialogComponent,
   ],
   templateUrl: './operation-form.component.html',
   styleUrl: './operation-form.component.scss',
@@ -55,17 +65,27 @@ export class OperationFormComponent {
 
   readonly save = output<CreateOperationRequest | UpdateOperationRequest>();
   readonly cancel = output<void>();
+  /** A new operation type was created from the "+ добавить новый" row — the caller adds it to `operationTypes`. */
+  readonly operationTypeCreated = output<CreatedOperationType>();
+
+  /** The "+ добавить новый" dialog of the operation-type dropdown is open (ADR-0009 §7). */
+  readonly isCreatingOperationType = signal(false);
 
   readonly isEditMode = computed(() => this.editingOperation() !== null);
   readonly selectedBehaviorKindCode = signal<string | null>(null);
   readonly isAdjustment = computed(() => this.selectedBehaviorKindCode() === 'Adjustment');
+
+  /** ui-kit §5 "Поля, select, checkbox, radio": сумма и валюта показаны рядом. */
+  readonly selectedWalletId = signal<string | null>(null);
+  readonly selectedWalletCurrencyCode = computed(
+    () => this.wallets().find((wallet) => wallet.id === this.selectedWalletId())?.currencyCode ?? '',
+  );
 
   readonly form = this.formBuilder.nonNullable.group({
     walletId: ['', Validators.required],
     operationTypeId: ['', Validators.required],
     amount: ['', [Validators.required, amountValidator]],
     operationDate: [this.today(), Validators.required],
-    adjustmentMode: ['Delta' as AdjustmentMode],
   });
 
   constructor() {
@@ -73,17 +93,31 @@ export class OperationFormComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((typeId) => this.updateSelectedBehaviorKind(typeId));
 
+    this.form.controls.walletId.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((walletId) => this.selectedWalletId.set(walletId || null));
+
     effect(() => {
       const operation = this.editingOperation();
       if (operation) {
         this.form.patchValue({
           walletId: operation.walletId,
-          operationTypeId: operation.operationTypeId,
+          operationTypeId: operation.operationTypeId ?? '',
           amount: operation.amount.amount,
           operationDate: operation.operationDate,
-          adjustmentMode: operation.adjustmentMode ?? 'Delta',
         });
         this.updateSelectedBehaviorKind(operation.operationTypeId);
+        this.selectedWalletId.set(operation.walletId);
+      }
+    });
+
+    // screen-spec.md "Операции": ожидание блокирует поля, не только повторную
+    // отправку (submit() guard above already blocks that part).
+    effect(() => {
+      if (this.isSubmitting()) {
+        this.form.disable({ emitEvent: false });
+      } else {
+        this.form.enable({ emitEvent: false });
       }
     });
   }
@@ -94,7 +128,7 @@ export class OperationFormComponent {
     }
 
     const value = this.form.getRawValue();
-    const adjustment = this.isAdjustment() ? { adjustmentMode: value.adjustmentMode } : {};
+    const adjustment = this.isAdjustment() ? { adjustmentMode: 'Delta' as const } : {};
 
     if (this.isEditMode()) {
       const request: UpdateOperationRequest = {
@@ -116,6 +150,15 @@ export class OperationFormComponent {
       ...adjustment,
     };
     this.save.emit(request);
+  }
+
+  /** The new type is selected right away; its behavior kind is taken from the dialog, as the `operationTypes` input updates later. */
+  onOperationTypeCreated(created: CreatedOperationType): void {
+    this.isCreatingOperationType.set(false);
+    this.operationTypeCreated.emit(created);
+    this.form.controls.operationTypeId.setValue(created.operationType.id);
+    this.form.controls.operationTypeId.markAsTouched();
+    this.selectedBehaviorKindCode.set(created.behaviorKindCode || null);
   }
 
   onCancel(): void {
@@ -140,6 +183,18 @@ export class OperationFormComponent {
       amount: 'Сумма — число с точкой в качестве разделителя (например, 1234.56)',
     });
   }
+
+  /**
+   * Hint under the amount of an adjustment (the label is "Изменение на сумму (+/−)"): the sign carries the direction
+   * of the change, and the way to state the actual balance for a date is the separate "Указать баланс" action
+   * (ADR-0003 §6, p.9; the hint is plain text, as a link would have to close this dialog and open the other one).
+   */
+  readonly amountHint = computed(() =>
+    this.isAdjustment()
+      ? 'Изменение на сумму: плюс увеличивает баланс, минус уменьшает. ' +
+        'Чтобы задать фактический баланс на дату, используйте «Указать баланс»'
+      : null,
+  );
 
   private updateSelectedBehaviorKind(typeId: string | null): void {
     const type = this.operationTypes().find((candidate) => candidate.id === typeId);

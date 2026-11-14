@@ -136,7 +136,7 @@ deleteDialog.addEventListener('close', () => {
   document.querySelector('#operations-feedback').focus();
 });
 function openUnavailableSection(name) { actionsDialog.close(); document.querySelector('#screen-note-title').textContent = name; document.querySelector('#screen-note').showModal(); }
-document.querySelector('#transfer-row').addEventListener('click', () => openUnavailableSection('Переводы'));
+document.querySelector('#transfer-row').addEventListener('click', () => { location.href = 'transfers.html'; });
 document.querySelector('#audit-row').addEventListener('click', () => openUnavailableSection('История изменений'));
 
 function updateAdjustment() {

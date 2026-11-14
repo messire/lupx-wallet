@@ -3,8 +3,8 @@ using LupexWallet.SharedKernel;
 namespace LupexWallet.Wallets.Application;
 
 /// <summary>
-/// Read-only contract published by Wallets for BalanceHistory (ADR-0008) — enumerates all
-/// wallets that need daily balance snapshots (scheduled job and gap backfill, ADR-0004).
+/// Read-only contract published by Wallets for BalanceHistory (ADR-0003) — enumerates all
+/// wallets that need daily balance snapshots (scheduled job and gap backfill, ADR-0003).
 /// Archived wallets are included — archiving does not remove balance history (ADR-0002).
 /// </summary>
 public interface IWalletDirectory

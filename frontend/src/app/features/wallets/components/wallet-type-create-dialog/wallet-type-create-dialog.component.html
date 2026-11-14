@@ -1,0 +1,18 @@
+<app-dialog [open]="open()" titleText="Новый тип кошелька" size="sm" (dismissRequested)="onDismissRequested($event)" (closed)="cancel()">
+  @if (open()) {
+    <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+      <app-field label="Название" [required]="true" [error]="nameError()">
+        <input appFieldControl type="text" formControlName="name" placeholder="Например, «Кредитная карта»" />
+      </app-field>
+
+      @if (error(); as message) {
+        <p class="form-error" role="alert">{{ message }}</p>
+      }
+
+      <div class="form-actions">
+        <app-button type="submit" variant="primary" [loading]="isSubmitting()" loadingText="Сохранение…">Добавить</app-button>
+        <app-button type="button" variant="secondary" [disabled]="isSubmitting()" (click)="cancel()">Отмена</app-button>
+      </div>
+    </form>
+  }
+</app-dialog>

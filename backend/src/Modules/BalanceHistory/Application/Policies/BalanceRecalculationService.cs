@@ -8,7 +8,7 @@ namespace LupexWallet.BalanceHistory.Application;
 /// <summary>
 /// The single balance snapshot recalculation mechanism (ddd-model.md, §2.6:
 /// "BalanceRecalculationService"), shared by three triggers that must all use the same
-/// balance-on-date algorithm (ADR-0003, ADR-0004):
+/// balance-on-date algorithm (ADR-0003):
 /// 1. Cascading recalculation on a retroactive operation/transfer change (Operations domain
 ///    event handlers, see OperationEventHandlers) — fromDate = the operation date (the
 ///    earlier of old/new on edit).
@@ -24,6 +24,11 @@ namespace LupexWallet.BalanceHistory.Application;
 /// Expense/Adjustment/Transfer), computed once in Operations.Application
 /// (OperationEffectCalculator) when the operation is created/changed, so it's enough here to
 /// sum the ready-made deltas (IWalletOperationsLookup) without repeating that logic.
+///
+/// Balance corrections (ADR-0003, §6) are ordinary operation rows with their own applied
+/// delta, so the balance on a date includes the correction amounts dated on or before it. On the
+/// date of a stated balance the snapshot therefore equals the stated amount X (the correction
+/// is computed as X minus the balance without it).
 /// </summary>
 public sealed class BalanceRecalculationService(
     IBalanceSnapshotRepository repository,
@@ -41,11 +46,9 @@ public sealed class BalanceRecalculationService(
         var wallet = await walletGateway.GetAsync(walletId, cancellationToken);
         if (wallet is null)
         {
-            // Кошелек не может быть физически удален, если у него есть операции/слепки
-            // (ddd-model.md §5), поэтому это не должно происходить в норме — защитная
-            // проверка на случай гонки с другим процессом, не бросаем исключение, т.к.
-            // вызывающий код (обработчик события/фоновая задача) не должен падать из-за
-            // не относящейся к нему проблемы.
+            // The wallet is already gone (deleted in the same command or by a concurrent one;
+            // its snapshots are removed by WalletDeletedHandler, ADR-0002, §2) — nothing to
+            // recalculate. Not an error: the caller (event handler/background job) must not fail.
             return;
         }
 

@@ -9,19 +9,29 @@ public sealed record CursorPageMeta(string? NextCursor, bool HasMore);
 public sealed record OperationResponse(
     Guid Id,
     Guid WalletId,
-    Guid OperationTypeId,
+    Guid? OperationTypeId,
     MoneyResponse Amount,
     DateOnly OperationDate,
     string? AdjustmentMode,
+    bool IsCorrection,
+    MoneyResponse? StatedBalance,
     Guid? TransferId,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    bool IsDeleted,
+    DateTimeOffset? DeletedAt);
 
 public sealed record OperationCreateRequest(
     Guid WalletId, Guid OperationTypeId, decimal Amount, DateOnly OperationDate, string? AdjustmentMode);
 
 public sealed record OperationUpdateRequest(
     Guid WalletId, Guid OperationTypeId, decimal Amount, DateOnly OperationDate, string? AdjustmentMode);
+
+/// <summary>
+/// Nullable on purpose: "amount" is required by the contract, and a missing field must be answered with 400 instead of
+/// silently stating a zero balance (the default of a non-nullable decimal).
+/// </summary>
+public sealed record StatedBalanceRequest(decimal? Amount);
 
 public sealed record OperationPageResponse(IReadOnlyList<OperationResponse> Data, CursorPageMeta Pagination);
 
@@ -33,7 +43,9 @@ public sealed record TransferResponse(
     Guid TargetOperationId,
     MoneyResponse Amount,
     DateOnly TransferDate,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    bool IsDeleted,
+    DateTimeOffset? DeletedAt);
 
 public sealed record TransferCreateRequest(Guid SourceWalletId, Guid TargetWalletId, decimal Amount, DateOnly TransferDate);
 

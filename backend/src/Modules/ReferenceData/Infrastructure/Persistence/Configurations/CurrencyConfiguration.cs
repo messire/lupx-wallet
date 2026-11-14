@@ -20,11 +20,10 @@ public sealed class CurrencyConfiguration : IEntityTypeConfiguration<Currency>
 
         builder.Property(x => x.Code).HasColumnName("code").HasMaxLength(16).IsRequired();
         builder.Property(x => x.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
-        builder.Property(x => x.IsActive).HasColumnName("is_active").IsRequired();
         builder.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
 
-        // Код уникален глобально (включая неактивные) — schema.md.
+        // Code is unique globally (schema.md).
         builder.HasIndex(x => x.Code).HasDatabaseName("ux_currencies_code").IsUnique();
     }
 }

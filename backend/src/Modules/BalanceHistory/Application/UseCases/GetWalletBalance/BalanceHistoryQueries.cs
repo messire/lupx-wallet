@@ -25,7 +25,7 @@ public sealed class GetWalletBalanceQueryHandler(
         if (request.Date is not { } date)
         {
             // Без параметра date — текущий баланс (docs/api/openapi.yaml), поддерживается
-            // синхронно на каждой операции через IWalletBalanceGateway (ADR-0007), поэтому
+            // синхронно на каждой операции через IWalletBalanceGateway (ADR-0001), поэтому
             // всегда актуален без обращения к материализованным слепкам.
             return new BalanceSnapshotDto(
                 wallet.Id.Value, DateOnly.FromDateTime(DateTime.UtcNow), wallet.CurrentBalance.Amount, wallet.CurrencyId.Value);
@@ -44,7 +44,7 @@ public sealed class GetWalletBalanceQueryHandler(
         }
 
         // Слепок на дату еще не материализован (например, запрошена сегодняшняя дата до
-        // первого прогона плановой/досоздающей задачи, ADR-0004) — считаем по тому же
+        // первого прогона плановой/досоздающей задачи, ADR-0003) — считаем по тому же
         // алгоритму на лету, не сохраняя результат; материализация — забота
         // BalanceRecalculationService и фоновой задачи, а не read-пути.
         var deltas = await operationsLookup.GetDailyDeltasUpToAsync(walletId, date, cancellationToken);

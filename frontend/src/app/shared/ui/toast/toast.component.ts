@@ -4,7 +4,8 @@ export type ToastTone = 'success' | 'info' | 'error';
 
 /**
  * A single toast notification (docs/design/ui-kit.md §5 "Empty, loading, error,
- * feedback"): `role="status"`/`aria-live="polite"`, auto-dismiss for success, not
+ * feedback"): `role="status"`/`aria-live="polite"` (for an error tone —
+ * `role="alert"`/`aria-live="assertive"`), auto-dismiss for success, not
  * for a critical error ("an important error stays until closed/resolved"). This
  * is only the presentational "capsule" for one toast — a queue of multiple
  * toasts, their on-screen positioning, and a global display service are not

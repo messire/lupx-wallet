@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LupexWallet.Operations.Infrastructure;
 
-/// <summary>Schema "operations" (schema.md) — one DbContext per module (ADR-0006).</summary>
+/// <summary>Schema "operations" (schema.md) — one DbContext per module (ADR-0001).</summary>
 public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> options) : DbContext(options)
 {
     public DbSet<Operation> Operations => Set<Operation>();

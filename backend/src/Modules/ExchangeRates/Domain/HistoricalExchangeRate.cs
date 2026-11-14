@@ -4,10 +4,10 @@ namespace LupexWallet.ExchangeRates.Domain;
 
 /// <summary>
 /// Currency pair rate "as of a date" (ddd-model.md, §2.7 — a second identity variant of the
-/// same conceptual ExchangeRateQuote aggregate) — an append-only cache, populated as
-/// Reporting actually requests a historical amount for a specific past date (requirements
-/// §5, docs/database/schema.md: historical_exchange_rates). Identified by the triple
-/// (FromCurrencyId, ToCurrencyId, RateDate) — no surrogate Id.
+/// same conceptual ExchangeRateQuote aggregate): loaded history, ADR-0004 §9. The background
+/// history load fills it for [earliest accounting start date; today] and re-loads the right edge
+/// (a day's rate can be refined after publication), hence <see cref="UpdateRate"/>; reads never
+/// write it (ADR-0004 §8). Identified by (FromCurrencyId, ToCurrencyId, RateDate) — no surrogate Id.
 /// </summary>
 public sealed class HistoricalExchangeRate
 {
@@ -40,5 +40,12 @@ public sealed class HistoricalExchangeRate
             _rate = rate.Rate,
             FetchedAt = fetchedAt,
         };
+    }
+
+    /// <summary>Replaces the rate of an already stored date on a repeated load (ADR-0004, §9).</summary>
+    public void UpdateRate(ExchangeRateValue rate, DateTimeOffset fetchedAt)
+    {
+        _rate = rate.Rate;
+        FetchedAt = fetchedAt;
     }
 }

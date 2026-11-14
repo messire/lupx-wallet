@@ -14,7 +14,7 @@ public sealed class ArchiveWalletCommandHandler(
     public async Task<WalletDto> Handle(ArchiveWalletCommand request, CancellationToken cancellationToken)
     {
         var wallet = await repository.GetByIdAsync(new WalletId(request.Id), cancellationToken)
-            ?? throw new WalletNotFoundException(request.Id);
+            ?? throw new WalletNotFoundException();
 
         wallet.Archive();
 

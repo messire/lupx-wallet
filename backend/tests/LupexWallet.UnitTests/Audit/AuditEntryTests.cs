@@ -50,7 +50,7 @@ public sealed class AuditEntryTests
     }
 
     /// <summary>
-    /// ADR-0010, раздел 3: OccurredAt берется из MonotonicClock (не DateTimeOffset.UtcNow
+    /// ADR-0006, раздел 3: OccurredAt берется из MonotonicClock (не DateTimeOffset.UtcNow
     /// напрямую) — строго возрастает даже при коллизии тиков системных часов, что курсорная
     /// пагинация GET /audit-entries использует как единственное поле курсора без дублей.
     /// </summary>

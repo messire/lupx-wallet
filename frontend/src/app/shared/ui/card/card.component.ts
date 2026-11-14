@@ -2,8 +2,9 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 
 /**
  * Glass surface (docs/design/ui-kit.md §2, §3, §5): a single glass layer
- * (`--lw-glass`, 24 px blur via `--lw-blur`), `--lw-shadow` shadow, a top light
- * edge (`--lw-border-light`), and a `--lw-panel-reflection` reflection.
+ * (`--lw-glass`, 24 px blur via `--lw-blur`), a quiet `--lw-surface-border`
+ * outline, `--lw-shadow` shadow (its own inset top highlight is `--lw-border-light`),
+ * and a `--lw-panel-reflection` reflection.
  * The fallback to an opaque `--lw-surface` under `prefers-reduced-transparency`
  * is already built into the tokens themselves (frontend/src/styles.scss) — the
  * component does not override blur/transparency separately.

@@ -1,10 +1,12 @@
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, signal, viewChild } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { forkJoin } from 'rxjs';
+import { HttpErrorResponse } from '@angular/common/http';
+import { RouterLink } from '@angular/router';
+import { finalize, forkJoin } from 'rxjs';
 import { extractErrorMessage } from '../../../../core/http/problem-details';
-import { ISO_CURRENCIES } from '@shared/currencies/iso-currencies';
+import { CurrencyOption } from '@shared/currencies/currency-option';
 import { CurrencySelectComponent } from '@shared/currencies/currency-select/currency-select.component';
-import { Currency, OperationBehaviorKind, OperationType, ReferenceItem } from '../../../../data-access/reference-data/reference-data-api.models';
+import { AvailableCurrency, Currency, OperationBehaviorKind, OperationType, ReferenceItem } from '../../../../data-access/reference-data/reference-data-api.models';
 import { ReferenceDataApiService } from '../../../../data-access/reference-data/reference-data-api.service';
 import { TabDefinition, TabsComponent } from '@shared/ui/tabs/tabs.component';
 import { ButtonComponent } from '@shared/ui/button/button.component';
@@ -15,13 +17,21 @@ import { EmptyStateComponent } from '@shared/ui/empty-state/empty-state.componen
 import { LoadingStateComponent } from '@shared/ui/loading-state/loading-state.component';
 import { SkeletonComponent } from '@shared/ui/skeleton/skeleton.component';
 import { ErrorStateComponent } from '@shared/ui/error-state/error-state.component';
+import { DialogComponent } from '@shared/ui/dialog/dialog.component';
+import { ToastComponent } from '@shared/ui/toast/toast.component';
+import { SelectComponent } from '@shared/ui/select/select.component';
+import { SelectOptionDirective } from '@shared/ui/select/select-option.directive';
 
 export type ReferenceTab = 'wallet-types' | 'operation-types' | 'currencies';
 
 /**
- * UC-26 (wallet type list), UC-27 (operation type list) + an analogous screen for
- * currencies (ddd-model.md) — a single screen with three tabs: list with an active
- * flag, create, deactivate, delete.
+ * UC-26 (wallet type list), UC-27 (operation type list), UC-28 (currencies) — a
+ * single screen with three tabs. Wallet and operation types: list with an active
+ * flag, create, deactivate, delete. Currencies work differently (ADR-0004 §7): the
+ * list holds only active currencies, a currency is added to it from the list
+ * provided by the exchange-rate service, and removed from it ("Убрать из активных")
+ * — there is no deactivation. The list of available currencies is loaded as its own
+ * stream with its own error state, so its failure never blocks the other tabs.
  *
  * HTTP calls go only through ReferenceDataApiService — the same service used by the
  * quick-add mini-forms on the wallets screen (features/wallets), so logic is not
@@ -31,7 +41,10 @@ export type ReferenceTab = 'wallet-types' | 'operation-types' | 'currencies';
   selector: 'app-reference-data',
   standalone: true,
   imports: [
+    SelectComponent,
+    SelectOptionDirective,
     ReactiveFormsModule,
+    RouterLink,
     CurrencySelectComponent,
     TabsComponent,
     ButtonComponent,
@@ -42,6 +55,8 @@ export type ReferenceTab = 'wallet-types' | 'operation-types' | 'currencies';
     LoadingStateComponent,
     SkeletonComponent,
     ErrorStateComponent,
+    DialogComponent,
+    ToastComponent,
   ],
   templateUrl: './reference-data-page.component.html',
   styleUrl: './reference-data-page.component.scss',
@@ -62,6 +77,9 @@ export class ReferenceDataComponent implements OnInit {
   readonly walletTypes = signal<ReferenceItem[]>([]);
   readonly operationTypes = signal<OperationType[]>([]);
   readonly currencies = signal<Currency[]>([]);
+  readonly availableCurrencies = signal<AvailableCurrency[]>([]);
+  readonly availableCurrenciesLoading = signal(false);
+  readonly availableCurrenciesError = signal<string | null>(null);
   readonly behaviorKinds = signal<OperationBehaviorKind[]>([]);
 
   /**
@@ -70,15 +88,27 @@ export class ReferenceDataComponent implements OnInit {
    */
   readonly creatableBehaviorKinds = computed(() => this.behaviorKinds().filter((kind) => kind.code !== 'Transfer'));
 
-  /** ISO_CURRENCIES minus codes already present in the reference list — avoid offering duplicates. */
-  readonly availableIsoCurrencies = computed(() => {
-    const existingCodes = new Set(this.currencies().map((currency) => currency.code));
-    return ISO_CURRENCIES.filter((currency) => !existingCodes.has(currency.code));
+  /** Available currencies minus the ones already active — nothing to offer twice. */
+  readonly addableCurrencies = computed<CurrencyOption[]>(() => {
+    const activeCodes = new Set(this.currencies().map((currency) => currency.code));
+    return this.availableCurrencies()
+      .filter((currency) => !currency.isActive && !activeCodes.has(currency.code))
+      .map(({ code, name }) => ({ code, name }));
   });
+
+  /** Permanent hint under the "add" field: with nothing left to add the popup alone would be the only place to learn why. */
+  protected readonly allCurrenciesAddedHint = 'Все доступные валюты уже добавлены';
+
+  private readonly tabsComponent = viewChild(TabsComponent);
+
+  /** The currency awaiting confirmation before it is removed from the active ones. */
+  readonly pendingCurrencyRemoval = signal<Currency | null>(null);
 
   readonly isLoading = signal(false);
   readonly loadError = signal<string | null>(null);
   readonly actionError = signal<string | null>(null);
+  /** Brief success confirmation (ui-kit §5 "Empty, loading, error, feedback") — app-toast, auto-dismisses. */
+  readonly successMessage = signal<string | null>(null);
 
   readonly walletTypeForm = this.formBuilder.nonNullable.group({
     name: ['', Validators.required],
@@ -88,7 +118,7 @@ export class ReferenceDataComponent implements OnInit {
     behaviorKindId: ['', Validators.required],
   });
   readonly currencyForm = this.formBuilder.nonNullable.group({
-    isoCode: ['', Validators.required],
+    code: ['', Validators.required],
   });
 
   readonly isSubmittingWalletType = signal(false);
@@ -108,14 +138,15 @@ export class ReferenceDataComponent implements OnInit {
   loadAll(): void {
     this.isLoading.set(true);
     this.loadError.set(null);
+    this.loadAvailableCurrencies();
 
-    // includeInactive: true — unlike the mini-forms on the wallets screen (which only
-    // need active items for selection), this management screen must also show
-    // deactivated items with their active flag.
+    // includeInactive: true for wallet and operation types — unlike the mini-forms on the
+    // wallets screen (which only need active items for selection), this management screen
+    // must also show deactivated items with their active flag. Currencies have no such state.
     forkJoin({
       walletTypes: this.referenceDataService.listWalletTypes({ includeInactive: true, limit: 100 }),
       operationTypes: this.referenceDataService.listOperationTypes({ includeInactive: true, limit: 100 }),
-      currencies: this.referenceDataService.listCurrencies({ includeInactive: true, limit: 100 }),
+      currencies: this.referenceDataService.listCurrencies({ limit: 100 }),
       behaviorKinds: this.referenceDataService.listOperationBehaviorKinds(),
     }).subscribe({
       next: (result) => {
@@ -130,6 +161,27 @@ export class ReferenceDataComponent implements OnInit {
         this.isLoading.set(false);
       },
     });
+  }
+
+  /** Own stream with its own error: a failure here must not hide the wallet/operation type tabs. */
+  loadAvailableCurrencies(): void {
+    this.availableCurrenciesLoading.set(true);
+    this.availableCurrenciesError.set(null);
+
+    this.referenceDataService
+      .listAvailableCurrencies()
+      .pipe(finalize(() => this.availableCurrenciesLoading.set(false)))
+      .subscribe({
+        next: (currencies) => this.availableCurrencies.set(currencies),
+        error: (error: unknown) =>
+          this.availableCurrenciesError.set(extractErrorMessage(error, 'Не удалось загрузить список доступных валют.')),
+      });
+  }
+
+  /** The retry button disappears with the error state, so focus moves to the (focusable) tab panel instead of falling back to the body. */
+  retryAvailableCurrencies(): void {
+    this.loadAvailableCurrencies();
+    this.focusElement(this.tabsComponent()?.panelElementId('currencies'));
   }
 
   behaviorKindName(id: string): string {
@@ -218,42 +270,67 @@ export class ReferenceDataComponent implements OnInit {
       return;
     }
 
-    const isoCurrency = ISO_CURRENCIES.find((currency) => currency.code === this.currencyForm.getRawValue().isoCode);
-    if (!isoCurrency) {
-      return;
-    }
-
     this.actionError.set(null);
     this.isSubmittingCurrency.set(true);
 
-    this.referenceDataService.createCurrency(isoCurrency.code, isoCurrency.name).subscribe({
+    this.referenceDataService.createCurrency(this.currencyForm.getRawValue().code).subscribe({
       next: () => {
         this.isSubmittingCurrency.set(false);
-        this.currencyForm.reset({ isoCode: '' });
+        this.currencyForm.reset({ code: '' });
+        this.successMessage.set('Валюта добавлена; курсы и история загружаются в фоне');
         this.reloadCurrencies();
       },
       error: (error: unknown) => {
         this.isSubmittingCurrency.set(false);
-        this.actionError.set(extractErrorMessage(error, 'Не удалось создать валюту.'));
+        this.actionError.set(this.currencyCreateError(error));
+        if (error instanceof HttpErrorResponse && error.status === 409) {
+          // Already active (added elsewhere): our lists are stale, and the chosen code must not stay selected invisibly.
+          this.currencyForm.reset({ code: '' });
+          this.reloadCurrencies();
+        }
       },
     });
   }
 
-  deactivateCurrency(item: Currency): void {
+  /** "Убрать из активных" is only offered after a confirmation: the currency's rates are removed with it. */
+  requestCurrencyRemoval(item: Currency): void {
     this.actionError.set(null);
-    this.referenceDataService.deactivateCurrency(item.id).subscribe({
-      next: () => this.reloadCurrencies(),
-      error: (error: unknown) => this.actionError.set(extractErrorMessage(error, 'Не удалось деактивировать валюту.')),
+    this.pendingCurrencyRemoval.set(item);
+  }
+
+  cancelCurrencyRemoval(): void {
+    this.pendingCurrencyRemoval.set(null);
+  }
+
+  confirmCurrencyRemoval(): void {
+    const item = this.pendingCurrencyRemoval();
+    if (!item) {
+      return;
+    }
+    this.pendingCurrencyRemoval.set(null);
+
+    this.referenceDataService.deleteCurrency(item.id).subscribe({
+      // The clicked "Убрать из активных" button is removed together with its row, so focus goes to the tab.
+      next: () => this.reloadCurrencies(true),
+      error: (error: unknown) => this.actionError.set(this.currencyRemovalError(error)),
     });
   }
 
-  deleteCurrency(item: Currency): void {
-    this.actionError.set(null);
-    this.referenceDataService.deleteCurrency(item.id).subscribe({
-      next: () => this.reloadCurrencies(),
-      error: (error: unknown) =>
-        this.actionError.set(extractErrorMessage(error, 'Не удалось удалить валюту: возможно, она уже используется.')),
-    });
+  private currencyCreateError(error: unknown): string {
+    if (error instanceof HttpErrorResponse && error.status === 400) {
+      return extractErrorMessage(error, 'Валюта недоступна: её нет в списке сервиса курсов.');
+    }
+    if (error instanceof HttpErrorResponse && error.status === 409) {
+      return extractErrorMessage(error, 'Валюта уже добавлена в активные.');
+    }
+    return extractErrorMessage(error, 'Не удалось добавить валюту.');
+  }
+
+  private currencyRemovalError(error: unknown): string {
+    if (error instanceof HttpErrorResponse && error.status === 409) {
+      return extractErrorMessage(error, 'Валюта используется кошельком или операцией (включая удалённые).');
+    }
+    return extractErrorMessage(error, 'Не удалось убрать валюту из активных.');
   }
 
   private reloadWalletTypes(): void {
@@ -268,9 +345,27 @@ export class ReferenceDataComponent implements OnInit {
       .subscribe((page) => this.operationTypes.set(page.data));
   }
 
-  private reloadCurrencies(): void {
+  /** Both lists change together: an added/removed currency flips its `isActive` in the available list. Loaded as two independent streams. */
+  private reloadCurrencies(restoreFocusToTab = false): void {
+    this.loadAvailableCurrencies();
     this.referenceDataService
-      .listCurrencies({ includeInactive: true, limit: 100 })
-      .subscribe((page) => this.currencies.set(page.data));
+      .listCurrencies({ limit: 100 })
+      .pipe(
+        finalize(() => {
+          if (restoreFocusToTab) {
+            this.focusElement(this.tabsComponent()?.tabElementId('currencies'));
+          }
+        }),
+      )
+      .subscribe({
+        next: (page) => this.currencies.set(page.data),
+        error: (error: unknown) => this.actionError.set(extractErrorMessage(error, 'Не удалось обновить список валют.')),
+      });
+  }
+
+  private focusElement(id: string | undefined): void {
+    if (id) {
+      document.getElementById(id)?.focus();
+    }
   }
 }

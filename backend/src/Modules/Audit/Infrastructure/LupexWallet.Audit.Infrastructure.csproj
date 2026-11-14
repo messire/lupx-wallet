@@ -3,7 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Application\LupexWallet.Audit.Application.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\Infrastructure\LupexWallet.BuildingBlocks.Infrastructure.csproj" />
-    <!-- ADR-0010: подписчики на доменные события всех модулей-издателей — ссылки только на
+    <!-- ADR-0006: подписчики на доменные события всех модулей-издателей — ссылки только на
          *.Domain (типы событий), не на *.Infrastructure/*.Application других модулей. -->
     <ProjectReference Include="..\..\Wallets\Domain\LupexWallet.Wallets.Domain.csproj" />
     <ProjectReference Include="..\..\ReferenceData\Domain\LupexWallet.ReferenceData.Domain.csproj" />

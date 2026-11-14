@@ -10,7 +10,7 @@ using Xunit;
 namespace LupexWallet.UnitTests.BalanceHistory;
 
 /// <summary>
-/// BalanceRecalculationService (ddd-model.md, §2.6; ADR-0003/ADR-0004) — единый алгоритм
+/// BalanceRecalculationService (ddd-model.md, §2.6; ADR-0003) — единый алгоритм
 /// каскадного пересчета: InitialBalance + сумма AppliedDelta операций до каждой даты,
 /// диапазон [max(fromDate, AccountingStartDate) .. сегодня], сериализация через advisory lock.
 /// </summary>

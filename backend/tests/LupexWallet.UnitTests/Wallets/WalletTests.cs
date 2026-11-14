@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using FluentAssertions;
 using LupexWallet.SharedKernel;
 using LupexWallet.Wallets.Domain;
@@ -171,6 +172,20 @@ public sealed class WalletTests
         wallet.ChangeCurrency(newCurrencyId, hasHistory: false);
 
         wallet.CurrencyId.Should().Be(newCurrencyId);
+        wallet.DomainEvents.OfType<WalletCurrencyChanged>().Should().ContainSingle();
+    }
+
+    [Fact]
+    public void ChangeCurrency_ToSameCurrency_IsNoOpWithoutEvent()
+    {
+        var wallet = CreateWallet();
+        var updatedAt = wallet.UpdatedAt;
+        wallet.ClearDomainEvents();
+
+        wallet.ChangeCurrency(wallet.CurrencyId, hasHistory: false);
+
+        wallet.DomainEvents.Should().BeEmpty("no rebuild of snapshots and no audit records for an unchanged currency");
+        wallet.UpdatedAt.Should().Be(updatedAt);
     }
 
     [Fact]
@@ -180,7 +195,25 @@ public sealed class WalletTests
 
         var act = () => wallet.EnsureCanBeDeleted(hasHistory: true);
 
-        act.Should().Throw<WalletDeletionNotAllowedException>();
+        act.Should().Throw<WalletDeletionNotAllowedException>()
+            .WithMessage("*операции (включая удалённые)*архивирование*");
+    }
+
+    [Fact]
+    public void DomainExceptionMessages_DoNotExposeIdentifiers()
+    {
+        var wallet = CreateWallet(isFirstWallet: true);
+
+        var messages = new[]
+        {
+            Record.Exception(() => wallet.Archive())!.Message,
+            Record.Exception(() => wallet.EnsureCanBeDeleted(hasHistory: false))!.Message,
+            Record.Exception(() => wallet.ChangeCurrency(new CurrencyId(Guid.NewGuid()), hasHistory: true))!.Message,
+            new WalletNotFoundException().Message,
+            new CurrencyReferenceNotFoundException().Message,
+        };
+
+        messages.Should().OnlyContain(m => !Regex.IsMatch(m, "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-"));
     }
 
     [Fact]

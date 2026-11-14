@@ -5,7 +5,7 @@ namespace LupexWallet.Wallets.Application;
 /// <summary>
 /// Read-only contract published by Wallets for Reporting (Total Amount, UC-19/UC-21).
 /// Top-down direction — Reporting.Application references Wallets.Application directly
-/// (Reporting is the topmost module, no cycles), so this is not an ADR-0009 case (port
+/// (Reporting is the topmost module, no cycles), so this is the owner-declared port of ADR-0001, §2, way c (port
 /// owned by the data owner, not the consumer).
 /// </summary>
 public interface IWalletTotalsSource

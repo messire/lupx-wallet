@@ -76,7 +76,7 @@ public sealed class DeleteOperationTypeCommandHandler(
         var operationType = await repository.GetByIdAsync(new OperationTypeId(request.Id), cancellationToken)
             ?? throw new KeyNotFoundException($"OperationType {request.Id} не найден.");
 
-        // ADR-0009, случай c: реальная проверка использования через реализации Operations.
+        // ADR-0002, §4: реальная проверка использования через реализации Operations.
         var isUsed = await usageProbes.AnyIsUsedAsync(ReferenceItemKind.OperationType, request.Id, cancellationToken);
         operationType.EnsureCanBeDeleted(isUsed);
 

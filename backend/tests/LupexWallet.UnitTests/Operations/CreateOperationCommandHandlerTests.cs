@@ -11,7 +11,7 @@ namespace LupexWallet.UnitTests.Operations;
 
 /// <summary>
 /// CreateOperationCommandHandler — оркестрация лукапов (ReferenceData/Wallets) и применение
-/// дельты к балансу (ADR-0007) через моки портов. Регресс: попытка создать операцию с
+/// дельты к балансу (ADR-0001) через моки портов. Регресс: попытка создать операцию с
 /// behaviorKind=Transfer напрямую должна давать доменное исключение (400/409), а не 500
 /// (docs/PROGRESS.md, "Баги, найденные и исправленные").
 /// </summary>
@@ -23,9 +23,10 @@ public sealed class CreateOperationCommandHandlerTests
     private readonly IOperationsUnitOfWork _unitOfWork = Substitute.For<IOperationsUnitOfWork>();
     private readonly IOperationTypeLookup _operationTypeLookup = Substitute.For<IOperationTypeLookup>();
     private readonly IWalletBalanceGateway _walletBalanceGateway = Substitute.For<IWalletBalanceGateway>();
+    private readonly IWalletCorrectionsReconciler _correctionsReconciler = Substitute.For<IWalletCorrectionsReconciler>();
 
     private CreateOperationCommandHandler CreateHandler() =>
-        new(_operationRepository, _unitOfWork, _operationTypeLookup, _walletBalanceGateway);
+        new(_operationRepository, _unitOfWork, _operationTypeLookup, _walletBalanceGateway, _correctionsReconciler);
 
     private static WalletBalanceInfo Wallet(decimal currentBalance = 0m, DateOnly? accountingStartDate = null) => new(
         WalletId.New(), WalletCurrency, new Money(0m, WalletCurrency), new Money(currentBalance, WalletCurrency),
@@ -124,21 +125,6 @@ public sealed class CreateOperationCommandHandlerTests
 
         await _walletBalanceGateway.Received(1).ApplyDeltaAsync(
             wallet.Id, Arg.Is<Money>(m => m.Amount == -30m), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Handle_AdjustmentAbsolute_AppliesDeltaComputedFromCurrentBalance()
-    {
-        _operationTypeLookup.GetAsync(Arg.Any<OperationTypeId>(), Arg.Any<CancellationToken>()).Returns(ActiveType("Adjustment"));
-        var wallet = Wallet(currentBalance: 100m);
-        _walletBalanceGateway.GetAsync(Arg.Any<WalletId>(), Arg.Any<CancellationToken>()).Returns(wallet);
-        // Хочет получить баланс 250 при текущем 100 -> дельта 150.
-        var command = new CreateOperationCommand(wallet.Id.Value, Guid.NewGuid(), 250m, DateOnly.FromDateTime(DateTime.UtcNow), AdjustmentMode.Absolute);
-
-        await CreateHandler().Handle(command, CancellationToken.None);
-
-        await _walletBalanceGateway.Received(1).ApplyDeltaAsync(
-            wallet.Id, Arg.Is<Money>(m => m.Amount == 150m), Arg.Any<CancellationToken>());
     }
 
     [Fact]

@@ -46,7 +46,7 @@ public static class WalletsEndpointsExtensions
                     var command = new CreateWalletCommand(
                         request.Name,
                         request.WalletTypeId,
-                        request.CurrencyId,
+                        request.CurrencyCode,
                         request.InitialBalanceAmount,
                         request.AccountingStartDate,
                         request.PurposeDescription,
@@ -159,6 +159,10 @@ public static class WalletsEndpointsExtensions
                 catch (WalletNotFoundException)
                 {
                     return Results.NotFound();
+                }
+                catch (CurrencyReferenceNotFoundException ex)
+                {
+                    return ValidationProblem(ex);
                 }
                 catch (WalletCurrencyChangeNotAllowedException ex)
                 {

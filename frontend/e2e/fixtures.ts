@@ -1,51 +1,509 @@
-import { Page, expect } from '@playwright/test';
+import { test as base, expect, Locator, Page } from '@playwright/test';
 
 /** Dev-only password from backend/README.md / appsettings.Development.json — never used in production. */
 export const DEV_PASSWORD = 'ChangeMe123!';
 
-export async function login(page: Page): Promise<void> {
-  await page.goto('/login');
-  await page.getByLabel('Пароль').fill(DEV_PASSWORD);
-  await page.getByRole('button', { name: 'Войти' }).click();
-  await expect(page).toHaveURL(/\/wallets$/);
+/** Mirrors src/environments/environment.development.ts — the dev server's own API base URL. */
+const API_BASE_URL = 'http://localhost:5086/api/v1';
+
+const CREATED_WALLETS_PROP = '__e2eCreatedWalletIds';
+const TRACKED_CURRENCIES_PROP = '__e2eTrackedCurrencyCodes';
+
+function trackedWalletIds(page: Page): string[] {
+  const store = page as unknown as { [CREATED_WALLETS_PROP]?: string[] };
+  return (store[CREATED_WALLETS_PROP] ??= []);
+}
+
+function trackedCurrencyCodes(page: Page): string[] {
+  const store = page as unknown as { [TRACKED_CURRENCIES_PROP]?: string[] };
+  return (store[TRACKED_CURRENCIES_PROP] ??= []);
+}
+
+/** Result of {@link apiRequest}: HTTP status and the parsed JSON body (`null` when there is none). */
+export interface ApiResult<T = unknown> {
+  status: number;
+  body: T | null;
 }
 
 /**
- * Creates a wallet type and currency via the Wallets create-form quick-add
- * rows if none exist yet, then fills and submits the form. Returns once the
- * new wallet card is visible. `name` should be unique per test to avoid
- * clashing with wallets left over from other scenarios sharing the same DB.
+ * Calls the real API from inside the page with the logged-in user's token — the same way the
+ * teardown and `ensureTransferOperationType` do. Requires a logged-in page (token in localStorage).
  */
-export async function createWallet(page: Page, options: { name: string; initialBalance?: string }): Promise<void> {
+export async function apiRequest<T = unknown>(
+  page: Page,
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  path: string,
+  body?: unknown,
+): Promise<ApiResult<T>> {
+  const token = await page.evaluate(() => localStorage.getItem('lupexwallet.auth.token'));
+  expect(token, 'apiRequest needs a logged-in page').toBeTruthy();
+  return page.evaluate(
+    async ({ apiBaseUrl, token, method, path, body }) => {
+      const response = await fetch(`${apiBaseUrl}${path}`, {
+        method,
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const parsed = await response.json().catch(() => null);
+      return { status: response.status, body: parsed };
+    },
+    { apiBaseUrl: API_BASE_URL, token, method, path, body },
+  ) as Promise<ApiResult<T>>;
+}
+
+interface AvailableCurrencyDto {
+  code: string;
+  name: string;
+  isActive: boolean;
+}
+
+interface ActiveCurrencyDto {
+  id: string;
+  code: string;
+  name: string;
+}
+
+/**
+ * Best-effort teardown for every wallet `createWallet` created during a test
+ * (regardless of pass/fail) — without this, each E2E run leaves its throwaway
+ * wallets in the shared dev database forever, and they accumulate across
+ * sessions (found and manually purged once — see docs/PROGRESS.md 2026-09-16).
+ * `DELETE /wallets/{id}` (UC-04) removes a wallet outright but 409s if it has
+ * operation/snapshot history or is primary; those fall back to `/archive`
+ * (UC-03), which at least drops them out of default wallet lists/dropdowns.
+ * Errors are swallowed — a flaky cleanup call must never fail the test itself.
+ */
+async function cleanupCreatedWallets(page: Page): Promise<void> {
+  const ids = trackedWalletIds(page);
+  if (page.isClosed()) {
+    return;
+  }
+  if (ids.length === 0) {
+    await cleanupTrackedCurrencies(page);
+    return;
+  }
+  const token = await page.evaluate(() => localStorage.getItem('lupexwallet.auth.token')).catch(() => null);
+  if (!token) {
+    return;
+  }
+  for (const id of ids) {
+    await page
+      .evaluate(
+        async ({ apiBaseUrl, id, token }) => {
+          const headers = { Authorization: `Bearer ${token}` };
+          const deleted = await fetch(`${apiBaseUrl}/wallets/${id}`, { method: 'DELETE', headers });
+          if (deleted.status === 409) {
+            await fetch(`${apiBaseUrl}/wallets/${id}/archive`, { method: 'POST', headers });
+          }
+        },
+        { apiBaseUrl: API_BASE_URL, id, token },
+      )
+      .catch(() => {
+        // Best-effort: a page already navigating away, or a wallet another
+        // test already cleaned up, must not fail this test's own result.
+      });
+  }
+  await cleanupTrackedCurrencies(page);
+}
+
+/**
+ * Best-effort removal of currencies a scenario registered with `trackCurrencyForCleanup` — after the
+ * wallets above are gone (a currency used by a wallet or an operation, even an archived/deleted one,
+ * answers 409 and simply stays active). Errors are swallowed for the same reason as above.
+ */
+async function cleanupTrackedCurrencies(page: Page): Promise<void> {
+  const codes = trackedCurrencyCodes(page);
+  for (const code of codes) {
+    await removeCurrencyIfActive(page, code).catch(() => undefined);
+  }
+}
+
+/**
+ * `test`/`expect` for every E2E spec in this suite — import both from here
+ * instead of '@playwright/test' directly. Wraps the built-in `page` fixture
+ * so every wallet created via `createWallet` below is automatically deleted
+ * (or archived, if it gained history) once the test finishes.
+ */
+export const test = base.extend({
+  page: async ({ page }, use) => {
+    await use(page);
+    await cleanupCreatedWallets(page);
+  },
+});
+
+export { expect };
+
+const TOKEN_KEY = 'lupexwallet.auth.token';
+const EXPIRES_AT_KEY = 'lupexwallet.auth.expiresAt';
+
+/** Session of the first UI login in this worker, reused by later tests (see `login`). */
+let cachedSession: { token: string; expiresAt: string } | null = null;
+
+/**
+ * Logs in. The first call in a worker goes through the login form; later calls put the same token into
+ * localStorage, the way the app keeps it after a login. `POST /auth/login` is rate limited to 5 requests a minute
+ * (`RateLimiting.cs`), so a form login in every test made later tests fail with "Неверный пароль" once the suite
+ * ran faster than that. The login form itself keeps its own coverage through the first call.
+ */
+export async function login(page: Page): Promise<void> {
+  await page.goto('/login');
+  const session = cachedSession;
+  if (session && new Date(session.expiresAt).getTime() - Date.now() > 60_000) {
+    await page.evaluate(
+      ({ token, expiresAt, tokenKey, expiresAtKey }) => {
+        localStorage.setItem(tokenKey, token);
+        localStorage.setItem(expiresAtKey, expiresAt);
+      },
+      { ...session, tokenKey: TOKEN_KEY, expiresAtKey: EXPIRES_AT_KEY },
+    );
+    await page.goto('/wallets');
+    await expect(page).toHaveURL(/\/wallets$/);
+    return;
+  }
+
+  await page.getByLabel('Пароль').fill(DEV_PASSWORD);
+  await page.getByRole('button', { name: 'Войти' }).click();
+  await expect(page).toHaveURL(/\/wallets$/);
+  cachedSession = await page.evaluate(
+    ({ tokenKey, expiresAtKey }) => {
+      const token = localStorage.getItem(tokenKey);
+      const expiresAt = localStorage.getItem(expiresAtKey);
+      return token && expiresAt ? { token, expiresAt } : null;
+    },
+    { tokenKey: TOKEN_KEY, expiresAtKey: EXPIRES_AT_KEY },
+  );
+}
+
+/**
+ * Makes sure the currency `code` is in the list of available currencies (ADR-0004 §7), which
+ * is filled only by a rates refresh — a fresh database has none. If it is missing, runs
+ * `POST /exchange-rates/refresh` against the real Frankfurter service (network required) and
+ * checks again. Returns `true` when a refresh was needed, i.e. a page that was opened earlier
+ * holds a stale (empty) list and must be reloaded. Fails with a clear message if the code is
+ * still absent — without network access these e2e scenarios cannot run.
+ */
+export async function ensureAvailableCurrency(page: Page, code: string): Promise<boolean> {
+  const isAvailable = async () => {
+    const { body } = await apiRequest<AvailableCurrencyDto[]>(page, 'GET', '/currencies/available');
+    return (body ?? []).some((currency) => currency.code === code);
+  };
+
+  if (await isAvailable()) {
+    return false;
+  }
+  // 200 or 502 — only the resulting list matters; a 502 means the source is unreachable and fails below.
+  await apiRequest(page, 'POST', '/exchange-rates/refresh');
+  if (!(await isAvailable())) {
+    throw new Error(
+      `Currency ${code} is not in GET /currencies/available even after POST /exchange-rates/refresh — ` +
+        'the e2e suite needs network access to the real Frankfurter service (https://api.frankfurter.dev/v2/).',
+    );
+  }
+  return true;
+}
+
+/** {@link ensureAvailableCurrency} for the page the test is on: reloads it if the list had to be filled meanwhile. */
+export async function ensureAvailableCurrencyOnPage(page: Page, code: string): Promise<void> {
+  if (await ensureAvailableCurrency(page, code)) {
+    await page.reload();
+  }
+}
+
+/**
+ * Makes sure the currency is active (`POST /currencies {code}`; 201 created, 409 already active) —
+ * for scenarios that need an active currency without creating a wallet. Idempotent, not torn down
+ * (see `trackCurrencyForCleanup` for the scenarios that want it removed again).
+ */
+export async function ensureCurrency(page: Page, code: string): Promise<void> {
+  await ensureAvailableCurrency(page, code);
+  const { status } = await apiRequest(page, 'POST', '/currencies', { code });
+  expect([201, 409], `POST /currencies {code: ${code}} answered ${status}`).toContain(status);
+}
+
+/**
+ * Removes the currency from the active ones if it is active (`DELETE /currencies/{id}`).
+ * Returns the response status, or `null` when it was not active. 409 — still used by a wallet or an operation.
+ */
+export async function removeCurrencyIfActive(page: Page, code: string): Promise<number | null> {
+  const { body } = await apiRequest<{ data: ActiveCurrencyDto[] }>(page, 'GET', '/currencies?limit=100');
+  const active = body?.data.find((currency) => currency.code === code);
+  if (!active) {
+    return null;
+  }
+  return (await apiRequest(page, 'DELETE', `/currencies/${active.id}`)).status;
+}
+
+/** Registers a currency to be removed from the active ones when the test finishes (after its wallets are cleaned up). */
+export function trackCurrencyForCleanup(page: Page, code: string): void {
+  trackedCurrencyCodes(page).push(code);
+}
+
+/**
+ * Picks the option labelled `label` in a themed dropdown (`app-select`, ADR-0009 §6): opens it with a click on its
+ * `role="combobox"` trigger and clicks the matching `role="option"` row. `target` is either the trigger itself
+ * (e.g. `page.getByLabel('Кошелек')`) or a scope plus the `formcontrolname` of the field.
+ */
+export async function chooseOption(target: Locator, controlNameOrLabel: string, label?: string): Promise<void> {
+  const trigger = label === undefined ? target : target.locator(`app-select[formcontrolname="${controlNameOrLabel}"]`).getByRole('combobox');
+  const optionLabel = label ?? controlNameOrLabel;
+  await expect(trigger).toBeEnabled();
+  await trigger.click();
+  await trigger.page().getByRole('option', { name: optionLabel, exact: true }).click();
+  await expect(trigger).toHaveText(optionLabel);
+}
+
+/** The text box of a themed date field (`app-date-input`, ADR-0009 §6); `fill()` accepts `YYYY-MM-DD` and `ДД.ММ.ГГГГ`. */
+export function dateField(scope: Page | Locator, controlName: string): Locator {
+  return scope.locator(`app-date-input[formcontrolname="${controlName}"] input`);
+}
+
+/** `YYYY-MM-DD` → `ДД.ММ.ГГГГ`, the way a themed date field shows a date. */
+export function ruDate(isoDate: string): string {
+  const [year, month, day] = isoDate.split('-');
+  return `${day}.${month}.${year}`;
+}
+
+/**
+ * Picks `code` in the wallet form's currency combobox (ADR-0004 §7: the choice comes from the list of
+ * available currencies, there is no quick-add): type the code, choose the matching "CODE — name" option.
+ */
+export async function selectWalletCurrency(page: Page, code: string): Promise<void> {
+  const combobox = page.locator('app-currency-select').getByRole('combobox');
+  await expect(combobox).toBeEnabled();
+  await combobox.click();
+  await combobox.fill(code);
+  await page.getByRole('option', { name: new RegExp(`^${code} —`) }).click();
+  await expect(combobox).toHaveValue(new RegExp(`^${code} —`));
+}
+
+/**
+ * In the open wallet create form: picks the first wallet type, or — on an empty reference list — creates
+ * "E2E тип кошелька" through the dropdown's "+ добавить новый" row and its dialog (ADR-0009 §7), which selects it.
+ */
+export async function pickOrCreateWalletType(page: Page): Promise<void> {
+  const trigger = page.locator('app-select[formcontrolname="walletTypeId"]').getByRole('combobox');
+  // The placeholder says "Загрузка…" until the list has loaded — without waiting for it the option count below
+  // races the request and could create a type that already exists (500 on the unique constraint).
+  await expect(trigger).not.toHaveText('Загрузка…');
+  await trigger.click();
+  // `count()` does not wait: let the panel render (its last row is always "+ добавить новый") before counting,
+  // otherwise an empty count right after the click makes every test try to create the same type again.
+  const createRow = page.getByRole('option', { name: '+ добавить новый' });
+  await expect(createRow).toBeVisible();
+  const options = page.getByRole('option');
+  const first = options.first();
+  if ((await options.count()) <= 1) {
+    await createRow.click();
+    const dialog = page.getByRole('dialog', { name: 'Новый тип кошелька' });
+    await dialog.locator('input[formcontrolname="name"]').fill('E2E тип кошелька');
+    await dialog.getByRole('button', { name: 'Добавить' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(trigger).toHaveText('E2E тип кошелька');
+  } else {
+    await first.click();
+  }
+}
+
+/**
+ * Creates a wallet type via the Wallets create-form "+ добавить новый" row if none exists yet, picks the currency
+ * from the available ones (default EUR — every caller assumes it: transfer/balance-history/exchange-rates
+ * scenarios need same-currency wallets), then fills and submits the form. Returns once the new wallet
+ * card is visible, and returns the created wallet's id (also tracked automatically for teardown by the
+ * `page` fixture above — no extra call needed at test sites). `name` should be unique per test to avoid
+ * clashing with wallets left over from other scenarios sharing the same DB.
+ *
+ * The available list is filled only by a rates refresh, which `ensureAvailableCurrencyOnPage` triggers
+ * against the real Frankfurter service when the code is missing (network required). The server activates
+ * the currency itself when the wallet is created.
+ */
+export async function createWallet(
+  page: Page,
+  options: { name: string; initialBalance?: string; accountingStartDate?: string; currencyCode?: string },
+): Promise<string> {
+  const currencyCode = options.currencyCode ?? 'EUR';
+  await ensureAvailableCurrencyOnPage(page, currencyCode);
+
   await page.getByRole('button', { name: 'Добавить кошелек' }).click();
 
-  const typeSelect = page.locator('select[formcontrolname="walletTypeId"]');
-  if ((await typeSelect.locator('option').count()) <= 1) {
-    await page.getByRole('button', { name: '+ добавить тип' }).click();
-    await page.getByPlaceholder('Название типа').fill('E2E тип кошелька');
-    const typeQuickAdd = page.locator('.quick-add').filter({ has: page.getByPlaceholder('Название типа') });
-    await typeQuickAdd.getByRole('button', { name: 'Добавить' }).click();
-    await expect(typeSelect.locator('option')).not.toHaveCount(1);
-  }
-  await typeSelect.selectOption({ index: 1 });
+  await pickOrCreateWalletType(page);
 
-  const currencySelect = page.locator('select[formcontrolname="currencyId"]');
-  if ((await currencySelect.locator('option').count()) <= 1) {
-    await page.getByRole('button', { name: '+ добавить валюту' }).click();
-    const currencyCombobox = page.getByRole('combobox').last();
-    await currencyCombobox.click();
-    await currencyCombobox.fill('EUR');
-    await page.getByRole('option', { name: /EUR/ }).first().click();
-    await page.locator('.quick-add').getByRole('button', { name: 'Добавить' }).click();
-    await expect(currencySelect.locator('option')).not.toHaveCount(1);
-  }
-  await currencySelect.selectOption({ index: 1 });
+  await selectWalletCurrency(page, currencyCode);
 
   await page.locator('input[formcontrolname="name"]').fill(options.name);
   if (options.initialBalance) {
     await page.locator('input[formcontrolname="initialBalanceAmount"]').fill(options.initialBalance);
   }
 
-  await page.getByRole('button', { name: 'Создать', exact: true }).click();
+  if (options.accountingStartDate) {
+    // Defaults to today; operations/transfers dated before it are rejected, so scenarios that
+    // create a past-dated record (ADR-0002: deletable with any date) need an earlier start date.
+    await dateField(page, 'accountingStartDate').fill(options.accountingStartDate);
+  }
+
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (res) => res.request().method() === 'POST' && new URL(res.url()).pathname === '/api/v1/wallets',
+    ),
+    page.getByRole('button', { name: 'Создать', exact: true }).click(),
+  ]);
   await expect(page.locator('.wallet-card', { hasText: options.name })).toBeVisible();
+
+  const created = (await response.json().catch(() => null)) as { id?: string } | null;
+  if (created?.id) {
+    trackedWalletIds(page).push(created.id);
+  }
+  return created?.id ?? '';
+}
+
+/**
+ * UTC calendar date `daysAgo` days before today, as `YYYY-MM-DD` (the format of `<input type="date">`).
+ * UTC on purpose: the app's forms compute "today" as `new Date().toISOString().slice(0, 10)`.
+ */
+export function isoDateDaysAgo(daysAgo: number): string {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() - daysAgo);
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Creates an operation type via the Reference Data screen if it doesn't already
+ * exist — the Operations form has no quick-add for it (unlike the wallet type
+ * in the wallet form), so tests that need one must seed it here first. Reused
+ * across tests by design (idempotent, checks for an existing row first) — not
+ * torn down, since it doesn't accumulate the way per-test wallets do.
+ */
+export async function ensureOperationType(
+  page: Page,
+  name: string,
+  behaviorKindLabel: 'Доход' | 'Расход' | 'Ручная корректировка',
+): Promise<void> {
+  await page.goto('/reference-data');
+  await page.getByRole('tab', { name: 'Типы операций' }).click();
+
+  const existingRow = page.locator('.ref-table tr', { hasText: name });
+  if (await existingRow.count()) {
+    return;
+  }
+
+  // Reference Data keeps all three tab panels in the DOM; the panel is found by its tab's name, so the lookup waits
+  // for the switch to "Типы операций" instead of catching the previous panel that was still shown.
+  const panel = page.getByRole('tabpanel', { name: 'Типы операций' });
+  await panel.locator('input[formcontrolname="name"]').fill(name);
+  await chooseOption(panel, 'behaviorKindId', behaviorKindLabel);
+  await panel.getByRole('button', { name: 'Добавить', exact: true }).click();
+  await expect(page.locator('.ref-table', { hasText: name })).toBeVisible();
+}
+
+/**
+ * Makes sure an active operation type with behavior "Transfer" exists — creating a transfer
+ * is impossible without one, and a fresh database has none (the Reference Data screen
+ * deliberately cannot create it: Transfer is a system-only behavior kind). Created through
+ * the API instead, like `cleanupCreatedWallets` does for teardown; idempotent, not torn down.
+ * Requires a logged-in page (reads the auth token from localStorage).
+ */
+export async function ensureTransferOperationType(page: Page): Promise<void> {
+  const token = await page.evaluate(() => localStorage.getItem('lupexwallet.auth.token'));
+  expect(token, 'ensureTransferOperationType needs a logged-in page').toBeTruthy();
+
+  const result = await page.evaluate(
+    async ({ apiBaseUrl, token }) => {
+      const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+      const kinds = (await (await fetch(`${apiBaseUrl}/operation-behavior-kinds`, { headers })).json()) as Array<{
+        id: string;
+        code: string;
+      }>;
+      const transferKind = kinds.find((kind) => kind.code === 'Transfer');
+      if (!transferKind) {
+        return 'no-transfer-behavior-kind';
+      }
+      const types = (await (await fetch(`${apiBaseUrl}/operation-types?limit=100`, { headers })).json()) as {
+        data: Array<{ behaviorKindId: string; isActive: boolean }>;
+      };
+      if (types.data.some((type) => type.behaviorKindId === transferKind.id && type.isActive)) {
+        return 'exists';
+      }
+      const created = await fetch(`${apiBaseUrl}/operation-types`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ name: 'E2E перевод', behaviorKindId: transferKind.id }),
+      });
+      return created.ok ? 'created' : `create-failed-${created.status}`;
+    },
+    { apiBaseUrl: API_BASE_URL, token },
+  );
+
+  expect(['exists', 'created']).toContain(result);
+}
+
+/** Opens the Operations screen unless it is already open (a repeated `goto` would drop the list filter). */
+async function ensureOperationsPage(page: Page): Promise<void> {
+  if (new URL(page.url()).pathname !== '/operations') {
+    await page.goto('/operations');
+  }
+}
+
+/**
+ * Narrows the Operations list to one wallet through the filter card, so a scenario sees only its own rows
+ * regardless of what other scenarios left in the shared database. The filter survives the list reloads that
+ * follow `createOperation` / `setStatedBalance` (they stay on the same page without a new `goto`).
+ */
+export async function filterOperationsByWallet(page: Page, walletName: string): Promise<void> {
+  await ensureOperationsPage(page);
+  await chooseOption(page.locator(".filters"), 'walletId', walletName);
+  await page.locator('.filters').getByRole('button', { name: 'Применить' }).click();
+}
+
+/**
+ * Creates an operation of the named type through the "Добавить операцию" dialog, dated `date` (yyyy-MM-dd;
+ * defaults to today). The type must already exist (`ensureOperationType`). Returns once the dialog is closed
+ * and the "Операция создана" toast is shown. Stays on the Operations screen.
+ */
+export async function createOperation(
+  page: Page,
+  options: { walletName: string; typeName: string; amount: string; date?: string },
+): Promise<void> {
+  await ensureOperationsPage(page);
+  await page.locator('.page-heading').getByRole('button', { name: 'Добавить операцию' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Новая операция' });
+  await expect(dialog).toBeVisible();
+  await chooseOption(dialog, 'walletId', options.walletName);
+  await chooseOption(dialog, 'operationTypeId', options.typeName);
+  await dialog.locator('input[formcontrolname="amount"]').fill(options.amount);
+  if (options.date) {
+    await dateField(dialog, 'operationDate').fill(options.date);
+  }
+  await dialog.getByRole('button', { name: 'Создать', exact: true }).click();
+
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText('Операция создана')).toBeVisible();
+}
+
+/**
+ * States the wallet balance at the end of `date` through the "Указать баланс" dialog (ADR-0003 §6) and waits
+ * for the `PUT /wallets/{id}/stated-balances/{date}` response. Returns its status: 201 when the balance was
+ * stated for the first time, 200 when a previous value was replaced. Stays on the Operations screen with the
+ * dialog closed.
+ */
+export async function setStatedBalance(
+  page: Page,
+  options: { walletName: string; date: string; amount: string },
+): Promise<number> {
+  await ensureOperationsPage(page);
+  await page.locator('.page-heading').getByRole('button', { name: 'Указать баланс' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Указать баланс на дату' });
+  await expect(dialog).toBeVisible();
+  await chooseOption(dialog, 'walletId', options.walletName);
+  await dateField(dialog, 'date').fill(options.date);
+  await dialog.locator('input[formcontrolname="amount"]').fill(options.amount);
+
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (res) => res.request().method() === 'PUT' && new URL(res.url()).pathname.includes('/stated-balances/'),
+    ),
+    dialog.getByRole('button', { name: 'Указать баланс', exact: true }).click(),
+  ]);
+  await expect(dialog).toBeHidden();
+  return response.status();
 }

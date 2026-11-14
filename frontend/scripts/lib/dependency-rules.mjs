@@ -1,4 +1,4 @@
-// Pure, framework-agnostic rules for the frontend dependency graph (ADR-0012 §3,
+// Pure, framework-agnostic rules for the frontend dependency graph (ADR-0007 §3,
 // docs/conventions/frontend.md). No filesystem or TypeScript parsing here — this
 // module only classifies already-resolved file paths and evaluates edges, so the
 // rules themselves are unit-testable with synthetic examples
@@ -28,7 +28,7 @@ export function zoneLabel(zone) {
 const ZONES_FORBIDDEN_FROM_DEPENDING_ON_FEATURES = new Set(['core', 'shared', 'data-access']);
 
 /**
- * Evaluates one dependency edge (source imports target) against ADR-0012 §3:
+ * Evaluates one dependency edge (source imports target) against ADR-0007 §3:
  * a feature must not import a different feature directly, and core/shared/
  * data-access must not depend on any feature. Returns a violation message,
  * or null if the edge is allowed.
@@ -38,7 +38,7 @@ export function checkEdge(sourceZone, targetZone) {
     return `feature "${sourceZone.domain}" must not import feature "${targetZone.domain}" directly — use data-access, core, or shared instead`;
   }
   if (ZONES_FORBIDDEN_FROM_DEPENDING_ON_FEATURES.has(sourceZone.kind) && targetZone.kind === 'feature') {
-    return `${zoneLabel(sourceZone)} must not depend on feature "${targetZone.domain}" (ADR-0012 §3: core/shared/data-access must not depend on features)`;
+    return `${zoneLabel(sourceZone)} must not depend on feature "${targetZone.domain}" (ADR-0007 §3: core/shared/data-access must not depend on features)`;
   }
   return null;
 }

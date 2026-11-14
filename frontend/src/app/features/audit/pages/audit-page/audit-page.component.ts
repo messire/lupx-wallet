@@ -13,6 +13,8 @@ import { EmptyStateComponent } from '@shared/ui/empty-state/empty-state.componen
 import { LoadingStateComponent } from '@shared/ui/loading-state/loading-state.component';
 import { SkeletonComponent } from '@shared/ui/skeleton/skeleton.component';
 import { ErrorStateComponent } from '@shared/ui/error-state/error-state.component';
+import { SelectComponent } from '@shared/ui/select/select.component';
+import { SelectOptionDirective } from '@shared/ui/select/select-option.directive';
 
 /**
  * UC-25 — standalone `/audit` screen: pick an entity type + manually enter its
@@ -29,6 +31,8 @@ import { ErrorStateComponent } from '@shared/ui/error-state/error-state.componen
   selector: 'app-audit',
   standalone: true,
   imports: [
+    SelectComponent,
+    SelectOptionDirective,
     ReactiveFormsModule,
     ButtonComponent,
     FieldComponent,

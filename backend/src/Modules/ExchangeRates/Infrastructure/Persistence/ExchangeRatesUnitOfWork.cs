@@ -5,4 +5,6 @@ namespace LupexWallet.ExchangeRates.Infrastructure;
 public sealed class ExchangeRatesUnitOfWork(ExchangeRatesDbContext dbContext) : IExchangeRatesUnitOfWork
 {
     public Task SaveChangesAsync(CancellationToken cancellationToken) => dbContext.SaveChangesAsync(cancellationToken);
+
+    public void ClearChangeTracker() => dbContext.ChangeTracker.Clear();
 }

@@ -2,7 +2,7 @@ namespace LupexWallet.BuildingBlocks.Infrastructure;
 
 /// <summary>
 /// Identifies who is executing the current processing chain — an HTTP user or a background
-/// process (ADR-0010). Lives in BuildingBlocks.Infrastructure rather than
+/// process (ADR-0006). Lives in BuildingBlocks.Infrastructure rather than
 /// Audit.Application/Domain because it is read/written not only by Audit handlers but also
 /// by background services in other modules
 /// (BalanceHistory.Infrastructure.BalanceSnapshotSchedulerHostedService,

@@ -6,9 +6,10 @@ namespace LupexWallet.Wallets.Application;
 
 /// <summary>
 /// UC-04 (docs/api/openapi.yaml: DELETE /wallets/{id}) — hard delete is allowed only if the
-/// wallet has no history (ADR-0009 case a: IWalletHistorySource aggregates the answer from
-/// data owners Operations and BalanceHistory) and it is not primary (Q7, checked by
-/// Wallet.EnsureCanBeDeleted).
+/// wallet has no history and it is not primary (Q7, checked by Wallet.EnsureCanBeDeleted).
+/// History = operations, including soft-deleted ones (ADR-0002, §2; IWalletHistorySource, ADR-0001,
+/// §2, way d). Snapshots are not history: BalanceHistory removes them in response to WalletDeleted,
+/// in the same transaction (WalletDeletedHandler).
 /// </summary>
 public sealed record DeleteWalletCommand(Guid Id) : IRequest, ICommand<Unit>;
 
@@ -20,8 +21,13 @@ public sealed class DeleteWalletCommandHandler(
     public async Task Handle(DeleteWalletCommand request, CancellationToken cancellationToken)
     {
         var walletId = new WalletId(request.Id);
+
+        // The subscribers take this lock in the same transaction; taking it after the wallet row
+        // would invert the order used by Operations commands (lock, then row) and deadlock.
+        await unitOfWork.AcquireWalletLockAsync(walletId, cancellationToken);
+
         var wallet = await repository.GetByIdAsync(walletId, cancellationToken)
-            ?? throw new WalletNotFoundException(request.Id);
+            ?? throw new WalletNotFoundException();
 
         var hasHistory = await historySources.AnyHasHistoryAsync(walletId, cancellationToken);
 

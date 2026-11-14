@@ -2,7 +2,7 @@ namespace LupexWallet.ExchangeRates.Infrastructure;
 
 /// <summary>
 /// The single seam for replacing the real HTTP call to Frankfurter in integration tests
-/// (docs/PROGRESS.md, W1.1 DoD: "no real network call"). In production/development
+/// (no real network call). In production/development
 /// <see cref="TestOverride"/> is always null — the request goes through a plain
 /// SocketsHttpHandler. Registered as a Singleton and used as the primary handler of the
 /// named HttpClient "Frankfurter" (see ExchangeRatesModuleExtensions) — integration tests

@@ -1,4 +1,5 @@
 using System.Text;
+using LupexWallet.Api;
 using LupexWallet.Api.Auth;
 using LupexWallet.Audit.Api;
 using LupexWallet.Audit.Infrastructure;
@@ -75,19 +76,12 @@ builder.Services.AddAuthorization();
 // ---- MediatR + сквозные behaviors (high-level-architecture.md, §4) ----
 builder.Services.AddMediatR(cfg =>
 {
-    cfg.RegisterServicesFromAssemblies(
-        typeof(LupexWallet.Wallets.Application.AssemblyMarker).Assembly,
-        typeof(LupexWallet.ReferenceData.Application.AssemblyMarker).Assembly,
-        typeof(LupexWallet.Operations.Application.AssemblyMarker).Assembly,
-        typeof(LupexWallet.BalanceHistory.Application.AssemblyMarker).Assembly,
-        typeof(LupexWallet.ExchangeRates.Application.AssemblyMarker).Assembly,
-        typeof(LupexWallet.Audit.Application.AssemblyMarker).Assembly,
-        typeof(LupexWallet.Reporting.Application.AssemblyMarker).Assembly);
+    cfg.RegisterServicesFromAssemblies(ModuleAssemblies.Application.ToArray());
 
     cfg.AddOpenBehavior(typeof(TransactionBehavior<,>));
 });
 builder.Services.AddScoped<IDomainEventDispatcher, MediatRDomainEventDispatcher>();
-// ADR-0010: кто выполняет текущую цепочку обработки (User/System) — читают обработчики
+// ADR-0006: кто выполняет текущую цепочку обработки (User/System) — читают обработчики
 // Audit.Infrastructure и фоновые сервисы BalanceHistory/ExchangeRates.
 builder.Services.AddScoped<IAuditActorAccessor, AuditActorAccessor>();
 
@@ -150,7 +144,7 @@ app.UseForwardedHeaders(new ForwardedHeadersOptions
     ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
 });
 
-// ---- Применение EF Core-миграций всех модулей при старте (каждый — своя схема, ADR-0006) ----
+// ---- Применение EF Core-миграций всех модулей при старте (каждый — своя схема, ADR-0001) ----
 // До этого места ни одна миграция не применялась к реальной БД в продакшен-хосте (только в
 // тестах через LupexWalletApiFactory.MigrateAllAsync) — без этого блока приложение падало бы
 // на первом же запросе с "relation ... does not exist".

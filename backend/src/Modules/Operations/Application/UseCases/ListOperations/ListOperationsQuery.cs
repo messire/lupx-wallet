@@ -32,7 +32,7 @@ public sealed class ListOperationsQueryHandler(IOperationRepository repository) 
 
         var items = page.Items.Select(OperationDto.FromDomain).ToList();
         var nextCursor = page.Items.Count > 0
-            ? new OperationCursor(page.Items[^1].OperationDate, page.Items[^1].CreatedAt).Encode()
+            ? new OperationCursor(page.Items[^1].OperationDate, page.Items[^1].CreatedAt, page.Items[^1].IsCorrection).Encode()
             : null;
 
         return new OperationPageDto(items, page.HasMore ? nextCursor : null, page.HasMore);

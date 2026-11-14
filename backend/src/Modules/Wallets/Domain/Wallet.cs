@@ -123,7 +123,7 @@ public sealed class Wallet : AggregateRoot<WalletId>
     {
         if (IsPrimary)
         {
-            throw new CannotArchivePrimaryWalletException(Id.Value);
+            throw new CannotArchivePrimaryWalletException();
         }
 
         IsArchived = true;
@@ -136,7 +136,7 @@ public sealed class Wallet : AggregateRoot<WalletId>
     {
         if (IsArchived)
         {
-            throw new CannotSetArchivedWalletAsPrimaryException(Id.Value);
+            throw new CannotSetArchivedWalletAsPrimaryException();
         }
 
         IsPrimary = true;
@@ -156,7 +156,12 @@ public sealed class Wallet : AggregateRoot<WalletId>
     {
         if (hasHistory)
         {
-            throw new WalletCurrencyChangeNotAllowedException(Id.Value);
+            throw new WalletCurrencyChangeNotAllowedException();
+        }
+
+        if (newCurrencyId == CurrencyId)
+        {
+            return;
         }
 
         var oldCurrencyId = CurrencyId;
@@ -165,7 +170,7 @@ public sealed class Wallet : AggregateRoot<WalletId>
         Raise(new WalletCurrencyChanged(Id, oldCurrencyId, newCurrencyId));
     }
 
-    /// <summary>Applies a signed delta to the current balance; invoked via IWalletBalanceGateway (ADR-0007) from Operations commands.</summary>
+    /// <summary>Applies a signed delta to the current balance; invoked via IWalletBalanceGateway (ADR-0001) from Operations commands.</summary>
     public void ApplyBalanceDelta(Money delta)
     {
         if (delta.CurrencyId != CurrencyId)
@@ -180,7 +185,7 @@ public sealed class Wallet : AggregateRoot<WalletId>
 
     /// <summary>
     /// Validates deletion is allowed. <paramref name="hasHistory"/> is computed by the
-    /// Application layer (ADR-0009, IWalletHistorySource), since the aggregate cannot know
+    /// Application layer (ADR-0001, IWalletHistorySource), since the aggregate cannot know
     /// about other modules' Operation/BalanceSnapshot data; IsPrimary is own state, checked
     /// directly.
     /// </summary>
@@ -188,12 +193,12 @@ public sealed class Wallet : AggregateRoot<WalletId>
     {
         if (IsPrimary)
         {
-            throw new CannotDeletePrimaryWalletException(Id.Value);
+            throw new CannotDeletePrimaryWalletException();
         }
 
         if (hasHistory)
         {
-            throw new WalletDeletionNotAllowedException(Id.Value);
+            throw new WalletDeletionNotAllowedException();
         }
     }
 

@@ -63,7 +63,7 @@ ng test
 npm run check:boundaries
 ```
 
-Checks every import/re-export/dynamic `import()` under `src/app` with the TypeScript compiler API (resolves the `@shared/*` path alias exactly like `tsc`) against ADR-0012 §3 / `docs/conventions/frontend.md`: a feature must not import another feature directly, and `core`/`shared`/`data-access` must not depend on any feature; the graph must also stay free of import cycles. The rule logic itself is unit-tested with synthetic allowed/forbidden examples:
+Checks every import/re-export/dynamic `import()` under `src/app` with the TypeScript compiler API (resolves the `@shared/*` path alias exactly like `tsc`) against ADR-0007 §3 / `docs/conventions/frontend.md`: a feature must not import another feature directly, and `core`/`shared`/`data-access` must not depend on any feature; the graph must also stay free of import cycles. The rule logic itself is unit-tested with synthetic allowed/forbidden examples:
 
 ```bash
 npm run check:boundaries:test
@@ -83,7 +83,7 @@ For more information on using the Angular CLI, including detailed command refere
 
 ## Deploy (Vercel)
 
-Topology and rationale — [ADR-0013](../docs/architecture/adr/0013-deployment-topology.md) (in Russian, per project convention).
+Topology and rationale — [ADR-0008](../docs/architecture/adr/0008-deployment.md) (in Russian, per project convention).
 
 `vercel.json` sets the build command to `npm run build:deploy`, which runs `scripts/write-env.mjs` before `ng build` — that script writes `src/environments/environment.ts` from the `API_BASE_URL` environment variable (set per Vercel environment/branch, pointing at the matching Railway backend). Output directory: `dist/lupex-wallet-web/browser`. Client-side routing is handled by a catch-all rewrite to `index.html`.
 

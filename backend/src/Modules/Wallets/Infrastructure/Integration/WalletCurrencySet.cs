@@ -18,6 +18,10 @@ public sealed class WalletCurrencySet(WalletsDbContext dbContext) : IWalletCurre
             .Distinct()
             .ToListAsync(cancellationToken);
 
-        return new WalletCurrencySetResult(primaryCurrencyId, allCurrencyIds);
+        var earliestStartDate = await dbContext.Wallets
+            .Select(w => (DateOnly?)w.AccountingStartDate)
+            .MinAsync(cancellationToken);
+
+        return new WalletCurrencySetResult(primaryCurrencyId, allCurrencyIds, earliestStartDate);
     }
 }

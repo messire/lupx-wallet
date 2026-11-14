@@ -1,9 +1,14 @@
+:host {
+  display: block;
+}
+
 .currency-select {
   position: relative;
-  display: inline-block;
   width: 100%;
 }
 
+/* Поле — тот же вид, что общий `.app-field__input` (field.component.scss);
+   всплывающий список — общие `.app-anchored-panel`/`.app-listbox` (styles.scss). */
 input {
   display: block;
   width: 100%;
@@ -34,47 +39,13 @@ input {
     outline-offset: 2px;
   }
 
+  &[aria-invalid='true'] {
+    border-color: var(--lw-danger);
+  }
+
   &:disabled {
     background: var(--lw-disabled-bg);
     color: var(--lw-disabled-text);
     cursor: not-allowed;
-  }
-}
-
-.options {
-  position: absolute;
-  z-index: 10;
-  top: calc(100% + var(--lw-space-1));
-  left: 0;
-  right: 0;
-  max-height: 260px;
-  overflow-y: auto;
-  margin: 0;
-  padding: var(--lw-space-1);
-  list-style: none;
-  background: var(--lw-glass-strong);
-  backdrop-filter: blur(var(--lw-blur));
-  border: 1px solid var(--lw-border);
-  border-top-color: var(--lw-border-light);
-  border-radius: var(--lw-radius-sm);
-  box-shadow: var(--lw-shadow);
-
-  li {
-    padding: var(--lw-space-2) var(--lw-space-3);
-    border-radius: var(--lw-radius-sm);
-    color: var(--lw-text);
-    font-size: var(--lw-type-small);
-    cursor: pointer;
-    transition: background var(--lw-motion-fast) ease-out;
-
-    &.highlighted {
-      background: var(--lw-accent-soft);
-      color: var(--lw-accent);
-    }
-
-    &.empty {
-      color: var(--lw-text-muted);
-      cursor: default;
-    }
   }
 }

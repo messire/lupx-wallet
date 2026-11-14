@@ -10,7 +10,7 @@ namespace LupexWallet.UnitTests.Operations;
 
 /// <summary>
 /// DeleteTransferCommandHandler — атомарное удаление перевода: реверс дельт обоих кошельков
-/// и удаление обеих операций вместе с Transfer (ddd-model.md, §5: "Transfer не может
+/// и мягкое удаление обеих операций вместе с Transfer (ddd-model.md, §5: "Transfer не может
 /// существовать без обеих связанных Operation").
 /// </summary>
 public sealed class DeleteTransferCommandHandlerTests
@@ -22,9 +22,10 @@ public sealed class DeleteTransferCommandHandlerTests
     private readonly IOperationRepository _operationRepository = Substitute.For<IOperationRepository>();
     private readonly IOperationsUnitOfWork _unitOfWork = Substitute.For<IOperationsUnitOfWork>();
     private readonly IWalletBalanceGateway _walletBalanceGateway = Substitute.For<IWalletBalanceGateway>();
+    private readonly IWalletCorrectionsReconciler _correctionsReconciler = Substitute.For<IWalletCorrectionsReconciler>();
 
     private DeleteTransferCommandHandler CreateHandler() =>
-        new(_transferRepository, _operationRepository, _unitOfWork, _walletBalanceGateway);
+        new(_transferRepository, _operationRepository, _unitOfWork, _walletBalanceGateway, _correctionsReconciler);
 
     [Fact]
     public async Task Handle_UnknownTransfer_ThrowsKeyNotFoundException()
@@ -38,29 +39,61 @@ public sealed class DeleteTransferCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_TransferDatedBeforeToday_ThrowsTransferDeletionNotAllowedExceptionAndDoesNotTouchBalance()
+    public async Task Handle_TransferDatedBeforeToday_SoftDeletesAndReversesBothDeltas()
     {
-        // ADR-0009, случай b — решение пользователя от 2026-09-11: та же граница "сегодня",
-        // что и для одиночной операции, но по TransferDate.
+        // ADR-0002, §3: прежнее правило «граница — сегодня» отменено, удаление допустимо с любой датой.
         var yesterday = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1);
         var (transfer, sourceOperation, targetOperation) = Transfer.Create(
             TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(50m), yesterday);
-        _transferRepository.GetByIdAsync(transfer.Id, Arg.Any<CancellationToken>()).Returns(transfer);
+        _transferRepository.Found(transfer);
+        _operationRepository.GetByIdAsync(transfer.SourceOperationId, Arg.Any<CancellationToken>()).Returns(sourceOperation);
+        _operationRepository.GetByIdAsync(transfer.TargetOperationId, Arg.Any<CancellationToken>()).Returns(targetOperation);
         var command = new DeleteTransferCommand(transfer.Id.Value);
 
-        var act = () => CreateHandler().Handle(command, CancellationToken.None);
+        await CreateHandler().Handle(command, CancellationToken.None);
 
-        await act.Should().ThrowAsync<TransferDeletionNotAllowedException>();
-        await _walletBalanceGateway.DidNotReceive().ApplyDeltaAsync(Arg.Any<WalletId>(), Arg.Any<Money>(), Arg.Any<CancellationToken>());
-        _operationRepository.DidNotReceive().Remove(Arg.Any<Operation>());
+        transfer.IsDeleted.Should().BeTrue();
+        await _walletBalanceGateway.Received(2).ApplyDeltaAsync(Arg.Any<WalletId>(), Arg.Any<Money>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Handle_Valid_ReversesBothDeltasAndRemovesTransferAndBothOperations()
+    public async Task Handle_AlreadyDeleted_ThrowsTransferAlreadyDeletedExceptionAndDoesNotTouchAnyWallet()
     {
         var (transfer, sourceOperation, targetOperation) = Transfer.Create(
             TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(50m), DateOnly.FromDateTime(DateTime.UtcNow));
-        _transferRepository.GetByIdAsync(transfer.Id, Arg.Any<CancellationToken>()).Returns(transfer);
+        transfer.SoftDelete(sourceOperation, targetOperation);
+        _transferRepository.Found(transfer);
+        _operationRepository.GetByIdAsync(transfer.SourceOperationId, Arg.Any<CancellationToken>()).Returns(sourceOperation);
+        _operationRepository.GetByIdAsync(transfer.TargetOperationId, Arg.Any<CancellationToken>()).Returns(targetOperation);
+
+        var act = () => CreateHandler().Handle(new DeleteTransferCommand(transfer.Id.Value), CancellationToken.None);
+
+        await act.Should().ThrowAsync<TransferAlreadyDeletedException>();
+        await _walletBalanceGateway.DidNotReceive().ApplyDeltaAsync(Arg.Any<WalletId>(), Arg.Any<Money>(), Arg.Any<CancellationToken>());
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_MissingLeg_ThrowsKeyNotFoundExceptionAndDoesNotTouchAnyWallet()
+    {
+        var (transfer, sourceOperation, _) = Transfer.Create(
+            TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(50m), DateOnly.FromDateTime(DateTime.UtcNow));
+        _transferRepository.Found(transfer);
+        _operationRepository.GetByIdAsync(transfer.SourceOperationId, Arg.Any<CancellationToken>()).Returns(sourceOperation);
+        _operationRepository.GetByIdAsync(transfer.TargetOperationId, Arg.Any<CancellationToken>()).Returns((Operation?)null);
+
+        var act = () => CreateHandler().Handle(new DeleteTransferCommand(transfer.Id.Value), CancellationToken.None);
+
+        await act.Should().ThrowAsync<KeyNotFoundException>();
+        await _walletBalanceGateway.DidNotReceive().ApplyDeltaAsync(Arg.Any<WalletId>(), Arg.Any<Money>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Valid_ReversesBothDeltasAndSoftDeletesTransferAndBothOperations()
+    {
+        var (transfer, sourceOperation, targetOperation) = Transfer.Create(
+            TransferId.New(), WalletId.New(), WalletId.New(), OperationTypeId.New(), Money(50m), DateOnly.FromDateTime(DateTime.UtcNow));
+        _transferRepository.Found(transfer);
         _operationRepository.GetByIdAsync(transfer.SourceOperationId, Arg.Any<CancellationToken>()).Returns(sourceOperation);
         _operationRepository.GetByIdAsync(transfer.TargetOperationId, Arg.Any<CancellationToken>()).Returns(targetOperation);
         var command = new DeleteTransferCommand(transfer.Id.Value);
@@ -72,9 +105,9 @@ public sealed class DeleteTransferCommandHandlerTests
             transfer.SourceWalletId, Arg.Is<Money>(m => m.Amount == 50m), Arg.Any<CancellationToken>());
         await _walletBalanceGateway.Received(1).ApplyDeltaAsync(
             transfer.TargetWalletId, Arg.Is<Money>(m => m.Amount == -50m), Arg.Any<CancellationToken>());
-        _operationRepository.Received(1).Remove(sourceOperation);
-        _operationRepository.Received(1).Remove(targetOperation);
-        _transferRepository.Received(1).Remove(transfer);
+        transfer.IsDeleted.Should().BeTrue();
+        sourceOperation.DeletedAt.Should().Be(transfer.DeletedAt);
+        targetOperation.DeletedAt.Should().Be(transfer.DeletedAt);
         await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
     }
 }

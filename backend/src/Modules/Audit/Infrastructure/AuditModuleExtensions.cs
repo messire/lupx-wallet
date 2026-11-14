@@ -15,9 +15,9 @@ namespace LupexWallet.Audit.Infrastructure;
 /// <summary>
 /// Composition root of the Audit module (schema "audit") — called from Host/Program.cs.
 /// Registers the DbContext, the repository, and subscribers to domain events of all modules
-/// (ADR-0010) — handlers live in Infrastructure and are registered manually (not via
+/// (ADR-0006) — handlers live in Infrastructure and are registered manually (not via
 /// MediatR.RegisterServicesFromAssembly, which in Program.cs only scans *.Application
-/// assemblies, see ADR-0008/OperationEventHandlers.cs).
+/// assemblies, see ADR-0001/OperationEventHandlers.cs).
 /// </summary>
 public static class AuditModuleExtensions
 {
@@ -25,11 +25,11 @@ public static class AuditModuleExtensions
     {
         var connectionString = configuration.GetConnectionString("LupexWallet")
             ?? throw new InvalidOperationException(
-                "Не задана строка подключения ConnectionStrings:LupexWallet — требуется всем модулям (ADR-0006: одна база, схема на модуль).");
+                "Не задана строка подключения ConnectionStrings:LupexWallet — требуется всем модулям (ADR-0001: одна база, схема на модуль).");
 
-        // AuditEntry не поднимает собственных доменных событий (append-only, ADR-0010) —
+        // AuditEntry не поднимает собственных доменных событий (append-only, ADR-0006) —
         // DispatchDomainEventsInterceptor на AuditDbContext не подключается, но сам класс
-        // интерцептора (общий на весь DI-scope, см. ADR-0008/ADR-0010) внедряется в
+        // интерцептора (общий на весь DI-scope, см. ADR-0001/ADR-0006) внедряется в
         // AuditRecorder напрямую как обычный Scoped-сервис — регистрация ниже.
         services.AddDbContext<AuditDbContext>((_, options) => options
             .UseNpgsql(connectionString, npgsql => npgsql.MigrationsHistoryTable("__ef_migrations_history", "audit"))
@@ -64,22 +64,30 @@ public static class AuditModuleExtensions
         services.AddScoped<INotificationHandler<DomainEventNotification<OperationTypeDeactivated>>, OperationTypeDeactivatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<OperationTypeDeleted>>, OperationTypeDeletedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<CurrencyCreated>>, CurrencyCreatedAuditHandler>();
-        services.AddScoped<INotificationHandler<DomainEventNotification<CurrencyDeactivated>>, CurrencyDeactivatedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<CurrencyRenamed>>, CurrencyRenamedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<CurrencyDeleted>>, CurrencyDeletedAuditHandler>();
 
-        // Operations (OperationCreated/Updated/Deleted, TransferCreated/Deleted).
+        // Operations (OperationCreated/Updated/Deleted/Restored, TransferCreated/Deleted/Restored,
+        // CorrectionRecalculated/Removed/CurrencyChanged).
         services.AddScoped<INotificationHandler<DomainEventNotification<OperationCreated>>, OperationCreatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<OperationUpdated>>, OperationUpdatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<OperationDeleted>>, OperationDeletedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<TransferCreated>>, TransferCreatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<TransferDeleted>>, TransferDeletedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<OperationRestored>>, OperationRestoredAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<TransferRestored>>, TransferRestoredAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<CorrectionRecalculated>>, CorrectionRecalculatedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<CorrectionRemoved>>, CorrectionRemovedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<CorrectionCurrencyChanged>>, CorrectionCurrencyChangedAuditHandler>();
 
-        // BalanceHistory (BalanceSnapshotCreated/Updated).
+        // BalanceHistory (BalanceSnapshotCreated/Updated/Deleted).
         services.AddScoped<INotificationHandler<DomainEventNotification<BalanceSnapshotCreated>>, BalanceSnapshotCreatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<BalanceSnapshotUpdated>>, BalanceSnapshotUpdatedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<BalanceSnapshotDeleted>>, BalanceSnapshotDeletedAuditHandler>();
 
-        // ExchangeRates (ExchangeRatesUpdated, ExchangeRateUpdateFailed).
+        // ExchangeRates (ExchangeRatesUpdated, ExchangeRateUpdateFailed, ExchangeRateHistoryLoaded).
         services.AddScoped<INotificationHandler<DomainEventNotification<ExchangeRatesUpdated>>, ExchangeRatesUpdatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<ExchangeRateUpdateFailed>>, ExchangeRateUpdateFailedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<ExchangeRateHistoryLoaded>>, ExchangeRateHistoryLoadedAuditHandler>();
     }
 }

@@ -12,5 +12,5 @@ public sealed record OperationTypeDeactivated(OperationTypeId OperationTypeId) :
 public sealed record OperationTypeDeleted(OperationTypeId OperationTypeId) : DomainEvent;
 
 public sealed record CurrencyCreated(CurrencyId CurrencyId) : DomainEvent;
-public sealed record CurrencyDeactivated(CurrencyId CurrencyId) : DomainEvent;
+public sealed record CurrencyRenamed(CurrencyId CurrencyId) : DomainEvent;
 public sealed record CurrencyDeleted(CurrencyId CurrencyId) : DomainEvent;

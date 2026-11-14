@@ -1,4 +1,4 @@
-// Examples of allowed and forbidden dependencies (ADR-0012 §3). Run with
+// Examples of allowed and forbidden dependencies (ADR-0007 §3). Run with
 // `node --test frontend/scripts/lib/dependency-rules.test.mjs` — no test
 // framework dependency, uses Node's built-in test runner (Node 18+).
 import { test } from 'node:test';

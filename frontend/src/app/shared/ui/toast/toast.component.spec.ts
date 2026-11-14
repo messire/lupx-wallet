@@ -27,6 +27,24 @@ describe('ToastComponent', () => {
     fixture.detectChanges();
   }
 
+  it('announces an error toast as an assertive alert', () => {
+    create('Не удалось восстановить', 'error');
+    const root = (fixture.nativeElement as HTMLElement).querySelector('.app-toast') as HTMLElement;
+
+    expect(root.getAttribute('role')).toBe('alert');
+    expect(root.getAttribute('aria-live')).toBe('assertive');
+  });
+
+  it('announces success and info toasts as a polite status', () => {
+    for (const tone of ['success', 'info'] as const) {
+      create('Готово', tone);
+      const root = (fixture.nativeElement as HTMLElement).querySelector('.app-toast') as HTMLElement;
+
+      expect(root.getAttribute('role')).toBe('status');
+      expect(root.getAttribute('aria-live')).toBe('polite');
+    }
+  });
+
   it('auto-dismisses after 6 seconds for an info toast', () => {
     let dismissedCount = 0;
     component.dismissed.subscribe(() => dismissedCount++);

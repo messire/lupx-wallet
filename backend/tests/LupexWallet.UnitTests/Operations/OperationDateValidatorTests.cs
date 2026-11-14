@@ -52,4 +52,30 @@ public sealed class OperationDateValidatorTests
 
         act.Should().NotThrow();
     }
+
+    [Fact]
+    public void EnsureStatedBalanceDateInRange_DateBeforeAccountingStartDate_ThrowsMessageAboutTheBalanceDate()
+    {
+        var act = () => OperationDateValidator.EnsureStatedBalanceDateInRange(Today.AddDays(-6), Today.AddDays(-5));
+
+        var exception = act.Should().Throw<StatedBalanceDateOutOfRangeException>().Which;
+        exception.Message.Should().Contain("Дата баланса").And.NotContain("Дата операции");
+    }
+
+    [Fact]
+    public void EnsureStatedBalanceDateInRange_DateAfterToday_Throws()
+    {
+        var act = () => OperationDateValidator.EnsureStatedBalanceDateInRange(Today.AddDays(1), Today.AddDays(-30));
+
+        act.Should().Throw<StatedBalanceDateOutOfRangeException>();
+    }
+
+    [Fact]
+    public void EnsureStatedBalanceDateInRange_BoundaryDates_DoNotThrow()
+    {
+        var start = Today.AddDays(-10);
+
+        OperationDateValidator.EnsureStatedBalanceDateInRange(start, start);
+        OperationDateValidator.EnsureStatedBalanceDateInRange(Today, start);
+    }
 }

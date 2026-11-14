@@ -8,16 +8,9 @@ using Microsoft.Extensions.Logging;
 namespace LupexWallet.ExchangeRates.Infrastructure;
 
 /// <summary>
-/// Implements ADR-0001 p.2/3 — daily auto-refresh of rates; a manual refresh resets the
-/// countdown; reacting to PrimaryWalletChanged (ADR-0001 p.5) triggers an out-of-band
-/// refresh. Like BalanceHistory.Infrastructure.BalanceSnapshotSchedulerHostedService — a
-/// single run's failure must not bring down the whole host (try/catch in
-/// RunRefreshSafelyAsync).
-///
-/// Scheduling (when the next scheduled run happens) is extracted into the pure
-/// ExchangeRateRefreshTimer (ExchangeRates.Application) — testable without a real
-/// Task.Delay. Only the I/O part remains here: waiting for a signal or delay expiry, and
-/// performing the refresh itself.
+/// Daily pass (rates refresh, then history load) plus out-of-band passes on a refresh request signalled
+/// after the publisher's transaction commits (ADR-0004 §3, §5, §9). A manual refresh restarts the daily
+/// countdown and triggers only the history load. A failed run is logged and never stops the host.
 /// </summary>
 public sealed class ExchangeRateRefreshBackgroundService(
     IServiceScopeFactory scopeFactory,
@@ -28,7 +21,7 @@ public sealed class ExchangeRateRefreshBackgroundService(
     {
         var timer = new ExchangeRateRefreshTimer(DateTimeOffset.UtcNow);
 
-        await RunRefreshSafelyAsync(isManualTrigger: false, stoppingToken);
+        await RunPassAsync(stoppingToken);
         timer.Reset(DateTimeOffset.UtcNow);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -41,78 +34,88 @@ public sealed class ExchangeRateRefreshBackgroundService(
                 break;
             }
 
-            switch (signal)
+            if (signal == ExchangeRateRefreshSignalKind.ManualRefreshCompleted)
             {
-                case ExchangeRateRefreshSignalKind.ManualRefreshCompleted:
-                    // Ручное обновление уже выполнено эндпоинтом синхронно — просто
-                    // перезапускаем суточный отсчёт (ADR-0001 п.3).
-                    timer.Reset(DateTimeOffset.UtcNow);
-                    break;
-
-                case ExchangeRateRefreshSignalKind.RefreshRequested:
-                    // Реакция на PrimaryWalletChanged (ADR-0001 п.5) — обновление ещё не
-                    // выполнялось, делаем это здесь, вне транзакции SetPrimaryWallet (ADR-0011).
-                    await RunRefreshSafelyAsync(isManualTrigger: false, stoppingToken);
-                    timer.Reset(DateTimeOffset.UtcNow);
-                    break;
-
-                default:
-                    // Задержка истекла без сигнала — обычный плановый прогон.
-                    await RunRefreshSafelyAsync(isManualTrigger: false, stoppingToken);
-                    timer.Reset(DateTimeOffset.UtcNow);
-                    break;
+                // The endpoint already refreshed the rates; restart the countdown and catch up the history,
+                // otherwise repeated manual refreshes would keep postponing the scheduled load (ADR-0004 §3, §9).
+                await RunBackfillAsync(stoppingToken);
+                timer.Reset(DateTimeOffset.UtcNow);
+                continue;
             }
+
+            // A refresh request (nothing has been refreshed yet) or an elapsed delay (the
+            // scheduled run): the same pass.
+            await RunPassAsync(stoppingToken);
+            timer.Reset(DateTimeOffset.UtcNow);
         }
     }
 
+    /// <summary>
+    /// Waits for a signal without consuming it on timeout (WaitToReadAsync only peeks), then reads
+    /// everything queued: a burst from one command (WalletCreated + CurrencyCreated + ...) yields one
+    /// pass. A refresh request wins over a manual-refresh notification, since it needs real work.
+    /// </summary>
     private async Task<ExchangeRateRefreshSignalKind?> WaitForSignalOrTimeoutAsync(TimeSpan delay, CancellationToken stoppingToken)
     {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-        var delayTask = Task.Delay(delay, cts.Token);
-        var signalTask = refreshSignal.Reader.ReadAsync(cts.Token).AsTask();
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        timeoutCts.CancelAfter(delay);
 
         try
         {
-            var completed = await Task.WhenAny(delayTask, signalTask);
-            if (completed == signalTask && !signalTask.IsFaulted && !signalTask.IsCanceled)
+            if (!await refreshSignal.Reader.WaitToReadAsync(timeoutCts.Token)
+                || !refreshSignal.Reader.TryRead(out var signal))
             {
-                return signalTask.Result;
+                return null;
             }
 
-            return null;
+            while (refreshSignal.Reader.TryRead(out var queued))
+            {
+                if (queued == ExchangeRateRefreshSignalKind.RefreshRequested)
+                {
+                    signal = queued;
+                }
+            }
+
+            return signal;
         }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
+            // Either shutdown (the caller checks the token) or the delay elapsed.
             return null;
-        }
-        finally
-        {
-            cts.Cancel();
         }
     }
 
-    private async Task RunRefreshSafelyAsync(bool isManualTrigger, CancellationToken cancellationToken)
+    /// <summary>
+    /// Refresh, then history load — each in its own DI scope with its own DbContexts and the System
+    /// actor (ADR-0006). A failure of the refresh must not skip the history load, nor the reverse.
+    /// The manual refresh button runs from the HTTP endpoint in its own (User) scope and does not
+    /// pass through here.
+    /// </summary>
+    private async Task RunPassAsync(CancellationToken cancellationToken)
+    {
+        await RunSafelyAsync(
+            new RefreshExchangeRatesCommand(IsManualTrigger: false), "Обновление курсов валют", cancellationToken);
+        await RunBackfillAsync(cancellationToken);
+    }
+
+    private Task RunBackfillAsync(CancellationToken cancellationToken) =>
+        RunSafelyAsync(new BackfillExchangeRateHistoryCommand(), "Дозагрузка истории курсов валют", cancellationToken);
+
+    private async Task RunSafelyAsync<TResponse>(IRequest<TResponse> command, string description, CancellationToken cancellationToken)
     {
         try
         {
             using var scope = scopeFactory.CreateScope();
-
-            // ADR-0010: этот сервис всегда вызывает RefreshExchangeRatesCommand из
-            // собственного фонового scope (плановый прогон, старт, реакция на
-            // PrimaryWalletChanged) — ручное обновление по кнопке идёт напрямую из HTTP-
-            // эндпоинта (ExchangeRatesEndpointsExtensions), в его собственном (User) scope,
-            // этого метода не касается.
             scope.ServiceProvider.GetRequiredService<IAuditActorAccessor>()
                 .SetSystemActor(nameof(ExchangeRateRefreshBackgroundService));
 
-            var sender = scope.ServiceProvider.GetRequiredService<ISender>();
-            await sender.Send(new RefreshExchangeRatesCommand(isManualTrigger), cancellationToken);
+            await scope.ServiceProvider.GetRequiredService<ISender>().Send(command, cancellationToken);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
-            // Сбой на уровне всего прохода (например, БД недоступна) не должен ронять хост —
-            // следующий плановый прогон (через 24 часа) или следующий сигнал попробуют снова.
-            logger.LogError(ex, "Плановое/внеочередное обновление курсов валют не выполнено");
+            // A failure of the whole pass (e.g. the database is unavailable) must not bring the host
+            // down — the next scheduled pass (in 24 hours) or the next signal tries again.
+            logger.LogError(ex, "{Operation} не выполнено", description);
         }
     }
 }

@@ -24,9 +24,10 @@ public sealed class CreateTransferCommandHandlerTests
     private readonly IOperationsUnitOfWork _unitOfWork = Substitute.For<IOperationsUnitOfWork>();
     private readonly IOperationTypeLookup _operationTypeLookup = Substitute.For<IOperationTypeLookup>();
     private readonly IWalletBalanceGateway _walletBalanceGateway = Substitute.For<IWalletBalanceGateway>();
+    private readonly IWalletCorrectionsReconciler _correctionsReconciler = Substitute.For<IWalletCorrectionsReconciler>();
 
     private CreateTransferCommandHandler CreateHandler() =>
-        new(_operationRepository, _transferRepository, _unitOfWork, _operationTypeLookup, _walletBalanceGateway);
+        new(_operationRepository, _transferRepository, _unitOfWork, _operationTypeLookup, _walletBalanceGateway, _correctionsReconciler);
 
     private static WalletBalanceInfo Wallet(CurrencyId currency, DateOnly accountingStartDate) => new(
         WalletId.New(), currency, new Money(0m, currency), new Money(0m, currency), accountingStartDate, IsArchived: false);

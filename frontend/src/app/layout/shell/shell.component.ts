@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, HostListener, inject, signal, viewChild } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from '../../core/auth/auth.service';
 import { ButtonComponent } from '@shared/ui/button/button.component';
@@ -9,13 +9,13 @@ interface NavItem {
 }
 
 /**
- * Shared shell for the authenticated part of the app: a header with the brand,
- * navigation between sections, and a logout button. Feature sections mount into
- * a nested <router-outlet> (see app.routes.ts).
+ * Shared shell for the authenticated part of the app: a sidebar with the brand,
+ * navigation between sections, and a logout button (docs/design/ui-kit.md §4,
+ * sidebar layout ≥1100px). Feature sections mount into a nested <router-outlet>
+ * (see app.routes.ts).
  *
- * On narrow screens the navigation (8 items) collapses into a dropdown menu —
- * there is only enough width for the brand and the hamburger button, see
- * shell.component.scss.
+ * Below 1100px the sidebar is hidden and shown as a dropdown panel via the
+ * topbar's "Меню" button instead — see shell.component.scss.
  */
 @Component({
   selector: 'app-shell',
@@ -53,6 +53,20 @@ export class ShellComponent {
 
   toggleMenu(): void {
     this.menuOpen.update((open) => !open);
+  }
+
+  /**
+   * The mobile dropdown panel is meaningless once the sidebar breakpoint (1100px,
+   * shell.component.scss) takes over — without this, resizing/rotating back to
+   * desktop while the menu is open leaves `menuOpen()` stuck `true` behind the
+   * now-hidden sidebar/backdrop. Just clears the flag — no focus move, this isn't
+   * a user dismissal.
+   */
+  @HostListener('window:resize')
+  onWindowResize(): void {
+    if (this.menuOpen() && window.innerWidth >= 1100) {
+      this.menuOpen.set(false);
+    }
   }
 
   closeMenu(): void {

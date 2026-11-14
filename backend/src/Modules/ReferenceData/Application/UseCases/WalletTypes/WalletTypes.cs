@@ -66,7 +66,7 @@ public sealed class DeleteWalletTypeCommandHandler(
         var walletType = await repository.GetByIdAsync(new WalletTypeId(request.Id), cancellationToken)
             ?? throw new KeyNotFoundException($"WalletType {request.Id} не найден.");
 
-        // ADR-0009, случай c: реальная проверка использования через реализации Wallets.
+        // ADR-0002, §4: реальная проверка использования через реализации Wallets.
         var isUsed = await usageProbes.AnyIsUsedAsync(ReferenceItemKind.WalletType, request.Id, cancellationToken);
         walletType.EnsureCanBeDeleted(isUsed);
 

@@ -1,54 +1,57 @@
-<app-card class="form-card">
-  <form class="entity-form" [formGroup]="form" (ngSubmit)="submit()">
-    <app-field label="Кошелек" [error]="walletError()" [required]="true">
-      <select appFieldControl formControlName="walletId">
-        <option value="" disabled>— выберите кошелек —</option>
-        @for (wallet of wallets(); track wallet.id) {
-          <option [value]="wallet.id">{{ wallet.name }}</option>
-        }
-      </select>
-    </app-field>
+<form class="entity-form" [formGroup]="form" (ngSubmit)="submit()">
+  <app-field label="Кошелек" [error]="walletError()" [required]="true">
+    <app-select formControlName="walletId" placeholder="— выберите кошелек —">
+      @for (wallet of wallets(); track wallet.id) {
+        <app-select-option [value]="wallet.id" [label]="wallet.name" />
+      }
+    </app-select>
+  </app-field>
 
-    <app-field label="Тип операции" [error]="operationTypeError()" [required]="true">
-      <select appFieldControl formControlName="operationTypeId">
-        <option value="" disabled>— выберите тип —</option>
-        @for (type of operationTypes(); track type.id) {
-          <option [value]="type.id">{{ type.name }}</option>
-        }
-      </select>
-    </app-field>
-
-    @if (isAdjustment()) {
-      <div class="field-group">
-        <span class="field-group__label" id="adjustment-mode-label">Способ корректировки</span>
-        <app-radio-group formControlName="adjustmentMode" ariaLabelledBy="adjustment-mode-label">
-          <app-radio-option value="Delta" label="Дельта (+/-)" />
-          <app-radio-option value="Absolute" label="Новое значение баланса" />
-        </app-radio-group>
-      </div>
-    }
-
-    <app-field
-      [label]="isAdjustment() && form.controls.adjustmentMode.value === 'Absolute' ? 'Новый баланс' : 'Сумма'"
-      [error]="amountError()"
-      [required]="true"
+  <app-field label="Тип операции" [error]="operationTypeError()" [required]="true">
+    <app-select
+      formControlName="operationTypeId"
+      placeholder="— выберите тип —"
+      createLabel="+ добавить новый"
+      (createRequested)="isCreatingOperationType.set(true)"
     >
+      @for (type of operationTypes(); track type.id) {
+        <app-select-option [value]="type.id" [label]="type.name" />
+      }
+    </app-select>
+  </app-field>
+
+  <app-field
+    [label]="isAdjustment() ? 'Изменение на сумму (+/−)' : 'Сумма'"
+    [hint]="amountHint()"
+    [error]="amountError()"
+    [required]="true"
+  >
+    <div class="input-suffix">
       <input appFieldControl type="text" inputmode="decimal" placeholder="0.00" formControlName="amount" />
-    </app-field>
-
-    <app-field label="Дата" [error]="operationDateError()" [required]="true">
-      <input appFieldControl type="date" formControlName="operationDate" />
-    </app-field>
-
-    @if (errorMessage()) {
-      <p class="form-error" role="alert">{{ errorMessage() }}</p>
-    }
-
-    <div class="form-actions">
-      <app-button type="submit" variant="primary" [disabled]="form.invalid" [loading]="isSubmitting()" loadingText="Сохранение…">
-        {{ isEditMode() ? 'Сохранить' : 'Создать' }}
-      </app-button>
-      <app-button type="button" variant="secondary" (click)="onCancel()">Отмена</app-button>
+      @if (selectedWalletCurrencyCode(); as currencyCode) {
+        <span class="input-suffix__code">{{ currencyCode }}</span>
+      }
     </div>
-  </form>
-</app-card>
+  </app-field>
+
+  <app-field label="Дата" [error]="operationDateError()" [required]="true">
+    <app-date-input formControlName="operationDate" />
+  </app-field>
+
+  @if (errorMessage()) {
+    <p class="form-error" role="alert">{{ errorMessage() }}</p>
+  }
+
+  <div class="form-actions">
+    <app-button type="submit" variant="primary" [disabled]="form.invalid" [loading]="isSubmitting()" loadingText="Сохранение…">
+      {{ isEditMode() ? 'Сохранить' : 'Создать' }}
+    </app-button>
+    <app-button type="button" variant="secondary" (click)="onCancel()">Отмена</app-button>
+  </div>
+</form>
+
+<app-operation-type-create-dialog
+  [open]="isCreatingOperationType()"
+  (created)="onOperationTypeCreated($event)"
+  (dismissed)="isCreatingOperationType.set(false)"
+/>

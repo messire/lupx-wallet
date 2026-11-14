@@ -36,7 +36,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
         second.IsPrimary.Should().BeFalse();
     }
 
-    // ---- W2.5, случай d: валидация walletTypeId/currencyId ----
+    // ---- walletTypeId/currencyCode validation ----
 
     [Fact]
     public async Task CreateWallet_UnknownWalletTypeId_ReturnsBadRequest()
@@ -48,7 +48,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
         {
             Name = "Кошелек",
             WalletTypeId = Guid.NewGuid(),
-            CurrencyId = currency.Id,
+            CurrencyCode = currency.Code,
             InitialBalanceAmount = 0m,
             AccountingStartDate = DateOnly.FromDateTime(DateTime.UtcNow),
         });
@@ -68,7 +68,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
         {
             Name = "Кошелек",
             WalletTypeId = walletType.Id,
-            CurrencyId = currency.Id,
+            CurrencyCode = currency.Code,
             InitialBalanceAmount = 0m,
             AccountingStartDate = DateOnly.FromDateTime(DateTime.UtcNow),
         });
@@ -77,7 +77,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
     }
 
     [Fact]
-    public async Task CreateWallet_UnknownCurrencyId_ReturnsBadRequest()
+    public async Task CreateWallet_UnknownCurrencyCode_ReturnsBadRequest()
     {
         await AuthenticateAsync();
         var walletType = await Client.CreateWalletTypeAsync();
@@ -86,7 +86,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
         {
             Name = "Кошелек",
             WalletTypeId = walletType.Id,
-            CurrencyId = Guid.NewGuid(),
+            CurrencyCode = "ZZ9",
             InitialBalanceAmount = 0m,
             AccountingStartDate = DateOnly.FromDateTime(DateTime.UtcNow),
         });
@@ -125,7 +125,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
         {
             Name = "   ",
             WalletTypeId = walletType.Id,
-            CurrencyId = currency.Id,
+            CurrencyCode = currency.Code,
             InitialBalanceAmount = 0m,
             AccountingStartDate = DateOnly.FromDateTime(DateTime.UtcNow),
         });
@@ -329,7 +329,7 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
 
         var response = await Client.DeleteAsync($"/api/v1/wallets/{secondary.Id}");
 
-        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "у кошелька уже есть история операций (ADR-0009, случай a)");
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "у кошелька уже есть история операций (ADR-0002, §2)");
     }
 
     [Fact]
@@ -364,9 +364,258 @@ public sealed class WalletsApiTests(ApiTestFixture fixture) : IntegrationTestBas
 
         var response = await Client.PutAsJsonAsync($"/api/v1/wallets/{wallet.Id}/currency", new { CurrencyId = newCurrency.Id });
 
-        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "у кошелька уже есть операции (Q15, ADR-0009, случай a)");
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "у кошелька уже есть операции (Q15, ADR-0002, §2)");
+    }
+
+    // ---- Snapshots are derived data, not history (ADR-0002, §2) ----
+
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
+
+    private async Task<long> CountSnapshotsAsync(Guid walletId)
+    {
+        await using var connection = await Fixture.OpenConnectionAsync();
+        return await connection.CountAsync(
+            "SELECT count(*) FROM balance_history.balance_snapshots WHERE wallet_id = @walletId", ("walletId", walletId));
+    }
+
+    [Fact]
+    public async Task DeleteWallet_WithSnapshotsButNoOperations_ReturnsNoContentRemovesSnapshotsAndAuditsEachOne()
+    {
+        await AuthenticateAsync();
+        await Client.CreateWalletAsync(name: "Основной");
+        var startDate = Today.AddDays(-3);
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 100m, accountingStartDate: startDate, name: "Со слепками");
+        await Fixture.BackfillSnapshotsAsync(wallet.Id);
+        (await CountSnapshotsAsync(wallet.Id)).Should().Be(4, "snapshots for start date..today inclusive");
+        (await Client.GetSnapshotsAsync(wallet.Id, startDate, Today)).Should().HaveCount(4);
+
+        var response = await Client.DeleteAsync($"/api/v1/wallets/{wallet.Id}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent, "snapshots are not wallet history");
+        (await Client.GetAsync($"/api/v1/wallets/{wallet.Id}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await Client.GetAsync($"/api/v1/wallets/{wallet.Id}/balance-history?from={startDate:yyyy-MM-dd}&to={Today:yyyy-MM-dd}"))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await CountSnapshotsAsync(wallet.Id)).Should().Be(0, "snapshots are removed in the same transaction as the wallet");
+
+        var snapshotAudit = await Client.GetAuditEntriesAsync("BalanceSnapshot", wallet.Id);
+        snapshotAudit.Count(e => e.Action == "SnapshotCreated").Should().Be(4);
+        var deletedEntries = snapshotAudit.Where(e => e.Action == "SnapshotDeleted").ToList();
+        deletedEntries.Should().HaveCount(4, "one SnapshotDeleted record per removed snapshot");
+        deletedEntries.Select(e => e.Changes.Single(c => c.Field == "SnapshotDate").OldValue)
+            .Should().BeEquivalentTo(Enumerable.Range(0, 4).Select(i => startDate.AddDays(i).ToString("yyyy-MM-dd")));
+        deletedEntries.Should().OnlyContain(e =>
+            e.Changes.Single(c => c.Field == "Balance").OldValue == "100" && e.Changes.Single(c => c.Field == "Balance").NewValue == null);
+        (await Client.GetAuditEntriesAsync("Wallet", wallet.Id)).Should().Contain(e => e.Action == "Deleted");
+    }
+
+    [Fact]
+    public async Task DeleteWallet_OnlySoftDeletedOperation_ReturnsConflictKeepsSnapshotsAndArchiveStillWorks()
+    {
+        await AuthenticateAsync();
+        await Client.CreateWalletAsync(name: "Основной");
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 100m, accountingStartDate: Today.AddDays(-3), name: "С удалённой");
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var operationId = await Client.CreateOperationReturningIdAsync(wallet.Id, incomeTypeId, 10m, Today.AddDays(-2));
+        (await Client.DeleteAsync($"/api/v1/operations/{operationId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        var snapshotsBefore = await CountSnapshotsAsync(wallet.Id);
+        snapshotsBefore.Should().BeGreaterThan(0);
+
+        var deleteResponse = await Client.DeleteAsync($"/api/v1/wallets/{wallet.Id}");
+
+        deleteResponse.StatusCode.Should().Be(HttpStatusCode.Conflict, "history includes soft-deleted operations (ADR-0002, §2)");
+        (await Client.GetAsync($"/api/v1/wallets/{wallet.Id}")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await CountSnapshotsAsync(wallet.Id)).Should().Be(snapshotsBefore, "a rejected deletion must not touch the snapshots");
+
+        var archiveResponse = await Client.PostAsync($"/api/v1/wallets/{wallet.Id}/archive", content: null);
+
+        archiveResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await archiveResponse.Content.ReadFromJsonAsync<WalletResponse>())!.IsArchived.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task DeleteWallet_WithoutSnapshotsAndOperations_StillReturnsNoContent()
+    {
+        await AuthenticateAsync();
+        await Client.CreateWalletAsync(name: "Основной");
+        var wallet = await Client.CreateWalletAsync(accountingStartDate: Today.AddDays(-3), name: "Пустой");
+
+        var response = await Client.DeleteAsync($"/api/v1/wallets/{wallet.Id}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await Client.GetAuditEntriesAsync("BalanceSnapshot", wallet.Id)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ChangeWalletCurrency_WithSnapshotsButNoOperations_RebuildsSnapshotsInNewCurrencyAndAuditsBothSides()
+    {
+        await AuthenticateAsync();
+        var startDate = Today.AddDays(-3);
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 100m, accountingStartDate: startDate, name: "Со слепками");
+        await Fixture.BackfillSnapshotsAsync(wallet.Id);
+        var newCurrency = await Client.CreateCurrencyAsync("EUR", "Евро");
+
+        var response = await Client.PutAsJsonAsync($"/api/v1/wallets/{wallet.Id}/currency", new { CurrencyId = newCurrency.Id });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, "snapshots are not history (ADR-0002, §2)");
+        var snapshots = await Client.GetSnapshotsAsync(wallet.Id, startDate, Today);
+        snapshots.Should().HaveCount(4, "rebuilt from AccountingStartDate through today");
+        snapshots.Select(s => s.Date).Should().BeEquivalentTo(Enumerable.Range(0, 4).Select(i => startDate.AddDays(i)));
+        snapshots.Should().OnlyContain(s => s.Balance.CurrencyId == newCurrency.Id && s.Balance.Amount == "100");
+        (await CountSnapshotsAsync(wallet.Id)).Should().Be(4, "old snapshots are removed, not duplicated");
+
+        var audit = await Client.GetAuditEntriesAsync("BalanceSnapshot", wallet.Id);
+        audit.Count(e => e.Action == "SnapshotDeleted").Should().Be(4);
+        audit.Count(e => e.Action == "SnapshotCreated").Should().Be(8, "4 original + 4 rebuilt in the new currency");
+        (await Client.GetAuditEntriesAsync("Wallet", wallet.Id)).Should().Contain(e => e.Action == "CurrencyChanged");
+    }
+
+    [Fact]
+    public async Task ChangeWalletCurrency_WithSnapshots_ThenCreateOperationReturnsCreatedAndSnapshotsFollowIt()
+    {
+        // Regression: BalanceSnapshot.UpdateBalance rejects a currency change, so without the rebuild the
+        // first operation in such a wallet would fail inside the command transaction.
+        await AuthenticateAsync();
+        var startDate = Today.AddDays(-3);
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 100m, accountingStartDate: startDate, name: "Со слепками");
+        await Fixture.BackfillSnapshotsAsync(wallet.Id);
+        var newCurrency = await Client.CreateCurrencyAsync("EUR", "Евро");
+        (await Client.PutAsJsonAsync($"/api/v1/wallets/{wallet.Id}/currency", new { CurrencyId = newCurrency.Id }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+
+        var response = await Client.PostAsJsonAsync("/api/v1/operations", new
+        {
+            WalletId = wallet.Id,
+            OperationTypeId = incomeTypeId,
+            Amount = 50m,
+            OperationDate = Today.AddDays(-2),
+            AdjustmentMode = (string?)null,
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var snapshots = (await Client.GetSnapshotsAsync(wallet.Id, startDate, Today)).ToDictionary(s => s.Date);
+        snapshots[Today.AddDays(-3)].Balance.Amount.Should().Be("100");
+        snapshots[Today.AddDays(-2)].Balance.Amount.Should().Be("150");
+        snapshots[Today].Balance.Amount.Should().Be("150");
+        snapshots.Values.Should().OnlyContain(s => s.Balance.CurrencyId == newCurrency.Id);
+
+        // The scheduled/startup pass (backfill command) must not fail on the rebuilt history either.
+        var act = () => Fixture.BackfillSnapshotsAsync(wallet.Id);
+        await act.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task ChangeWalletCurrency_OnlySoftDeletedOperation_ReturnsConflictAndKeepsSnapshots()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 100m, accountingStartDate: Today.AddDays(-3), name: "С удалённой");
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var operationId = await Client.CreateOperationReturningIdAsync(wallet.Id, incomeTypeId, 10m, Today.AddDays(-2));
+        await Client.DeleteAsync($"/api/v1/operations/{operationId}");
+        var snapshotsBefore = await Client.GetSnapshotsAsync(wallet.Id, Today.AddDays(-3), Today);
+        var newCurrency = await Client.CreateCurrencyAsync("EUR", "Евро");
+
+        var response = await Client.PutAsJsonAsync($"/api/v1/wallets/{wallet.Id}/currency", new { CurrencyId = newCurrency.Id });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "soft-deleted operations are history (ADR-0002, §2)");
+        (await Client.GetSnapshotsAsync(wallet.Id, Today.AddDays(-3), Today)).Should().BeEquivalentTo(snapshotsBefore);
+        var walletAfter = (await (await Client.GetAsync($"/api/v1/wallets/{wallet.Id}")).Content.ReadFromJsonAsync<WalletResponse>())!;
+        walletAfter.CurrencyId.Should().Be(wallet.CurrencyId);
     }
 
     private sealed record CursorPageMeta(string? NextCursor, bool HasMore);
     private sealed record WalletPageResponse(IReadOnlyList<WalletResponse> Data, CursorPageMeta Pagination);
+
+    // ---- Stated balances are not wallet history (ADR-0002, §1-§2; ADR-0003, §6) ----
+
+    private async Task<long> CountCorrectionsAsync(Guid walletId)
+    {
+        await using var connection = await Fixture.OpenConnectionAsync();
+        return await connection.CountAsync(
+            "SELECT count(*) FROM operations.operations WHERE wallet_id = @walletId AND is_correction", ("walletId", walletId));
+    }
+
+    private async Task<StatedBalanceCorrectionResponse> GetCorrectionRowAsync(Guid id)
+    {
+        var response = await Client.GetAsync($"/api/v1/operations/{id}");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsync<StatedBalanceCorrectionResponse>())!;
+    }
+
+    [Fact]
+    public async Task DeleteWallet_WithOnlyStatedBalances_ReturnsNoContentRemovesTheCorrectionsAndAuditsEachOne()
+    {
+        await AuthenticateAsync();
+        await Client.CreateWalletAsync(name: "Основной");
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 0m, accountingStartDate: Today.AddDays(-20), name: "Только заявленные");
+        var (_, first) = await Client.SetStatedBalanceAsync(wallet.Id, Today.AddDays(-10), 350m);
+        var (_, second) = await Client.SetStatedBalanceAsync(wallet.Id, Today.AddDays(-5), 600m);
+        (await CountCorrectionsAsync(wallet.Id)).Should().Be(2);
+
+        var response = await Client.DeleteAsync($"/api/v1/wallets/{wallet.Id}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent, "a stated balance is not a fact entered by the user, so the wallet has no history");
+        (await Client.GetAsync($"/api/v1/wallets/{wallet.Id}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await CountCorrectionsAsync(wallet.Id)).Should().Be(0, "the corrections are removed physically in the same transaction");
+        (await CountSnapshotsAsync(wallet.Id)).Should().Be(0);
+        foreach (var correction in new[] { first, second })
+        {
+            (await Client.GetAuditEntriesAsync("Operation", correction.Id)).Should().Contain(e => e.Action == "Deleted");
+            (await Client.GetAsync($"/api/v1/operations/{correction.Id}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteWallet_WithOperationAndStatedBalance_ReturnsConflictKeepsTheCorrectionAndArchiveStillWorks()
+    {
+        await AuthenticateAsync();
+        await Client.CreateWalletAsync(name: "Основной");
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 0m, accountingStartDate: Today.AddDays(-20), name: "С историей");
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        await Client.CreateOperationReturningIdAsync(wallet.Id, incomeTypeId, 300m, Today.AddDays(-10));
+        await Client.SetStatedBalanceAsync(wallet.Id, Today.AddDays(-5), 350m);
+
+        var deleteResponse = await Client.DeleteAsync($"/api/v1/wallets/{wallet.Id}");
+
+        deleteResponse.StatusCode.Should().Be(HttpStatusCode.Conflict, "the real operation is history (ADR-0002, §2)");
+        (await CountCorrectionsAsync(wallet.Id)).Should().Be(1, "a rejected deletion removes nothing");
+        (await Client.GetWalletBalanceAsync(wallet.Id)).Should().Be(350m);
+
+        var archiveResponse = await Client.PostAsync($"/api/v1/wallets/{wallet.Id}/archive", content: null);
+
+        archiveResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await CountCorrectionsAsync(wallet.Id)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ChangeWalletCurrency_WithStatedBalancesButNoOperations_FollowsTheCorrectionsToTheNewCurrencyAndNewOperationsWork()
+    {
+        await AuthenticateAsync();
+        var wallet = await Client.CreateWalletAsync(initialBalanceAmount: 0m, accountingStartDate: Today.AddDays(-20), name: "Заявленные");
+        var (_, correction) = await Client.SetStatedBalanceAsync(wallet.Id, Today.AddDays(-5), 350m);
+        var newCurrency = await Client.CreateCurrencyAsync("NC" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant(), "Новая валюта");
+
+        var response = await Client.PutAsJsonAsync($"/api/v1/wallets/{wallet.Id}/currency", new { CurrencyId = newCurrency.Id });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, "stated balances do not block a currency change");
+        var row = await GetCorrectionRowAsync(correction.Id);
+        row.Amount.CurrencyId.Should().Be(newCurrency.Id);
+        row.StatedBalance!.CurrencyId.Should().Be(newCurrency.Id);
+        row.Amount.Amount.Should().Be("350", "the numbers do not change");
+        row.StatedBalance.Amount.Should().Be("350");
+        (await Client.GetAuditEntriesAsync("Operation", correction.Id)).Should().Contain(e => e.Action == "Updated" && e.ActorKind == "User");
+        (await Client.GetSnapshotsAsync(wallet.Id, Today.AddDays(-5), Today)).Should().OnlyContain(s => s.Balance.CurrencyId == newCurrency.Id);
+
+        // A new operation is accepted and recalculates the correction in the new currency (a currency mismatch would be a 500).
+        var incomeTypeId = await Client.CreateOperationTypeIdAsync("Income");
+        var created = await Client.PostAsJsonAsync("/api/v1/operations", new
+        {
+            WalletId = wallet.Id, OperationTypeId = incomeTypeId, Amount = 100m, OperationDate = Today.AddDays(-8),
+        });
+        created.StatusCode.Should().Be(HttpStatusCode.Created);
+        (await Client.GetWalletBalanceAsync(wallet.Id)).Should().Be(350m, "the stated balance later in time absorbs the +100");
+        (await Client.GetWalletBalanceOnDateAsync(wallet.Id, Today.AddDays(-5))).Should().Be(350m);
+        await Fixture.AssertWalletInvariantAsync(wallet.Id);
+        (await GetCorrectionRowAsync(correction.Id)).Amount.Amount.Should().Be("250");
+    }
 }

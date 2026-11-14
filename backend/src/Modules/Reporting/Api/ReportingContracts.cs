@@ -1,7 +1,7 @@
 namespace LupexWallet.Reporting.Api;
 
 // DTO по контракту docs/api/openapi.yaml (схема TotalAmount, дополнена полем excludedWallets —
-// риск №6, docs/PROGRESS.md П.5.1: решение пользователя, основной путь).
+// кошелёк без курса исключается из суммы с причиной, ADR-0004 §9).
 
 public sealed record MoneyResponse(string Amount, Guid CurrencyId);
 

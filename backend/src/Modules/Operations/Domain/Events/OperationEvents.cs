@@ -5,12 +5,24 @@ namespace LupexWallet.Operations.Domain;
 /// <summary>
 /// Operation/Transfer aggregate events (ddd-model.md, §6). The wallet balance effect is
 /// required for command correctness and is therefore a synchronous contract, not a
-/// subscription to these events (ADR-0007). BalanceHistory is the first real subscriber
-/// (ADR-0008): it reacts to OperationCreated/Updated/Deleted to cascade-recalculate the
-/// balance history from the operation date (OperationDate/PreviousOperationDate — the
-/// earliest affected date) through today (ADR-0003). TransferCreated/TransferDeleted need no
-/// separate subscriber: both transfer legs already raise their own
-/// OperationCreated/OperationDeleted (see Operation.CreateForTransfer, DeleteTransferCommand).
+/// subscription to these events (ADR-0001). BalanceHistory is the first real subscriber
+/// (ADR-0003): it reacts to OperationCreated/Updated/Deleted/Restored to cascade-recalculate
+/// the balance history from the operation date (OperationDate/PreviousOperationDate — the
+/// earliest affected date) through today (ADR-0003). Deletion is soft only (ADR-0002, §3):
+/// OperationDeleted/TransferDeleted mean "marked deleted", and OperationRestored/
+/// TransferRestored mean "deletion revoked"; the row is never physically removed.
+/// TransferCreated/TransferDeleted/TransferRestored need no separate subscriber for
+/// BalanceHistory: both transfer legs already raise their own
+/// OperationCreated/OperationDeleted/OperationRestored (see Operation.CreateForTransfer,
+/// Transfer.SoftDelete, Transfer.Restore).
+///
+/// Balance corrections (ADR-0003, §6) reuse OperationCreated/OperationUpdated when the user
+/// states or replaces a balance, and add three events: CorrectionRecalculated (the system changed
+/// the amount; raised only when no other event of the same aggregate is pending, so one command
+/// yields one audit entry per correction), CorrectionRemoved (the correction was deleted together
+/// with its wallet) and CorrectionCurrencyChanged (the wallet's currency changed and the correction
+/// followed it). BalanceHistory subscribes only to CorrectionRecalculated; the other two must not
+/// trigger a history cascade.
 /// </summary>
 public sealed record OperationCreated(OperationId OperationId, WalletId WalletId, DateOnly OperationDate) : DomainEvent;
 
@@ -25,6 +37,12 @@ public sealed record OperationCreated(OperationId OperationId, WalletId WalletId
 public sealed record OperationUpdated(
     OperationId OperationId, WalletId WalletId, DateOnly OperationDate, DateOnly PreviousOperationDate, WalletId PreviousWalletId) : DomainEvent;
 public sealed record OperationDeleted(OperationId OperationId, WalletId WalletId, DateOnly OperationDate) : DomainEvent;
+public sealed record OperationRestored(OperationId OperationId, WalletId WalletId, DateOnly OperationDate) : DomainEvent;
+
+public sealed record CorrectionRecalculated(OperationId OperationId, WalletId WalletId, DateOnly OperationDate) : DomainEvent;
+public sealed record CorrectionRemoved(OperationId OperationId, WalletId WalletId, DateOnly OperationDate) : DomainEvent;
+public sealed record CorrectionCurrencyChanged(OperationId OperationId, WalletId WalletId) : DomainEvent;
 
 public sealed record TransferCreated(TransferId TransferId, WalletId SourceWalletId, WalletId TargetWalletId) : DomainEvent;
 public sealed record TransferDeleted(TransferId TransferId) : DomainEvent;
+public sealed record TransferRestored(TransferId TransferId) : DomainEvent;

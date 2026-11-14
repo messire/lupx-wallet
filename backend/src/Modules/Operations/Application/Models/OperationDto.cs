@@ -5,24 +5,32 @@ namespace LupexWallet.Operations.Application;
 public sealed record OperationDto(
     Guid Id,
     Guid WalletId,
-    Guid OperationTypeId,
+    Guid? OperationTypeId,
     decimal Amount,
     Guid CurrencyId,
     DateOnly OperationDate,
     string? AdjustmentMode,
     Guid? TransferId,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt)
+    DateTimeOffset UpdatedAt,
+    bool IsDeleted,
+    DateTimeOffset? DeletedAt,
+    bool IsCorrection,
+    decimal? StatedBalanceAmount)
 {
     public static OperationDto FromDomain(Operation operation) => new(
         operation.Id.Value,
         operation.WalletId.Value,
-        operation.OperationTypeId.Value,
+        operation.OperationTypeId?.Value,
         operation.Amount.Amount,
         operation.CurrencyId.Value,
         operation.OperationDate,
         operation.AdjustmentMode?.ToString(),
         operation.TransferId?.Value,
         operation.CreatedAt,
-        operation.UpdatedAt);
+        operation.UpdatedAt,
+        operation.IsDeleted,
+        operation.DeletedAt,
+        operation.IsCorrection,
+        operation.StatedBalance?.Amount);
 }

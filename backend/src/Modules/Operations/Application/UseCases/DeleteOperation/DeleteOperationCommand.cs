@@ -5,35 +5,41 @@ using MediatR;
 
 namespace LupexWallet.Operations.Application;
 
-/// <summary>UC-14 (docs/api/openapi.yaml: DELETE /operations/{id}).</summary>
+/// <summary>UC-14 (docs/api/openapi.yaml: DELETE /operations/{id}) — soft delete with any date (ADR-0002, §3).</summary>
 public sealed record DeleteOperationCommand(Guid Id) : IRequest, ICommand<Unit>;
 
 public sealed class DeleteOperationCommandHandler(
     IOperationRepository repository,
     IOperationsUnitOfWork unitOfWork,
-    IWalletBalanceGateway walletBalanceGateway) : IRequestHandler<DeleteOperationCommand>
+    IWalletBalanceGateway walletBalanceGateway,
+    IWalletCorrectionsReconciler correctionsReconciler) : IRequestHandler<DeleteOperationCommand>
 {
     public async Task Handle(DeleteOperationCommand request, CancellationToken cancellationToken)
     {
-        var operation = await repository.GetByIdAsync(new OperationId(request.Id), cancellationToken)
+        var operationId = new OperationId(request.Id);
+
+        var walletId = await repository.FindWalletIdAsync(operationId, cancellationToken)
+            ?? throw new KeyNotFoundException($"Operation {request.Id} не найдена.");
+        await unitOfWork.AcquireWalletLocksAsync([walletId], cancellationToken);
+
+        var operation = await repository.GetByIdAsync(operationId, cancellationToken)
             ?? throw new KeyNotFoundException($"Operation {request.Id} не найдена.");
 
-        // ADR-0009, случай b — решение пользователя от 2026-09-11: граница "история" для
-        // удаления операции — сегодняшний день, без обращения к BalanceHistory (кросс-модульный
-        // запрос не нужен). Каскадный пересчет (ADR-0003/0008) материализует слепок на дату
-        // операции немедленно, поэтому "последний слепок кошелька" почти всегда ≥ дате любой
-        // существующей операции — буквальная проверка через него заблокировала бы почти все
-        // удаления. Вместо этого: дата строго раньше сегодня — уже отражена в истории и не
-        // подлежит удалению (только редактирование, UC-13); дата = сегодня — удаление разрешено.
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var hasHistory = operation.OperationDate < today;
-        operation.EnsureCanBeDeleted(hasHistory);
+        // Moved to another wallet between the lookup and the lock: the held lock is the wrong one.
+        if (operation.WalletId != walletId)
+        {
+            throw new RecordModifiedConcurrentlyException();
+        }
 
+        // Domain invariants (not a correction, not a transfer leg, not already deleted) run before the wallet is touched.
+        operation.SoftDelete();
+
+        // One net delta: the reversal of the operation plus the change of the wallet's balance corrections.
         var reversal = operation.AppliedDelta.Negate();
-        await walletBalanceGateway.ApplyDeltaAsync(operation.WalletId, reversal, cancellationToken);
+        var correctionsChange = await correctionsReconciler.ReconcileAsync(operation.WalletId, [operation], cancellationToken);
+        await WalletBalanceChange.ApplyAsync(
+            walletBalanceGateway, operation.WalletId, reversal.Add(new Money(correctionsChange, reversal.CurrencyId)), cancellationToken);
 
-        operation.MarkAsDeleted();
-        repository.Remove(operation);
         await unitOfWork.SaveChangesAsync(cancellationToken);
     }
 }

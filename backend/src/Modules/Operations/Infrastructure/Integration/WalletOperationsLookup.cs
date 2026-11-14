@@ -16,8 +16,10 @@ public sealed class WalletOperationsLookup(OperationsDbContext dbContext) : IWal
         // приложении (личные финансы одного пользователя) не оправдывает риск.
         // Сортировка не нужна в самом SQL-запросе — строки все равно перегруппировываются
         // и пересортировываются по датам в памяти ниже.
+        // Soft-deleted rows are excluded explicitly (ADR-0002, §3): no global query filter,
+        // because history/usage probes must still see them.
         var rows = await dbContext.Operations
-            .Where(x => x.WalletId == walletId && x.OperationDate <= throughDate)
+            .Where(x => x.WalletId == walletId && x.OperationDate <= throughDate && x.DeletedAt == null)
             .Select(x => new { x.OperationDate, Amount = EF.Property<decimal>(x, "_appliedDeltaAmount") })
             .ToListAsync(cancellationToken);
 

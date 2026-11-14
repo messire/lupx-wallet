@@ -11,13 +11,13 @@ import { TotalAmount } from '../../../../data-access/reporting/reporting-api.mod
 import { ReportingApiService } from '../../../../data-access/reporting/reporting-api.service';
 import { CardComponent } from '@shared/ui/card/card.component';
 import { FieldComponent } from '@shared/ui/field/field.component';
-import { FieldControlDirective } from '@shared/ui/field/field-control.directive';
 import { ButtonComponent } from '@shared/ui/button/button.component';
 import { BadgeComponent } from '@shared/ui/badge/badge.component';
 import { EmptyStateComponent } from '@shared/ui/empty-state/empty-state.component';
 import { LoadingStateComponent } from '@shared/ui/loading-state/loading-state.component';
 import { SkeletonComponent } from '@shared/ui/skeleton/skeleton.component';
 import { ErrorStateComponent } from '@shared/ui/error-state/error-state.component';
+import { DateInputComponent } from '@shared/ui/date-input/date-input.component';
 
 /**
  * UC-19 (current total) and UC-21 (historical total for a date). Wallet names and
@@ -29,10 +29,10 @@ import { ErrorStateComponent } from '@shared/ui/error-state/error-state.componen
   selector: 'app-reporting',
   standalone: true,
   imports: [
+    DateInputComponent,
     ReactiveFormsModule,
     CardComponent,
     FieldComponent,
-    FieldControlDirective,
     ButtonComponent,
     BadgeComponent,
     EmptyStateComponent,
@@ -143,9 +143,7 @@ export class ReportingComponent implements OnInit {
 
   private loadLookups(): void {
     this.walletsService.list({ includeArchived: true, limit: 100 }).subscribe((page) => this.wallets.set(page.data));
-    this.referenceDataService
-      .listCurrencies({ includeInactive: true, limit: 100 })
-      .subscribe((page) => this.currencies.set(page.data));
+    this.referenceDataService.listCurrencies({ limit: 100 }).subscribe((page) => this.currencies.set(page.data));
   }
 
   private today(): string {

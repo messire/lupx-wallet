@@ -2,7 +2,7 @@
 
 import { Money } from '../../shared/money/money';
 
-/** A wallet excluded from the total because its currency has no exchange rate (docs/PROGRESS.md, section 5.1). */
+/** A wallet excluded from the total because its currency has no exchange rate (ADR-0004 §9). */
 export interface ExcludedWallet {
   walletId: string;
   reason: string;

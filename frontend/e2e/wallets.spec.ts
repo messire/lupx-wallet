@@ -1,5 +1,15 @@
-import { test, expect } from '@playwright/test';
-import { login, createWallet } from './fixtures';
+import {
+  test,
+  expect,
+  login,
+  createWallet,
+  apiRequest,
+  ensureAvailableCurrencyOnPage,
+  removeCurrencyIfActive,
+  selectWalletCurrency,
+  trackCurrencyForCleanup,
+  pickOrCreateWalletType,
+} from './fixtures';
 
 test.beforeEach(async ({ page }) => {
   await login(page);
@@ -28,29 +38,12 @@ test('shows a readable save error and keeps the entered data when the create req
     return route.continue();
   });
 
+  // The currency comes from the list of available currencies, filled only by a rates refresh (ADR-0004 §7).
+  await ensureAvailableCurrencyOnPage(page, 'EUR');
   await page.getByRole('button', { name: 'Добавить кошелек' }).click();
+  await pickOrCreateWalletType(page);
 
-  const typeSelect = page.locator('select[formcontrolname="walletTypeId"]');
-  if ((await typeSelect.locator('option').count()) <= 1) {
-    await page.getByRole('button', { name: '+ добавить тип' }).click();
-    await page.getByPlaceholder('Название типа').fill('E2E тип кошелька');
-    const typeQuickAdd = page.locator('.quick-add').filter({ has: page.getByPlaceholder('Название типа') });
-    await typeQuickAdd.getByRole('button', { name: 'Добавить' }).click();
-    await expect(typeSelect.locator('option')).not.toHaveCount(1);
-  }
-  await typeSelect.selectOption({ index: 1 });
-
-  const currencySelect = page.locator('select[formcontrolname="currencyId"]');
-  if ((await currencySelect.locator('option').count()) <= 1) {
-    await page.getByRole('button', { name: '+ добавить валюту' }).click();
-    const combobox = page.getByRole('combobox').last();
-    await combobox.click();
-    await combobox.fill('EUR');
-    await page.getByRole('option', { name: /EUR/ }).first().click();
-    await page.locator('.quick-add').getByRole('button', { name: 'Добавить' }).click();
-    await expect(currencySelect.locator('option')).not.toHaveCount(1);
-  }
-  await currencySelect.selectOption({ index: 1 });
+  await selectWalletCurrency(page, 'EUR');
 
   const walletName = `E2E ошибка сохранения ${Date.now()}`;
   await page.locator('input[formcontrolname="name"]').fill(walletName);
@@ -62,12 +55,43 @@ test('shows a readable save error and keeps the entered data when the create req
   await expect(page.locator('.wallet-card', { hasText: walletName })).toHaveCount(0);
 });
 
+test('a wallet in a currency that is not active yet activates it: the currency shows up among the active ones', async ({
+  page,
+}) => {
+  // JPY is used by this scenario only. Start from "not active" so the activation is really caused by the
+  // wallet; a previous run's leftover (archived wallet still using it => 409) would make the check vacuous.
+  const code = 'JPY';
+  trackCurrencyForCleanup(page, code);
+  const removed = await removeCurrencyIfActive(page, code);
+  test.skip(removed === 409, `${code} is still used by a wallet or an operation from an earlier run — cannot start from "not active"`);
+
+  const name = `E2E новая валюта ${Date.now()}`;
+  await createWallet(page, { name, currencyCode: code });
+  await expect(page.locator('.wallet-card', { hasText: name })).toContainText(code);
+
+  // The server activated it in the same transaction as the wallet (no "add currency" step in between).
+  const { body } = await apiRequest<{ data: Array<{ code: string }> }>(page, 'GET', '/currencies?limit=100');
+  expect(body?.data.map((currency) => currency.code)).toContain(code);
+
+  await page.goto('/reference-data');
+  await page.getByRole('tab', { name: 'Валюты' }).click();
+  const panel = page.getByRole('tabpanel', { name: 'Валюты' });
+  await expect(panel.locator('.ref-table tr', { hasText: code })).toBeVisible();
+  // ... and it is no longer offered for adding: it is active.
+  const combobox = panel.getByRole('combobox', { name: 'Добавить в активные' });
+  await combobox.click();
+  await combobox.fill(code);
+  await expect(panel.getByRole('option', { name: new RegExp(`^${code} —`) })).toHaveCount(0);
+});
+
 test('confirms deletion through the dialog and removes the wallet', async ({ page }) => {
   const name = `E2E удаление ${Date.now()}`;
   await createWallet(page, { name });
 
+  // "Удалить" lives in the card's "···" menu popover (not on the card itself).
   const card = page.locator('.wallet-card', { hasText: name });
-  await card.getByRole('button', { name: 'Удалить' }).click();
+  await card.getByRole('button', { name: `Действия: ${name}` }).click();
+  await page.locator('.wallet-card__menu-popover').getByRole('button', { name: 'Удалить' }).click();
 
   const dialog = page.locator('dialog.app-dialog[open]');
   await expect(dialog).toBeVisible();
@@ -81,13 +105,14 @@ test('confirms deletion through the dialog and removes the wallet', async ({ pag
   await expect(card).toHaveCount(0);
 });
 
-test('Escape closes the delete dialog without deleting and returns focus to the trigger button', async ({ page }) => {
+test('Escape closes the delete dialog without deleting and returns focus to the menu trigger', async ({ page }) => {
   const name = `E2E escape ${Date.now()}`;
   await createWallet(page, { name });
 
   const card = page.locator('.wallet-card', { hasText: name });
-  const deleteButton = card.getByRole('button', { name: 'Удалить' });
-  await deleteButton.click();
+  const menuTrigger = card.getByRole('button', { name: `Действия: ${name}` });
+  await menuTrigger.click();
+  await page.locator('.wallet-card__menu-popover').getByRole('button', { name: 'Удалить' }).click();
 
   const dialog = page.locator('dialog.app-dialog[open]');
   await expect(dialog).toBeVisible();
@@ -97,5 +122,5 @@ test('Escape closes the delete dialog without deleting and returns focus to the 
   await expect(dialog).toBeHidden();
   // The wallet must still exist — Escape is a dismissal, not a confirmation.
   await expect(card).toBeVisible();
-  await expect(deleteButton).toBeFocused();
+  await expect(menuTrigger).toBeFocused();
 });

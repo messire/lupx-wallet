@@ -4,9 +4,9 @@ using MediatR;
 
 namespace LupexWallet.ReferenceData.Application;
 
-public sealed record CurrencyDto(Guid Id, string Code, string Name, bool IsActive)
+public sealed record CurrencyDto(Guid Id, string Code, string Name)
 {
-    public static CurrencyDto FromDomain(Currency entity) => new(entity.Id.Value, entity.Code, entity.Name, entity.IsActive);
+    public static CurrencyDto FromDomain(Currency entity) => new(entity.Id.Value, entity.Code, entity.Name);
 }
 
 public sealed record CurrencyPageDto(IReadOnlyList<CurrencyDto> Data, string? NextCursor, bool HasMore);
@@ -18,44 +18,43 @@ public interface ICurrencyRepository
     void Add(Currency currency);
     void Remove(Currency currency);
     Task<Currency?> GetByIdAsync(CurrencyId id, CancellationToken cancellationToken);
+    Task<Currency?> GetByCodeAsync(string code, CancellationToken cancellationToken);
     Task<bool> CodeExistsAsync(string code, CancellationToken cancellationToken);
-    Task<CurrencyPageResult> ListAsync(bool includeInactive, NameCursor? afterCursor, int limit, CancellationToken cancellationToken);
+    Task<CurrencyPageResult> ListAsync(NameCursor? afterCursor, int limit, CancellationToken cancellationToken);
 }
 
-// ---- Добавление валюты, включая криптовалюту (решено при проектировании домена) ----
-public sealed record CreateCurrencyCommand(string Code, string Name) : IRequest<CurrencyDto>, ICommand<CurrencyDto>;
+public sealed record AvailableCurrencyDto(string Code, string Name, bool IsActive);
 
-public sealed class CreateCurrencyCommandHandler(ICurrencyRepository repository, IReferenceDataUnitOfWork unitOfWork)
-    : IRequestHandler<CreateCurrencyCommand, CurrencyDto>
+// ---- Add a currency to the active set from the available list (ADR-0004 §7) ----
+public sealed record ActivateCurrencyCommand(string Code) : IRequest<CurrencyDto>, ICommand<CurrencyDto>;
+
+public sealed class ActivateCurrencyCommandHandler(
+    CurrencyActivationPolicy activationPolicy,
+    IReferenceDataUnitOfWork unitOfWork) : IRequestHandler<ActivateCurrencyCommand, CurrencyDto>
 {
-    public async Task<CurrencyDto> Handle(CreateCurrencyCommand request, CancellationToken cancellationToken)
+    public async Task<CurrencyDto> Handle(ActivateCurrencyCommand request, CancellationToken cancellationToken)
     {
-        if (await repository.CodeExistsAsync(request.Code, cancellationToken))
+        if (!string.IsNullOrWhiteSpace(request.Code))
         {
-            throw new CurrencyCodeAlreadyExistsException(request.Code);
+            await unitOfWork.LockCurrencyCodeAsync(request.Code, cancellationToken);
         }
 
-        var currency = Currency.Create(CurrencyId.New(), request.Code, request.Name);
-        repository.Add(currency);
+        var currency = await activationPolicy.ActivateAsync(request.Code, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return CurrencyDto.FromDomain(currency);
     }
 }
 
-public sealed record DeactivateCurrencyCommand(Guid Id) : IRequest<CurrencyDto>, ICommand<CurrencyDto>;
+// ---- Available currencies: the rate service list stored in the database ----
+public sealed record ListAvailableCurrenciesQuery
+    : IRequest<IReadOnlyList<AvailableCurrencyDto>>, IQuery<IReadOnlyList<AvailableCurrencyDto>>;
 
-public sealed class DeactivateCurrencyCommandHandler(ICurrencyRepository repository, IReferenceDataUnitOfWork unitOfWork)
-    : IRequestHandler<DeactivateCurrencyCommand, CurrencyDto>
+public sealed class ListAvailableCurrenciesQueryHandler(IAvailableCurrencyRepository repository)
+    : IRequestHandler<ListAvailableCurrenciesQuery, IReadOnlyList<AvailableCurrencyDto>>
 {
-    public async Task<CurrencyDto> Handle(DeactivateCurrencyCommand request, CancellationToken cancellationToken)
-    {
-        var currency = await repository.GetByIdAsync(new CurrencyId(request.Id), cancellationToken)
-            ?? throw new KeyNotFoundException($"Currency {request.Id} не найдена.");
-
-        currency.Deactivate();
-        await unitOfWork.SaveChangesAsync(cancellationToken);
-        return CurrencyDto.FromDomain(currency);
-    }
+    public Task<IReadOnlyList<AvailableCurrencyDto>> Handle(
+        ListAvailableCurrenciesQuery request, CancellationToken cancellationToken) =>
+        repository.ListAsync(cancellationToken);
 }
 
 public sealed record DeleteCurrencyCommand(Guid Id) : IRequest, ICommand<Unit>;
@@ -70,9 +69,13 @@ public sealed class DeleteCurrencyCommandHandler(
         var currency = await repository.GetByIdAsync(new CurrencyId(request.Id), cancellationToken)
             ?? throw new KeyNotFoundException($"Currency {request.Id} не найдена.");
 
-        // ADR-0009, случай c: реальная проверка использования через реализации Wallets/
-        // Operations (и ExchangeRates, если его пробник уже зарегистрирован к моменту
-        // сборки Host — см. W1.1/"Известное упрощение", ExchangeRatesReferenceItemUsageProbe).
+        // Wallet creation takes the same lock before using an active currency, so a wallet cannot
+        // appear between the usage check and the removal (ADR-0004 §7).
+        await unitOfWork.LockCurrencyCodeAsync(currency.Code, cancellationToken);
+
+        // ADR-0002 §4: use = wallets (archived included) and operations (soft-deleted included)
+        // via the two port implementations; exchange rates are not usage — the ExchangeRates
+        // CurrencyDeletedHandler removes them in this command's transaction.
         var isUsed = await usageProbes.AnyIsUsedAsync(ReferenceItemKind.Currency, request.Id, cancellationToken);
         currency.EnsureCanBeDeleted(isUsed);
 
@@ -83,7 +86,7 @@ public sealed class DeleteCurrencyCommandHandler(
 }
 
 // ---- UC-... список валют ----
-public sealed record ListCurrenciesQuery(bool IncludeInactive, string? Cursor, int Limit)
+public sealed record ListCurrenciesQuery(string? Cursor, int Limit)
     : IRequest<CurrencyPageDto>, IQuery<CurrencyPageDto>;
 
 public sealed class ListCurrenciesQueryHandler(ICurrencyRepository repository)
@@ -94,7 +97,7 @@ public sealed class ListCurrenciesQueryHandler(ICurrencyRepository repository)
         var cursor = NameCursor.TryDecode(request.Cursor);
         var limit = Math.Clamp(request.Limit <= 0 ? 20 : request.Limit, 1, 100);
 
-        var page = await repository.ListAsync(request.IncludeInactive, cursor, limit, cancellationToken);
+        var page = await repository.ListAsync(cursor, limit, cancellationToken);
 
         var items = page.Items.Select(CurrencyDto.FromDomain).ToList();
         var nextCursor = page.Items.Count > 0

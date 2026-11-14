@@ -16,7 +16,45 @@ public static class OperationsEndpointsExtensions
     {
         MapOperations(app);
         MapTransfers(app);
+        MapStatedBalances(app);
         return app;
+    }
+
+    private static void MapStatedBalances(IEndpointRouteBuilder app)
+    {
+        app.MapPut("/wallets/{walletId:guid}/stated-balances/{date}", async (
+            Guid walletId, DateOnly date, [FromBody] StatedBalanceRequest request, ISender sender, CancellationToken ct) =>
+        {
+            if (request.Amount is not { } amount)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "Operation validation failed",
+                    detail: "Укажите баланс на конец дня.",
+                    type: "https://lupexwallet/errors/operation-validation-error");
+            }
+
+            try
+            {
+                var result = await sender.Send(new SetStatedBalanceCommand(walletId, date, amount), ct);
+                var response = ToResponse(result.Operation);
+                return result.Created
+                    ? Results.Created($"/api/v1/operations/{response.Id}", response)
+                    : Results.Ok(response);
+            }
+            catch (WalletReferenceNotFoundException)
+            {
+                return Results.NotFound();
+            }
+            catch (OperationsDomainException ex) when (IsLifecycleConflict(ex))
+            {
+                return ConflictProblem(ex);
+            }
+            catch (OperationsDomainException ex)
+            {
+                return ValidationProblem(ex);
+            }
+        }).WithTags("Operations").WithName("setStatedBalance");
     }
 
     private static void MapOperations(IEndpointRouteBuilder app)
@@ -60,9 +98,11 @@ public static class OperationsEndpointsExtensions
         {
             try
             {
+                // A rejected mode travels with the command, so 404 and 409 (correction, deleted) win over this 400.
+                var adjustmentMode = TryParseAdjustmentMode(request.AdjustmentMode, out var adjustmentModeError);
                 var command = new UpdateOperationCommand(
                     operationId, request.WalletId, request.OperationTypeId, request.Amount, request.OperationDate,
-                    ParseAdjustmentMode(request.AdjustmentMode));
+                    adjustmentMode, adjustmentModeError);
                 var dto = await sender.Send(command, ct);
                 return Results.Ok(ToResponse(dto));
             }
@@ -70,11 +110,10 @@ public static class OperationsEndpointsExtensions
             {
                 return Results.NotFound();
             }
-            catch (OperationPartOfTransferException ex)
+            catch (OperationsDomainException ex) when (IsLifecycleConflict(ex))
             {
-                // W2.6: унификация с DELETE /operations/{id} — тот же домен-конфликт (операция —
-                // часть перевода) должен давать тот же HTTP-код для обеих операций.
-                return ConflictProblem(ex);
+                // Part of a transfer, soft-deleted (restore first) or changed concurrently — same 409 as DELETE/restore.
+                return ConflictProblem(ex, $"/api/v1/operations/{operationId}");
             }
             catch (OperationsDomainException ex)
             {
@@ -93,11 +132,28 @@ public static class OperationsEndpointsExtensions
             {
                 return Results.NotFound();
             }
-            catch (OperationsDomainException ex) when (ex is OperationPartOfTransferException or OperationDeletionNotAllowedException)
+            catch (OperationsDomainException ex) when (IsLifecycleConflict(ex))
             {
-                return ConflictProblem(ex);
+                return ConflictProblem(ex, $"/api/v1/operations/{operationId}");
             }
         }).WithName("deleteOperation");
+
+        group.MapPost("/{operationId:guid}/restore", async (Guid operationId, ISender sender, CancellationToken ct) =>
+        {
+            try
+            {
+                var dto = await sender.Send(new RestoreOperationCommand(operationId), ct);
+                return Results.Ok(ToResponse(dto));
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound();
+            }
+            catch (OperationsDomainException ex) when (IsLifecycleConflict(ex))
+            {
+                return ConflictProblem(ex, $"/api/v1/operations/{operationId}");
+            }
+        }).WithName("restoreOperation");
     }
 
     private static void MapTransfers(IEndpointRouteBuilder app)
@@ -146,15 +202,78 @@ public static class OperationsEndpointsExtensions
             {
                 return Results.NotFound();
             }
-            catch (TransferDeletionNotAllowedException ex)
+            catch (OperationsDomainException ex) when (IsLifecycleConflict(ex))
             {
-                return ConflictProblem(ex);
+                return ConflictProblem(ex, $"/api/v1/transfers/{transferId}");
             }
         }).WithName("deleteTransfer");
+
+        group.MapPost("/{transferId:guid}/restore", async (Guid transferId, ISender sender, CancellationToken ct) =>
+        {
+            try
+            {
+                var dto = await sender.Send(new RestoreTransferCommand(transferId), ct);
+                return Results.Ok(ToResponse(dto));
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound();
+            }
+            catch (OperationsDomainException ex) when (IsLifecycleConflict(ex))
+            {
+                return ConflictProblem(ex, $"/api/v1/transfers/{transferId}");
+            }
+        }).WithName("restoreTransfer");
     }
 
-    private static AdjustmentMode? ParseAdjustmentMode(string? value) =>
-        string.IsNullOrEmpty(value) ? null : Enum.Parse<AdjustmentMode>(value, ignoreCase: true);
+    /// <summary>
+    /// Soft-delete lifecycle violations (ADR-0002, §3) and concurrent modification — all answered
+    /// with 409. TransferLegMismatchException is deliberately absent: it signals corrupted data (500).
+    /// </summary>
+    private static bool IsLifecycleConflict(OperationsDomainException ex) => ex is
+        OperationPartOfTransferException or OperationAlreadyDeletedException or OperationNotDeletedException
+        or OperationIsDeletedException or TransferAlreadyDeletedException or TransferNotDeletedException
+        or CorrectionNotEditableException or RecordModifiedConcurrentlyException;
+
+    /// <summary>
+    /// Absolute is recognized before enum binding and answered with 400: the balance for a date is
+    /// stated through a separate action (ADR-0003, §6).
+    /// </summary>
+    private static AdjustmentMode? ParseAdjustmentMode(string? value)
+    {
+        var mode = TryParseAdjustmentMode(value, out var error);
+        return error is null ? mode : throw error;
+    }
+
+    /// <summary>
+    /// Only the names of <see cref="AdjustmentMode"/> are accepted (case-insensitive): numeric
+    /// strings that <c>Enum.Parse</c> would map to a member or an undefined value are rejected.
+    /// </summary>
+    private static AdjustmentMode? TryParseAdjustmentMode(string? value, out OperationsDomainException? error)
+    {
+        error = null;
+        if (string.IsNullOrEmpty(value))
+        {
+            return null;
+        }
+
+        if (string.Equals(value, "Absolute", StringComparison.OrdinalIgnoreCase))
+        {
+            error = new AbsoluteAdjustmentNotSupportedException();
+            return null;
+        }
+
+        foreach (var mode in Enum.GetValues<AdjustmentMode>())
+        {
+            if (string.Equals(mode.ToString(), value, StringComparison.OrdinalIgnoreCase))
+            {
+                return mode;
+            }
+        }
+
+        error = new AdjustmentModeUnknownException();
+        return null;
+    }
 
     private static IResult ValidationProblem(OperationsDomainException ex) => Results.Problem(
         statusCode: StatusCodes.Status400BadRequest,
@@ -162,22 +281,25 @@ public static class OperationsEndpointsExtensions
         detail: ex.Message,
         type: "https://lupexwallet/errors/operation-validation-error");
 
-    private static IResult ConflictProblem(OperationsDomainException ex) => Results.Problem(
+    private static IResult ConflictProblem(OperationsDomainException ex, string? instance = null) => Results.Problem(
         statusCode: StatusCodes.Status409Conflict,
         title: "Operation conflict",
         detail: ex.Message,
+        instance: instance,
         type: "https://lupexwallet/errors/operation-conflict");
 
     private static OperationResponse ToResponse(OperationDto dto) => new(
         dto.Id, dto.WalletId, dto.OperationTypeId, new MoneyResponse(dto.Amount.ToString(CultureInfo.InvariantCulture), dto.CurrencyId),
-        dto.OperationDate, dto.AdjustmentMode, dto.TransferId, dto.CreatedAt, dto.UpdatedAt);
+        dto.OperationDate, dto.AdjustmentMode, dto.IsCorrection,
+        dto.StatedBalanceAmount is { } stated ? new MoneyResponse(stated.ToString(CultureInfo.InvariantCulture), dto.CurrencyId) : null,
+        dto.TransferId, dto.CreatedAt, dto.UpdatedAt, dto.IsDeleted, dto.DeletedAt);
 
     private static OperationPageResponse ToResponse(OperationPageDto page) => new(
         page.Data.Select(ToResponse).ToList(), new CursorPageMeta(page.NextCursor, page.HasMore));
 
     private static TransferResponse ToResponse(TransferDto dto) => new(
         dto.Id, dto.SourceWalletId, dto.TargetWalletId, dto.SourceOperationId, dto.TargetOperationId,
-        new MoneyResponse(dto.Amount.ToString(CultureInfo.InvariantCulture), dto.CurrencyId), dto.TransferDate, dto.CreatedAt);
+        new MoneyResponse(dto.Amount.ToString(CultureInfo.InvariantCulture), dto.CurrencyId), dto.TransferDate, dto.CreatedAt, dto.IsDeleted, dto.DeletedAt);
 
     private static TransferPageResponse ToResponse(TransferPageDto page) => new(
         page.Data.Select(ToResponse).ToList(), new CursorPageMeta(page.NextCursor, page.HasMore));

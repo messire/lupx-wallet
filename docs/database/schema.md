@@ -453,11 +453,27 @@ CREATE TABLE funds.fund_allocations (
 );
 CREATE UNIQUE INDEX ux_fund_allocations_fund_wallet ON funds.fund_allocations (fund_id, wallet_id);
 CREATE INDEX ix_fund_allocations_wallet ON funds.fund_allocations (wallet_id);
+
+-- В9: сколько резерва фонда сейчас «снято» одной операцией-платежом связанного долга/кредита.
+CREATE TABLE funds.fund_linked_releases (
+    id            uuid PRIMARY KEY,
+    fund_id       uuid        NOT NULL REFERENCES funds.funds (id) ON DELETE CASCADE,
+    operation_id  uuid        NOT NULL,              -- operations.operations.id — расход-платёж (без FK между схемами)
+    wallet_id     uuid        NOT NULL,              -- кошелёк аллокации, с которой снят резерв (без FK)
+    amount        numeric     NOT NULL,              -- снято сейчас (уменьшается при возврате резерва)
+    created_at    timestamptz NOT NULL,
+    updated_at    timestamptz NOT NULL,
+    CONSTRAINT ck_fund_linked_releases_amount_non_negative CHECK (amount >= 0)
+);
+CREATE UNIQUE INDEX ux_fund_linked_releases_fund_operation_wallet
+    ON funds.fund_linked_releases (fund_id, operation_id, wallet_id);
+CREATE INDEX ix_fund_linked_releases_operation ON funds.fund_linked_releases (operation_id);
 ```
 
 - **Одна аллокация на пару (фонд, кошелек).** Повторный резерв увеличивает `amount`, снятие — уменьшает. Снятая до нуля аллокация не удаляется: это история резервов, из-за которой фонд нельзя удалить физически (только закрыть, ADR-0010 §8). Закрытие фонда обнуляет все его аллокации.
 - **Валюта аллокации** — валюта фонда; кошелек обязан быть в той же валюте (проверка в приложении, отдельной колонки нет).
 - **Зарезервировано по кошельку** = сумма `amount` аллокаций кошелька по фондам со `status = 'Active'`. Свободные средства и дефицит обеспечения резерва вычисляются при чтении (текущий баланс берется из `wallets`), не хранятся.
+- **Снятие резерва платежом (В9), `fund_linked_releases`.** Погашение долга/платёж по кредиту (события `DebtRepaymentRecorded`/`LoanPaymentRecorded`) снимает резерв активных фондов, связанных с этим долгом/кредитом, по кошельку платежа — не больше суммы платежа и аллокации, старые фонды первыми; снятое записывается строкой на (фонд, операция, кошелёк). Мягкое удаление операции (`OperationDeleted`) возвращает снятое в активные фонды (старые первыми) в пределах свободных средств кошелька после удаления; `amount` уменьшается на возвращённое, невозвращённое остаётся снятым. Восстановление операции (`OperationRestored`) снимает резерв заново, как новый платёж той же (записанной в Debts) суммы, и увеличивает `amount` той же строки. Закрытые фонды не участвуют. Таблица — дочерняя сущность агрегата `Fund` (тот же токен `updated_at`). Изменение суммы операции-платежа (`OperationUpdated`) снятый резерв не пересчитывает.
 - **Конкурентный доступ.** Создание и увеличение резерва выполняются под тем же advisory lock кошелька, что и команды Operations/Wallets (`pg_advisory_xact_lock(hashtextextended(wallet_id, 0))`), поэтому два резерва на один кошелек не могут оба пройти проверку свободных средств. Параллельное изменение одного фонда отсекается проверкой `updated_at` (EF Core concurrency token) → `409`.
 
 ## Схема `debts`
@@ -558,7 +574,7 @@ CREATE INDEX ix_loan_payments_loan ON debts.loan_payments (loan_id);
 | `audit` | Audit | `audit_entries` |
 | `planning` | Planning | `planned_transactions`, `occurrence_overrides`, `occurrence_executions` |
 | `budgeting` | Budgeting | `expense_categories`, `expense_category_operation_types`, `budgets`, `budget_category_limits` |
-| `funds` | Funds | `funds`, `fund_allocations` |
+| `funds` | Funds | `funds`, `fund_allocations`, `fund_linked_releases` |
 | `debts` | Debts | `creditors`, `debts`, `debt_repayments`, `loans`, `loan_schedule_items`, `loan_payments` |
 
 `Reporting` не владеет таблицами — читает через узкие read-контракты остальных модулей или (как будущая оптимизация) через SQL-представления, объединяющие несколько схем на чтение.

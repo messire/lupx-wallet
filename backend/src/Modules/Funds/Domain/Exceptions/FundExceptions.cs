@@ -23,6 +23,16 @@ public sealed class FundTargetAmountMustBePositiveException()
 public sealed class FundLinkAmbiguousException()
     : FundValidationException("Фонд можно связать либо с долгом, либо с кредитом, но не с обоими сразу.");
 
+public sealed class FundLinkedDebtNotFoundException() : FundValidationException("Связанный долг не найден.");
+
+public sealed class FundLinkedLoanNotFoundException() : FundValidationException("Связанный кредит не найден.");
+
+public sealed class FundLinkCurrencyMismatchException()
+    : FundValidationException("Валюта связанного долга или кредита должна совпадать с валютой фонда.");
+
+public sealed class FundLinkedObligationCancelledException()
+    : FundConflictException("Нельзя связать фонд с отменённым долгом или кредитом.");
+
 public sealed class FundCurrencyNotFoundException()
     : FundValidationException("Валюта не найдена среди активных.");
 

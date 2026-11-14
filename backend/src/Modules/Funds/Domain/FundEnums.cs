@@ -19,3 +19,16 @@ public enum FundReleaseReason
     /// <summary>A payment of the linked debt/loan released the reserve (ADR-0010 §4, B9).</summary>
     LinkedPayment,
 }
+
+/// <summary>Why an allocation was created or increased.</summary>
+public enum FundReserveReason
+{
+    /// <summary>The user reserved money.</summary>
+    Manual,
+
+    /// <summary>
+    /// The expense of a linked debt/loan payment was soft-deleted and the reserve it had released
+    /// came back (ADR-0010 §4, B9), within the wallet's free funds.
+    /// </summary>
+    LinkedPaymentDeleted,
+}

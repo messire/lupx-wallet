@@ -5,6 +5,7 @@ using LupexWallet.ReferenceData.Application;
 using LupexWallet.Reporting.Application;
 using LupexWallet.SharedKernel;
 using LupexWallet.Wallets.Application;
+using LupexWallet.Funds.Application;
 using NSubstitute;
 using Xunit;
 
@@ -30,9 +31,13 @@ public sealed class GetTotalAmountQueryHandlerTests
     public GetTotalAmountQueryHandlerTests()
     {
         _currencyLookup.GetAsync(Secondary, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(Secondary, "USD"));
+        _reservations.GetReservedByWalletAsync(Arg.Any<CancellationToken>()).Returns([]);
     }
 
-    private GetTotalAmountQueryHandler CreateHandler() => new(_walletTotalsSource, _balanceOnDateLookup, _exchangeRateLookup, _currencyLookup);
+    private readonly IFundReservationsLookup _reservations = Substitute.For<IFundReservationsLookup>();
+
+    private GetTotalAmountQueryHandler CreateHandler() =>
+        new(_walletTotalsSource, _balanceOnDateLookup, _exchangeRateLookup, _currencyLookup, _reservations);
 
     private void SetupWallets(decimal primaryBalance, decimal secondaryBalance, bool secondaryIncludedInTotal = true) =>
         _walletTotalsSource.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<WalletTotalInfo>
@@ -157,5 +162,55 @@ public sealed class GetTotalAmountQueryHandlerTests
 
         result!.Amount.Should().Be(0m);
         result.ExcludedWallets.Should().BeEmpty();
+    }
+
+    // ---- ADR-0010 §7, B9: reserves of active funds reduce the current total ----
+
+    [Fact]
+    public async Task Handle_Current_WithReserves_AmountIsFreeAndActualIsShownNextToIt()
+    {
+        SetupWallets(primaryBalance: 100m, secondaryBalance: 30m);
+        _exchangeRateLookup.GetRateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns(0.5m);
+        _reservations.GetReservedByWalletAsync(Arg.Any<CancellationToken>()).Returns(
+        [
+            new WalletReservation(PrimaryWalletId, Primary, 40m),
+            new WalletReservation(SecondaryWalletId, Secondary, 10m),
+        ]);
+
+        var result = await CreateHandler().Handle(new GetTotalAmountQuery(Date: null), CancellationToken.None);
+
+        result!.ActualAmount.Should().Be(100m + 30m * 0.5m);
+        result.ReservedAmount.Should().Be(40m + 10m * 0.5m);
+        result.FreeAmount.Should().Be(115m - 45m);
+        result.Amount.Should().Be(result.FreeAmount!.Value, "B9: the headline total is the free amount");
+    }
+
+    [Fact]
+    public async Task Handle_Current_ReserveOnWalletOutsideTotal_DoesNotReduceTheTotal()
+    {
+        SetupWallets(primaryBalance: 100m, secondaryBalance: 30m, secondaryIncludedInTotal: false);
+        _reservations.GetReservedByWalletAsync(Arg.Any<CancellationToken>()).Returns(
+            [new WalletReservation(SecondaryWalletId, Secondary, 10m)]);
+
+        var result = await CreateHandler().Handle(new GetTotalAmountQuery(Date: null), CancellationToken.None);
+
+        result!.Amount.Should().Be(100m);
+        result.ReservedAmount.Should().Be(0m);
+    }
+
+    [Fact]
+    public async Task Handle_Historical_HasNoReserve_AmountIsActual()
+    {
+        var date = new DateOnly(2026, 1, 1);
+        SetupWallets(primaryBalance: 0m, secondaryBalance: 0m, secondaryIncludedInTotal: false);
+        _balanceOnDateLookup.GetBalanceOnDateAsync(PrimaryWalletId, date, Arg.Any<CancellationToken>()).Returns(70m);
+
+        var result = await CreateHandler().Handle(new GetTotalAmountQuery(date), CancellationToken.None);
+
+        result!.Amount.Should().Be(70m);
+        result.ActualAmount.Should().Be(70m);
+        result.ReservedAmount.Should().BeNull();
+        result.FreeAmount.Should().BeNull();
+        await _reservations.DidNotReceive().GetReservedByWalletAsync(Arg.Any<CancellationToken>());
     }
 }

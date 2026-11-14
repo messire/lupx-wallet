@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 namespace LupexWallet.Operations.Infrastructure;
 
 /// <summary>
-/// ADR-0002, §4 — one of the two implementations (with Wallets) of
+/// ADR-0002, §4 — one of the implementations (one per data-owner module) of
 /// ReferenceData.Application.IReferenceItemUsageProbe: data owner is Operations. Checks
 /// OperationType/Currency usage in operations.operations (a targeted EXISTS, not a collection
 /// dump); soft-deleted operations count as usage (no deleted_at filter); balance

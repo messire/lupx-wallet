@@ -13,7 +13,13 @@ public sealed record FundDeleted(FundId FundId) : DomainEvent;
 
 /// <summary>An allocation was created or increased. Amounts are in the fund currency.</summary>
 public sealed record FundReserved(
-    FundId FundId, WalletId WalletId, CurrencyId CurrencyId, decimal Amount, decimal OldAllocation, decimal NewAllocation) : DomainEvent;
+    FundId FundId, WalletId WalletId, CurrencyId CurrencyId, decimal Amount, decimal OldAllocation, decimal NewAllocation) : DomainEvent
+{
+    public FundReserveReason Reason { get; init; } = FundReserveReason.Manual;
+
+    /// <summary>The deleted payment operation whose released reserve came back; null for a manual reserve.</summary>
+    public OperationId? OperationId { get; init; }
+}
 
 /// <summary>An allocation was decreased: by the user, by closing the fund or by a linked debt/loan payment.</summary>
 public sealed record FundReleased(
@@ -23,4 +29,8 @@ public sealed record FundReleased(
     decimal Amount,
     decimal OldAllocation,
     decimal NewAllocation,
-    FundReleaseReason Reason) : DomainEvent;
+    FundReleaseReason Reason) : DomainEvent
+{
+    /// <summary>The payment operation that released the reserve (reason LinkedPayment); otherwise null.</summary>
+    public OperationId? OperationId { get; init; }
+}

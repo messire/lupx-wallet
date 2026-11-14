@@ -372,7 +372,8 @@ public sealed class FundsApiTests(ApiTestFixture fixture) : IntegrationTestBase(
         await AuthenticateAsync();
         var currency = await Client.CreateCurrencyAsync("USD");
         var wallet = await Client.CreateWalletAsync(1000m, currencyId: currency.Id);
-        var debtId = Guid.NewGuid();
+        var creditor = await LupexWallet.IntegrationTests.Debts.DebtsTestHelpers.CreateCreditorAsync(Client);
+        var debtId = (await LupexWallet.IntegrationTests.Debts.DebtsTestHelpers.CreateDebtAsync(Client, creditor.Id, currency.Id, 500m)).Id;
         var linked = await CreateFundAsync(currency.Id, name: "На долг", linkedDebtId: debtId);
         var unrelated = await CreateFundAsync(currency.Id, name: "Другое");
         await ReserveOkAsync(linked.Id, wallet.Id, "200");
@@ -382,7 +383,7 @@ public sealed class FundsApiTests(ApiTestFixture fixture) : IntegrationTestBase(
         using (var scope = Fixture.Factory.Services.CreateScope())
         {
             released = await scope.ServiceProvider.GetRequiredService<ISender>()
-                .Send(new ReleaseLinkedReserveCommand(debtId, null, wallet.Id, 250m));
+                .Send(new ReleaseLinkedReserveCommand(debtId, null, wallet.Id, 250m, Guid.NewGuid()));
         }
 
         released.Should().Be(200m);

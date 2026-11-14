@@ -1,5 +1,6 @@
 using LupexWallet.BalanceHistory.Application;
 using LupexWallet.ExchangeRates.Application;
+using LupexWallet.Funds.Application;
 using LupexWallet.ReferenceData.Application;
 using LupexWallet.SharedKernel;
 using LupexWallet.Wallets.Application;
@@ -11,14 +12,22 @@ namespace LupexWallet.Reporting.Application;
 /// not a 1:1 rate) — the wallet is skipped and the reason is returned to the client.</summary>
 public sealed record ExcludedWalletDto(Guid WalletId, string Reason);
 
-/// <summary>docs/api/openapi.yaml, TotalAmount schema (Money is expanded into Amount+CurrencyId
-/// here and reassembled in Reporting.Api, the same way WalletDto does for Wallet.CurrentBalance).</summary>
+/// <summary>
+/// docs/api/openapi.yaml, TotalAmount schema (Money is expanded into Amount+CurrencyId
+/// here and reassembled in Reporting.Api, the same way WalletDto does for Wallet.CurrentBalance).
+/// ADR-0010 §7, B9: the current total is the free amount (reserves of active funds reduce it), so
+/// <see cref="Amount"/> = <see cref="FreeAmount"/>; the actual balance and the reserve are shown next to it.
+/// Reserves have no history, so a historical total has no reserve: Amount = ActualAmount, Reserved/Free are null.
+/// </summary>
 public sealed record TotalAmountDto(
     DateOnly? Date,
     decimal Amount,
     Guid CurrencyId,
     DateOnly RatesAsOfDate,
-    IReadOnlyList<ExcludedWalletDto> ExcludedWallets);
+    IReadOnlyList<ExcludedWalletDto> ExcludedWallets,
+    decimal ActualAmount,
+    decimal? ReservedAmount,
+    decimal? FreeAmount);
 
 /// <summary>
 /// GET /api/v1/reporting/total-amount. No Date — current total (UC-19); with Date —
@@ -32,7 +41,8 @@ public sealed class GetTotalAmountQueryHandler(
     IWalletTotalsSource walletTotalsSource,
     IWalletBalanceOnDateLookup balanceOnDateLookup,
     IExchangeRateLookup exchangeRateLookup,
-    ICurrencyLookup currencyLookup) : IRequestHandler<GetTotalAmountQuery, TotalAmountDto?>
+    ICurrencyLookup currencyLookup,
+    IFundReservationsLookup fundReservationsLookup) : IRequestHandler<GetTotalAmountQuery, TotalAmountDto?>
 {
     public async Task<TotalAmountDto?> Handle(GetTotalAmountQuery request, CancellationToken cancellationToken)
     {
@@ -45,7 +55,13 @@ public sealed class GetTotalAmountQueryHandler(
 
         var targetCurrencyId = primary.CurrencyId;
         var total = 0m;
+        var reservedTotal = 0m;
         var excludedWallets = new List<ExcludedWalletDto>();
+
+        // Reserves exist only now (no history): a historical total is the actual balance only.
+        var reservedByWallet = request.Date is null
+            ? (await fundReservationsLookup.GetReservedByWalletAsync(cancellationToken)).ToDictionary(r => r.WalletId, r => r.Reserved)
+            : [];
 
         // Несколько разных фактических дат курса возможны только при нескольких разных
         // не-основных валютах (GetHistoricalRateAsync возвращает ближайший более ранний курс,
@@ -81,6 +97,7 @@ public sealed class GetTotalAmountQueryHandler(
             {
                 // Кошелек уже в валюте основного — без похода в ExchangeRates, курс 1:1.
                 total += walletAmount;
+                reservedTotal += reservedByWallet.GetValueOrDefault(wallet.WalletId);
                 continue;
             }
 
@@ -115,6 +132,7 @@ public sealed class GetTotalAmountQueryHandler(
             }
 
             total += walletAmount * rate;
+            reservedTotal += reservedByWallet.GetValueOrDefault(wallet.WalletId) * rate;
             earliestAppliedRateDate = earliestAppliedRateDate is null || appliedRateDate < earliestAppliedRateDate
                 ? appliedRateDate
                 : earliestAppliedRateDate;
@@ -122,7 +140,13 @@ public sealed class GetTotalAmountQueryHandler(
 
         var ratesAsOfDate = earliestAppliedRateDate ?? request.Date ?? DateOnly.FromDateTime(DateTime.UtcNow);
 
-        return new TotalAmountDto(request.Date, total, targetCurrencyId.Value, ratesAsOfDate, excludedWallets);
+        if (request.Date is not null)
+        {
+            return new TotalAmountDto(request.Date, total, targetCurrencyId.Value, ratesAsOfDate, excludedWallets, total, null, null);
+        }
+
+        var free = total - reservedTotal;
+        return new TotalAmountDto(null, free, targetCurrencyId.Value, ratesAsOfDate, excludedWallets, total, reservedTotal, free);
     }
 
     private async Task<string> NoRateReasonAsync(CurrencyId currencyId, DateOnly? date, CancellationToken cancellationToken)

@@ -169,8 +169,11 @@ public sealed class Fund : AggregateRoot<FundId>
     /// <summary>
     /// <see cref="ReleaseUpTo"/> for the payment operation, remembering how much this operation
     /// released so that deleting the expense can bring it back (<see cref="RestoreLinkedRelease"/>).
+    /// The remembered amount never exceeds <paramref name="paymentAmount"/> (default — <paramref name="amount"/>):
+    /// after a partial restore a release again adds to the part still kept released, and without the cap the
+    /// next deletion would bring back more than the payment ever released (review v0.4.0, R4).
     /// </summary>
-    public decimal ReleaseForPayment(WalletId walletId, OperationId operationId, decimal amount)
+    public decimal ReleaseForPayment(WalletId walletId, OperationId operationId, decimal amount, decimal? paymentAmount = null)
     {
         EnsurePositive(amount);
 
@@ -191,7 +194,7 @@ public sealed class Fund : AggregateRoot<FundId>
             _linkedReleases.Add(record);
         }
 
-        record.SetAmount(record.Amount + released, now);
+        record.SetAmount(Math.Min(record.Amount + released, paymentAmount ?? amount), now);
         return released;
     }
 

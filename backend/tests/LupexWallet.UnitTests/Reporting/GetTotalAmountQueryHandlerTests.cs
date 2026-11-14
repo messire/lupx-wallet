@@ -21,6 +21,7 @@ public sealed class GetTotalAmountQueryHandlerTests
     private static readonly CurrencyId Secondary = new(Guid.NewGuid());
     private static readonly WalletId PrimaryWalletId = WalletId.New();
     private static readonly WalletId SecondaryWalletId = WalletId.New();
+    private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
 
     private readonly IWalletTotalsSource _walletTotalsSource = Substitute.For<IWalletTotalsSource>();
     private readonly IWalletBalanceOnDateLookup _balanceOnDateLookup = Substitute.For<IWalletBalanceOnDateLookup>();
@@ -66,14 +67,14 @@ public sealed class GetTotalAmountQueryHandlerTests
         result.Should().NotBeNull();
         result!.Amount.Should().Be(100m);
         result.CurrencyId.Should().Be(Primary.Value);
-        await _exchangeRateLookup.DidNotReceiveWithAnyArgs().GetRateAsync(default, default, default);
+        await _exchangeRateLookup.DidNotReceiveWithAnyArgs().GetLatestRateWithDateAsync(default, default, default);
     }
 
     [Fact]
     public async Task Handle_SecondaryCurrencyWithRate_ConvertsAndSums()
     {
         SetupWallets(primaryBalance: 100m, secondaryBalance: 30m);
-        _exchangeRateLookup.GetRateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns(0.9m);
+        _exchangeRateLookup.GetLatestRateWithDateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns(((decimal Rate, DateOnly RatesAsOfDate)?)(0.9m, Today));
 
         var result = await CreateHandler().Handle(new GetTotalAmountQuery(Date: null), CancellationToken.None);
 
@@ -82,10 +83,25 @@ public sealed class GetTotalAmountQueryHandlerTests
     }
 
     [Fact]
+    public async Task Handle_Current_StaleLatestRate_RatesAsOfDateIsTheRateDateNotToday()
+    {
+        // Review v0.4.0, R9: the refresh failed, the latest rates are three days old — the same date free-funds shows.
+        var rateDate = Today.AddDays(-3);
+        SetupWallets(primaryBalance: 100m, secondaryBalance: 30m);
+        _exchangeRateLookup.GetLatestRateWithDateAsync(Secondary, Primary, Arg.Any<CancellationToken>())
+            .Returns(((decimal Rate, DateOnly RatesAsOfDate)?)(0.9m, rateDate));
+
+        var result = await CreateHandler().Handle(new GetTotalAmountQuery(Date: null), CancellationToken.None);
+
+        result!.RatesAsOfDate.Should().Be(rateDate);
+        result.Amount.Should().Be(100m + 30m * 0.9m);
+    }
+
+    [Fact]
     public async Task Handle_SecondaryCurrencyWithoutRate_ExcludesWalletWithReasonAndSumsOnlyPrimary()
     {
         SetupWallets(primaryBalance: 100m, secondaryBalance: 30m);
-        _exchangeRateLookup.GetRateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns((decimal?)null);
+        _exchangeRateLookup.GetLatestRateWithDateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns(((decimal Rate, DateOnly RatesAsOfDate)?)null);
 
         var result = await CreateHandler().Handle(new GetTotalAmountQuery(Date: null), CancellationToken.None);
 
@@ -112,7 +128,7 @@ public sealed class GetTotalAmountQueryHandlerTests
     {
         SetupWallets(primaryBalance: 100m, secondaryBalance: 30m);
         _currencyLookup.GetAsync(Secondary, Arg.Any<CancellationToken>()).Returns((CurrencyLookupResult?)null);
-        _exchangeRateLookup.GetRateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns((decimal?)null);
+        _exchangeRateLookup.GetLatestRateWithDateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns(((decimal Rate, DateOnly RatesAsOfDate)?)null);
 
         var result = await CreateHandler().Handle(new GetTotalAmountQuery(Date: null), CancellationToken.None);
 
@@ -123,7 +139,7 @@ public sealed class GetTotalAmountQueryHandlerTests
     public async Task Handle_NotIncludedInTotal_IsSkippedEntirelyAndNeverExcluded()
     {
         SetupWallets(primaryBalance: 100m, secondaryBalance: 30m, secondaryIncludedInTotal: false);
-        _exchangeRateLookup.GetRateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns((decimal?)null);
+        _exchangeRateLookup.GetLatestRateWithDateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns(((decimal Rate, DateOnly RatesAsOfDate)?)null);
 
         var result = await CreateHandler().Handle(new GetTotalAmountQuery(Date: null), CancellationToken.None);
 
@@ -170,7 +186,7 @@ public sealed class GetTotalAmountQueryHandlerTests
     public async Task Handle_Current_WithReserves_AmountIsFreeAndActualIsShownNextToIt()
     {
         SetupWallets(primaryBalance: 100m, secondaryBalance: 30m);
-        _exchangeRateLookup.GetRateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns(0.5m);
+        _exchangeRateLookup.GetLatestRateWithDateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns(((decimal Rate, DateOnly RatesAsOfDate)?)(0.5m, Today));
         _reservations.GetReservedByWalletAsync(Arg.Any<CancellationToken>()).Returns(
         [
             new WalletReservation(PrimaryWalletId, Primary, 40m),

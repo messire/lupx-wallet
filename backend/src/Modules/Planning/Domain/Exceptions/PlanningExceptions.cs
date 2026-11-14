@@ -84,3 +84,7 @@ public sealed class PlannedOccurrenceSkippedException()
 
 public sealed class PlannedOccurrenceNotSkippedException()
     : PlanningConflictException("Наступление не пропущено — отменять нечего.");
+
+/// <summary>The plan's default wallet changed while the execution waited for its lock (review v0.4.0, R7).</summary>
+public sealed class PlannedTransactionModifiedConcurrentlyException()
+    : PlanningConflictException("Плановая операция изменена параллельно — обновите данные и повторите.");

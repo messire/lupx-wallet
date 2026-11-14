@@ -54,6 +54,7 @@ public sealed class PlanningCommandHandlersTests
             PlannedTransactionId.New(), operationTypeId, PlannedDirection.Expense, amount, Currency, walletId, null, start,
             RecurrenceRule.Create(RecurrenceFrequency.Monthly, 1, null, null));
         _repository.GetForUpdateAsync(plan.Id, Arg.Any<CancellationToken>()).Returns(plan);
+        _repository.FindWalletIdAsync(plan.Id, Arg.Any<CancellationToken>()).Returns((true, walletId));
         return plan;
     }
 
@@ -130,6 +131,57 @@ public sealed class PlanningCommandHandlersTests
         result.Occurrence.Status.Should().Be(PlannedOccurrenceStatus.Executed);
         plan.Executions.Should().ContainSingle().Which.OperationId.Should().Be(operationId);
         await _recorder.Received(1).RecordAsync(walletId, plan.OperationTypeId, 100m, Today.AddMonths(-1), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Execute_TakesTheWalletLockBeforeThePlanRowLock()
+    {
+        // Review v0.4.0, R7: Wallets commands lock the wallet, then their Planning subscribers update plan rows.
+        var walletId = Wallet(Currency);
+        var plan = StoredPlan(OperationType("Expense"), Today.AddMonths(-1), walletId, amount: 100m);
+        RecorderReturns(walletId, 100m, Today.AddMonths(-1), OperationId.New());
+
+        await ExecuteHandler().Handle(
+            new ExecutePlannedOccurrenceCommand(plan.Id.Value, Today.AddMonths(-1), null, null, null), CancellationToken.None);
+
+        Received.InOrder(() =>
+        {
+            _unitOfWork.AcquireWalletLockAsync(walletId, Arg.Any<CancellationToken>());
+            _repository.GetForUpdateAsync(plan.Id, Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Fact]
+    public async Task Execute_RequestedWallet_IsLockedBeforeThePlanRow()
+    {
+        var planWallet = Wallet(Currency);
+        var requested = Wallet(Currency);
+        var plan = StoredPlan(OperationType("Expense"), Today.AddMonths(-1), planWallet, amount: 100m);
+        RecorderReturns(requested, 100m, Today.AddMonths(-1), OperationId.New());
+
+        await ExecuteHandler().Handle(
+            new ExecutePlannedOccurrenceCommand(plan.Id.Value, Today.AddMonths(-1), requested.Value, null, null), CancellationToken.None);
+
+        Received.InOrder(() =>
+        {
+            _unitOfWork.AcquireWalletLockAsync(requested, Arg.Any<CancellationToken>());
+            _repository.GetForUpdateAsync(plan.Id, Arg.Any<CancellationToken>());
+        });
+        await _unitOfWork.DidNotReceive().AcquireWalletLockAsync(planWallet, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Execute_DefaultWalletChangedWhileWaitingForTheLock_IsConflict()
+    {
+        var walletId = Wallet(Currency);
+        var plan = StoredPlan(OperationType("Expense"), Today.AddMonths(-1), walletId, amount: 100m);
+        var readBeforeTheLock = Wallet(Currency);
+        _repository.FindWalletIdAsync(plan.Id, Arg.Any<CancellationToken>()).Returns((true, readBeforeTheLock));
+
+        await FluentActions.Awaiting(() => ExecuteHandler().Handle(
+                new ExecutePlannedOccurrenceCommand(plan.Id.Value, Today.AddMonths(-1), null, null, null), CancellationToken.None))
+            .Should().ThrowAsync<PlannedTransactionModifiedConcurrentlyException>();
+        await _recorder.DidNotReceiveWithAnyArgs().RecordAsync(default, default, default, default, default);
     }
 
     [Fact]

@@ -199,6 +199,10 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
+// Ошибки другого модуля во вложенной команде → тот же ProblemDetails, что у его собственных
+// эндпоинтов, а не 500 (docs/api/api-design.md, «Ошибки вложенных команд»).
+app.UseModuleExceptionMapping();
+
 // /auth/login — единственный анонимный эндпоинт; все остальные требуют Bearer-токен
 // (docs/api/api-design.md, §"Аутентификация").
 app.MapAuthEndpoints();

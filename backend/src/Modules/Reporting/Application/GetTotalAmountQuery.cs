@@ -117,18 +117,17 @@ public sealed class GetTotalAmountQueryHandler(
             }
             else
             {
-                var latestRate = await exchangeRateLookup.GetRateAsync(wallet.CurrencyId, targetCurrencyId, cancellationToken);
+                var latestRate = await exchangeRateLookup.GetLatestRateWithDateAsync(wallet.CurrencyId, targetCurrencyId, cancellationToken);
                 if (latestRate is null)
                 {
                     excludedWallets.Add(new ExcludedWalletDto(wallet.WalletId.Value, await NoRateReasonAsync(wallet.CurrencyId, null, cancellationToken)));
                     continue;
                 }
 
-                rate = latestRate.Value;
-                // GetRateAsync отдает только "последний известный курс" без собственной даты
-                // (ExchangeRates.Application.IExchangeRateLookup) — для текущей суммы это
-                // сегодняшний день (курсы актуальны на момент запроса, UC-19).
-                appliedRateDate = DateOnly.FromDateTime(DateTime.UtcNow);
+                // The actual date of the latest known rate, as free-funds and the forecast report it
+                // (LatestRateConverter): total-amount.amount = free-funds.freeAmount, so the dates match too
+                // (ADR-0010 §7; review v0.4.0, R9). A failed refresh shows the stale date, not today.
+                (rate, appliedRateDate) = latestRate.Value;
             }
 
             total += walletAmount * rate;

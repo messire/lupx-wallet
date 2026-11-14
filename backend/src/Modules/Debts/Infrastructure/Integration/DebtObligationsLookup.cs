@@ -36,7 +36,11 @@ public sealed class DebtObligationsLookup(DebtsDbContext dbContext, PaymentFacts
         if (debt is not null)
         {
             var repayment = debt.Repayments.First(r => r.OperationId == operationId);
-            return new LinkedObligationPayment(ObligationKind.Debt, debt.Id.Value, repayment.WalletId, repayment.Amount);
+            var otherIds = debt.Repayments.Where(r => r.OperationId != operationId).Select(r => r.OperationId).ToList();
+            var facts = await factsReader.ReadAsync(otherIds, cancellationToken);
+            return new LinkedObligationPayment(
+                ObligationKind.Debt, debt.Id.Value, repayment.WalletId, repayment.Amount, debt.IsCancelled,
+                debt.RemainingAmount(facts.CountedTotal(otherIds, debt.CurrencyId)).Amount);
         }
 
         var loan = await dbContext.Loans.AsNoTracking().AsSplitQuery()
@@ -45,7 +49,11 @@ public sealed class DebtObligationsLookup(DebtsDbContext dbContext, PaymentFacts
         if (loan is not null)
         {
             var payment = loan.Payments.First(p => p.OperationId == operationId);
-            return new LinkedObligationPayment(ObligationKind.Loan, loan.Id.Value, payment.WalletId, payment.Amount);
+            var otherIds = loan.Payments.Where(p => p.OperationId != operationId).Select(p => p.OperationId).ToList();
+            var facts = await factsReader.ReadAsync(otherIds, cancellationToken);
+            return new LinkedObligationPayment(
+                ObligationKind.Loan, loan.Id.Value, payment.WalletId, payment.Amount, loan.IsCancelled,
+                loan.RemainingAmount(facts.CountedTotal(otherIds, loan.CurrencyId)).Amount);
         }
 
         return null;
@@ -98,16 +106,26 @@ public sealed class DebtObligationsLookup(DebtsDbContext dbContext, PaymentFacts
                 continue;
             }
 
+            // The schedule may add up to more than the amount to repay (open question 2, variant A): the remaining
+            // amount is spread over the unpaid items in schedule order and the rest is not owed (review v0.4.0, R5).
+            var unallocated = loan.RemainingAmount(paid).Amount;
             foreach (var item in loan.EvaluateSchedule(paid, today))
             {
-                if (item.Status == LoanScheduleItemStatus.Paid || item.DueDate > to)
+                if (item.Status == LoanScheduleItemStatus.Paid)
+                {
+                    continue;
+                }
+
+                var outstanding = Math.Min(item.OutstandingAmount, unallocated);
+                unallocated -= outstanding;
+                if (outstanding <= 0m || item.DueDate > to)
                 {
                     continue;
                 }
 
                 result.Add(new UnpaidLoanScheduleItem(
                     loan.Id.Value, loan.Name, loan.CreditorId.Value, creditorNames.GetValueOrDefault(loan.CreditorId, string.Empty),
-                    loan.CurrencyId, item.DueDate, item.Amount, item.PaidAmount, item.OutstandingAmount,
+                    loan.CurrencyId, item.DueDate, item.Amount, item.PaidAmount, outstanding,
                     item.Status.ToString(), item.Status == LoanScheduleItemStatus.Overdue));
             }
         }

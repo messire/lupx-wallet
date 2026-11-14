@@ -208,23 +208,17 @@ public static class DebtsEndpointsExtensions
         {
             return Results.NotFound();
         }
-        catch (DebtsValidationException ex)
+        catch (DebtsDomainException ex) when (DebtsProblemDetails.TryCreate(ex, instance) is { } problem)
         {
-            return Results.Problem(
-                statusCode: StatusCodes.Status400BadRequest, title: "Debts validation failed", detail: ex.Message,
-                type: "https://lupexwallet/errors/debts-validation-error");
+            return Results.Problem(problem);
         }
-        catch (DebtsConflictException ex)
-        {
-            return Results.Problem(
-                statusCode: StatusCodes.Status409Conflict, title: "Debts conflict", detail: ex.Message, instance: instance,
-                type: "https://lupexwallet/errors/debts-conflict");
-        }
+
+        // Errors of other modules raised inside a Debts command (the payment operation, the linked reserve)
+        // fall through to the Host mapping (docs/api/api-design.md, «Ошибки вложенных команд»).
     }
 
-    private static IResult MissingFields(string fields) => Results.Problem(
-        statusCode: StatusCodes.Status400BadRequest, title: "Debts validation failed",
-        detail: $"Заполните обязательные поля: {fields}.", type: "https://lupexwallet/errors/debts-validation-error");
+    private static IResult MissingFields(string fields) =>
+        Results.Problem(DebtsProblemDetails.Validation($"Заполните обязательные поля: {fields}."));
 
     private static MoneyResponse Money(decimal amount, Guid currencyId) => new(amount.ToString(CultureInfo.InvariantCulture), currencyId);
 

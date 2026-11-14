@@ -35,6 +35,30 @@ public static class PlanningAuditHandlers
     internal static string? Format(decimal? value) => value?.ToString(CultureInfo.InvariantCulture);
 
     internal static string Format(DateOnly value) => value.ToString("O", CultureInfo.InvariantCulture);
+
+    internal static string OverrideField(DateOnly occurrenceDate) => $"Override[{Format(occurrenceDate)}]";
+
+    /// <summary>What a removed override did, e.g. "Skipped", "MovedTo=2026-04-20", "Amount=50" (comma-separated).</summary>
+    internal static string Describe(OccurrenceOverrideSnapshot snapshot)
+    {
+        var parts = new List<string>();
+        if (snapshot.IsSkipped)
+        {
+            parts.Add("Skipped");
+        }
+
+        if (snapshot.MovedToDate is { } movedTo)
+        {
+            parts.Add($"MovedTo={Format(movedTo)}");
+        }
+
+        if (snapshot.Amount is { } amount)
+        {
+            parts.Add($"Amount={Format(amount)}");
+        }
+
+        return string.Join(", ", parts);
+    }
 }
 
 public sealed class PlannedTransactionCreatedAuditHandler(AuditRecorder recorder)
@@ -45,12 +69,23 @@ public sealed class PlannedTransactionCreatedAuditHandler(AuditRecorder recorder
             notification.DomainEvent, PlanningAuditHandlers.EntityType, notification.DomainEvent.PlannedTransactionId.Value, "Created", cancellationToken);
 }
 
-public sealed class PlannedTransactionUpdatedAuditHandler(AuditRecorder recorder)
+/// <summary>
+/// Root diff from the ChangeTracker plus one field per override the change dropped:
+/// <c>Override[{occurrenceDate}]</c>, old value — what the override did, new value — null.
+/// </summary>
+public sealed class PlannedTransactionUpdatedAuditHandler(AuditRecorder recorder, DispatchDomainEventsInterceptor interceptor)
     : INotificationHandler<DomainEventNotification<PlannedTransactionUpdated>>
 {
-    public Task Handle(DomainEventNotification<PlannedTransactionUpdated> notification, CancellationToken cancellationToken) =>
-        recorder.RecordFromChangeTrackerAsync(
-            notification.DomainEvent, PlanningAuditHandlers.EntityType, notification.DomainEvent.PlannedTransactionId.Value, "Updated", cancellationToken);
+    public Task Handle(DomainEventNotification<PlannedTransactionUpdated> notification, CancellationToken cancellationToken)
+    {
+        var e = notification.DomainEvent;
+        var changes = interceptor.TakeChanges(e.EventId)
+            .Select(c => new AuditFieldChange(c.FieldName, c.OldValue, c.NewValue))
+            .Concat(e.RemovedOverrides.Select(o => new AuditFieldChange(
+                PlanningAuditHandlers.OverrideField(o.OccurrenceDate), PlanningAuditHandlers.Describe(o), null)))
+            .ToList();
+        return recorder.RecordAsync(PlanningAuditHandlers.EntityType, e.PlannedTransactionId.Value, "Updated", changes, cancellationToken);
+    }
 }
 
 public sealed class PlannedTransactionFinishedAuditHandler(AuditRecorder recorder)

@@ -7,7 +7,8 @@ namespace LupexWallet.Funds.Application;
 /// <summary>
 /// ADR-0010 §4, B9: the expense of a linked debt/loan payment was soft-deleted — the reserve it
 /// released comes back to the still active funds, oldest fund first, within the wallet's free funds
-/// (balance − reserves of active funds, after the deletion). What does not fit stays released.
+/// (balance − reserves of active funds, after the deletion). What does not fit stays released. An archived
+/// wallet gets nothing back: its reserve is always 0 (ADR-0010 §4; review v0.4.0, R8).
 /// Returns the restored total. Sent by the Funds subscriber to OperationDeleted; no HTTP endpoint.
 /// </summary>
 public sealed record RestoreLinkedReserveCommand(Guid OperationId) : IRequest<decimal>, ICommand<decimal>;
@@ -38,7 +39,7 @@ public sealed class RestoreLinkedReserveCommandHandler(
             await unitOfWork.AcquireWalletLockAsync(walletId, cancellationToken);
 
             var wallet = await walletBalanceGateway.GetAsync(walletId, cancellationToken);
-            if (wallet is null)
+            if (wallet is null || wallet.IsArchived)
             {
                 continue;
             }

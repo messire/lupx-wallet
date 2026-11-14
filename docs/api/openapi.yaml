@@ -724,7 +724,10 @@ paths:
           description: >
             Операция — корректирующая сумма: ее рассчитывает система, удалить нельзя;
             либо операция — часть перевода (удалите через DELETE /transfers/{id}); либо уже
-            удалена; либо запись изменена параллельно — обновите список.
+            удалена; либо запись изменена параллельно — обновите список. Для расхода-платежа
+            по долгу/кредиту — также ошибка возврата связанного резерва (type fund-conflict,
+            например фонд изменен параллельно — повторите запрос; api-design.md, «Ошибки
+            вложенных команд»).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -753,7 +756,8 @@ paths:
             Операция — корректирующая сумма: ее рассчитывает система, восстанавливать
             нельзя; либо операция — часть перевода (восстановите через
             POST /transfers/{id}/restore); либо не удалена; либо запись изменена
-            параллельно — обновите список.
+            параллельно — обновите список. Для расхода-платежа по долгу/кредиту — также ошибка
+            повторного снятия связанного резерва (type fund-conflict).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -1445,7 +1449,11 @@ paths:
               schema: { $ref: "#/components/schemas/Problem" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: План завершен; наступление пропущено или уже исполнено полностью.
+          description: >
+            План завершен; наступление пропущено или уже исполнено полностью; кошелек плана
+            сброшен параллельно (удален или сменил валюту, пока исполнение ждало блокировки) —
+            повторите запрос. Ошибка создания операции — с type Operations (operation-conflict;
+            400 — operation-validation-error), api-design.md, «Ошибки вложенных команд».
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -1676,7 +1684,12 @@ paths:
               schema: { $ref: "#/components/schemas/Problem" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: Долг отменён; остаток равен нулю; сумма больше остатка; валюта кошелька ≠ валюте долга.
+          description: >
+            Долг отменён; остаток равен нулю; сумма больше остатка; валюта кошелька ≠ валюте долга.
+            Ошибка снятия связанного резерва — type fund-conflict (например, фонд изменен
+            параллельно — повторите запрос); ошибка создания операции — type Operations
+            (operation-conflict; 400 — operation-validation-error). См. api-design.md,
+            «Ошибки вложенных команд».
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -1859,7 +1872,9 @@ paths:
               schema: { $ref: "#/components/schemas/Problem" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: Кредит отменён; остаток равен нулю; сумма больше остатка; валюта кошелька ≠ валюте кредита.
+          description: >
+            Кредит отменён; остаток равен нулю; сумма больше остатка; валюта кошелька ≠ валюте кредита.
+            Ошибки снятия связанного резерва и создания операции — как у POST /debts/{id}/repayments.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -2800,7 +2815,9 @@ components:
           description: >-
             Дата курса, реально примененного при конвертации (может отличаться от запрошенной,
             если точного курса нет — раздел 5). Если применены курсы на разные даты — самая
-            ранняя из них; для текущей суммы — сегодняшняя дата.
+            ранняя из них; для текущей суммы — дата получения последних известных курсов
+            (как ratesAsOfDate у /reporting/free-funds; при сбое обновления — не сегодня);
+            сегодня, если пересчёт не понадобился.
         excludedWallets:
           type: array
           description: >-
@@ -2870,7 +2887,7 @@ components:
         kind: { type: string, enum: [PlannedExpense, LoanPayment] }
         date: { type: string, format: date, description: "Дата наступления (с учётом переноса) или дата пункта графика." }
         isOverdue: { type: boolean }
-        amount: { $ref: "#/components/schemas/Money", description: "Остаток к оплате в валюте позиции." }
+        amount: { $ref: "#/components/schemas/Money", description: "Остаток к оплате в валюте позиции. Для пункта графика — не больше остатка кредита, распределённого по неоплаченным пунктам по порядку графика." }
         convertedAmount: { $ref: "#/components/schemas/NullableMoney", description: "В валюте основного кошелька; null без курса." }
         plannedTransactionId: { type: [string, "null"], format: uuid }
         occurrenceDate: { type: [string, "null"], format: date, description: "Исходная дата наступления плана (до переноса)." }

@@ -11,6 +11,9 @@ public interface IPlannedTransactionRepository
 
     Task<PlannedTransaction?> GetByIdAsync(PlannedTransactionId id, CancellationToken cancellationToken);
 
+    /// <summary>The plan's default wallet read without locking; null when the plan does not exist.</summary>
+    Task<(bool Exists, WalletId? WalletId)> FindWalletIdAsync(PlannedTransactionId id, CancellationToken cancellationToken);
+
     /// <summary>Locks the plan row until the transaction ends, so commands on one plan run one after another.</summary>
     Task<PlannedTransaction?> GetForUpdateAsync(PlannedTransactionId id, CancellationToken cancellationToken);
 
@@ -26,6 +29,13 @@ public interface IPlannedTransactionRepository
 
 public interface IPlanningUnitOfWork
 {
+    /// <summary>
+    /// The per-wallet advisory lock shared with Wallets and Operations (BuildingBlocks WalletAdvisoryLock). Lock order
+    /// across modules: the wallet first, then rows (Wallets commands lock the wallet and their Planning subscribers
+    /// update plan rows), so a command that also locks a plan row takes the wallet lock before it (review v0.4.0, R7).
+    /// </summary>
+    Task AcquireWalletLockAsync(WalletId walletId, CancellationToken cancellationToken);
+
     Task SaveChangesAsync(CancellationToken cancellationToken);
 }
 

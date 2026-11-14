@@ -31,6 +31,8 @@
     <ProjectReference Include="..\..\Modules\Audit\Api\LupexWallet.Audit.Api.csproj" />
     <ProjectReference Include="..\..\Modules\Reporting\Infrastructure\LupexWallet.Reporting.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Reporting\Api\LupexWallet.Reporting.Api.csproj" />
+    <ProjectReference Include="..\..\Modules\Debts\Infrastructure\LupexWallet.Debts.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Debts\Api\LupexWallet.Debts.Api.csproj" />
   </ItemGroup>
 
 </Project>

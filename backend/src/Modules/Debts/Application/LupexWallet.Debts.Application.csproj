@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Domain\LupexWallet.Debts.Domain.csproj" />
+    <!-- ADR-0010 §3: repayment = expense recorded through Operations ports; currency, operation type and wallet checks through the owners' ports. -->
+    <ProjectReference Include="..\..\Operations\Application\LupexWallet.Operations.Application.csproj" />
+    <ProjectReference Include="..\..\ReferenceData\Application\LupexWallet.ReferenceData.Application.csproj" />
+    <ProjectReference Include="..\..\Wallets\Application\LupexWallet.Wallets.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MediatR" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

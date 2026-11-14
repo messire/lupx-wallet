@@ -10,6 +10,7 @@
     <ProjectReference Include="..\..\Operations\Domain\LupexWallet.Operations.Domain.csproj" />
     <ProjectReference Include="..\..\BalanceHistory\Domain\LupexWallet.BalanceHistory.Domain.csproj" />
     <ProjectReference Include="..\..\ExchangeRates\Domain\LupexWallet.ExchangeRates.Domain.csproj" />
+    <ProjectReference Include="..\..\Debts\Domain\LupexWallet.Debts.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>

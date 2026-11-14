@@ -51,3 +51,23 @@ public readonly record struct AuditEntryId(Guid Value)
     public static AuditEntryId New() => new(Guid.NewGuid());
     public override string ToString() => Value.ToString();
 }
+
+// ---- Debts (ADR-0010 §3) ----
+
+public readonly record struct CreditorId(Guid Value)
+{
+    public static CreditorId New() => new(Guid.NewGuid());
+    public override string ToString() => Value.ToString();
+}
+
+public readonly record struct DebtId(Guid Value)
+{
+    public static DebtId New() => new(Guid.NewGuid());
+    public override string ToString() => Value.ToString();
+}
+
+public readonly record struct LoanId(Guid Value)
+{
+    public static LoanId New() => new(Guid.NewGuid());
+    public override string ToString() => Value.ToString();
+}

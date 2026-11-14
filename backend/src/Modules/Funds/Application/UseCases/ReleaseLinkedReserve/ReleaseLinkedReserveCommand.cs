@@ -13,7 +13,14 @@ namespace LupexWallet.Funds.Application;
 /// subscribers to DebtRepaymentRecorded / LoanPaymentRecorded / OperationRestored; no HTTP endpoint.
 /// </summary>
 public sealed record ReleaseLinkedReserveCommand(Guid? DebtId, Guid? LoanId, Guid WalletId, decimal Amount, Guid OperationId)
-    : IRequest<decimal>, ICommand<decimal>;
+    : IRequest<decimal>, ICommand<decimal>
+{
+    /// <summary>
+    /// Amount of the payment itself when it differs from <see cref="Amount"/> (a restored payment releases less,
+    /// review v0.4.0 R3). What a fund keeps as released by the operation never exceeds it (R4). Null — <see cref="Amount"/>.
+    /// </summary>
+    public decimal? PaymentAmount { get; init; }
+}
 
 public sealed class ReleaseLinkedReserveCommandHandler(IFundRepository repository, IFundsUnitOfWork unitOfWork)
     : IRequestHandler<ReleaseLinkedReserveCommand, decimal>
@@ -44,7 +51,7 @@ public sealed class ReleaseLinkedReserveCommandHandler(IFundRepository repositor
                 break;
             }
 
-            remaining -= fund.ReleaseForPayment(walletId, operationId, remaining);
+            remaining -= fund.ReleaseForPayment(walletId, operationId, remaining, request.PaymentAmount ?? request.Amount);
         }
 
         var released = request.Amount - remaining;

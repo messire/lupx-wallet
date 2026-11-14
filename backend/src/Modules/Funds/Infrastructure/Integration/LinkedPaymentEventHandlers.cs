@@ -50,6 +50,9 @@ public sealed class FundsOperationDeletedHandler(ISender sender)
 /// <summary>
 /// The payment expense was restored: it releases the linked reserve again, like a new payment of the
 /// recorded amount from the operation's current wallet. A no-op for operations that pay no debt/loan.
+/// Review v0.4.0, R3: the release is not more than what the obligation still needed before the restore
+/// (its amount minus the other counted payments), and nothing is released for a cancelled or already
+/// repaid obligation — a restore never takes a reserve for a debt there is nothing left to pay on.
 /// </summary>
 public sealed class FundsOperationRestoredHandler(ISender sender, IDebtObligationsLookup obligations)
     : INotificationHandler<DomainEventNotification<OperationRestored>>
@@ -63,14 +66,23 @@ public sealed class FundsOperationRestoredHandler(ISender sender, IDebtObligatio
             return;
         }
 
+        var amount = payment.IsObligationCancelled ? 0m : Math.Min(payment.Amount, payment.RemainingWithoutPayment);
+        if (amount <= 0m)
+        {
+            return;
+        }
+
         var isDebt = payment.Kind == ObligationKind.Debt;
         await sender.Send(
             new ReleaseLinkedReserveCommand(
                 isDebt ? payment.ObligationId : null,
                 isDebt ? null : payment.ObligationId,
                 e.WalletId.Value,
-                payment.Amount,
-                e.OperationId.Value),
+                amount,
+                e.OperationId.Value)
+            {
+                PaymentAmount = payment.Amount,
+            },
             cancellationToken);
     }
 }

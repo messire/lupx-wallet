@@ -17,6 +17,15 @@ public sealed class PlannedTransactionRepository(PlanningDbContext dbContext) : 
     public Task<PlannedTransaction?> GetByIdAsync(PlannedTransactionId id, CancellationToken cancellationToken) =>
         WithChildren.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
+    public async Task<(bool Exists, WalletId? WalletId)> FindWalletIdAsync(PlannedTransactionId id, CancellationToken cancellationToken)
+    {
+        var row = await dbContext.PlannedTransactions.AsNoTracking()
+            .Where(x => x.Id == id)
+            .Select(x => new { x.WalletId })
+            .FirstOrDefaultAsync(cancellationToken);
+        return row is null ? (false, null) : (true, row.WalletId);
+    }
+
     public async Task<PlannedTransaction?> GetForUpdateAsync(PlannedTransactionId id, CancellationToken cancellationToken)
     {
         // Row lock held until the command's transaction ends (TransactionBehavior).
@@ -67,5 +76,8 @@ public sealed class PlannedTransactionRepository(PlanningDbContext dbContext) : 
 
 public sealed class PlanningUnitOfWork(PlanningDbContext dbContext) : IPlanningUnitOfWork
 {
+    public Task AcquireWalletLockAsync(WalletId walletId, CancellationToken cancellationToken) =>
+        LupexWallet.BuildingBlocks.Infrastructure.WalletAdvisoryLock.AcquireAsync(dbContext.Database, walletId, cancellationToken);
+
     public Task SaveChangesAsync(CancellationToken cancellationToken) => dbContext.SaveChangesAsync(cancellationToken);
 }

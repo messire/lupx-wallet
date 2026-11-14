@@ -24,7 +24,8 @@ public interface IDebtObligationsLookup
 
     /// <summary>
     /// Not fully paid schedule items of open loans with DueDate ≤ <paramref name="to"/>, overdue
-    /// ones included (no lower bound), ordered by due date.
+    /// ones included (no lower bound), ordered by due date. OutstandingAmount is limited by the loan's remaining
+    /// amount spread over its unpaid items in schedule order; items left with nothing to pay are omitted.
     /// </summary>
     Task<IReadOnlyList<UnpaidLoanScheduleItem>> ListUnpaidScheduleItemsAsync(DateOnly to, CancellationToken cancellationToken);
 }
@@ -38,7 +39,13 @@ public enum ObligationKind
 public sealed record ObligationReference(ObligationKind Kind, Guid Id, CurrencyId CurrencyId, bool IsCancelled);
 
 /// <param name="Amount">Amount recorded when the payment was linked, in the obligation currency.</param>
-public sealed record LinkedObligationPayment(ObligationKind Kind, Guid ObligationId, WalletId WalletId, decimal Amount);
+/// <param name="IsObligationCancelled">The debt/loan is cancelled.</param>
+/// <param name="RemainingWithoutPayment">
+/// What the obligation still needs when this payment does not count: the obligation amount minus the other counted
+/// payments, never below zero (review v0.4.0, R3 — a restored payment releases a reserve only up to it).
+/// </param>
+public sealed record LinkedObligationPayment(
+    ObligationKind Kind, Guid ObligationId, WalletId WalletId, decimal Amount, bool IsObligationCancelled, decimal RemainingWithoutPayment);
 
 public sealed record OpenObligation(
     ObligationKind Kind, Guid Id, string Name, Guid CreditorId, string CreditorName, CurrencyId CurrencyId, decimal RemainingAmount);

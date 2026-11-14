@@ -250,6 +250,40 @@ public sealed class PlanningReportsApiTests(ApiTestFixture fixture) : Integratio
     }
 
     [Fact]
+    public async Task UpcomingPaymentsAndForecast_ScheduleAboveAmountToRepay_SubtractOnlyTheLoanRemaining()
+    {
+        // Review v0.4.0, R5: amount to repay 1000, schedule 4 × 300 = 1200, paid 900 — only 100 is still owed.
+        await AuthenticateAsync();
+        var eur = await Client.CreateCurrencyAsync("EUR");
+        var wallet = await Client.CreateWalletAsync(2000m, currencyId: eur.Id, name: "Основной");
+        var creditor = await Client.CreateCreditorAsync();
+        var loan = await Client.CreateLoanAsync(creditor.Id, eur.Id, 1000m);
+        (await Client.PutAsJsonAsync($"/api/v1/loans/{loan.Id}/schedule", new
+        {
+            Items = new[]
+            {
+                new { DueDate = Today.AddDays(-20), Amount = 300m },
+                new { DueDate = Today.AddDays(-10), Amount = 300m },
+                new { DueDate = Today.AddDays(-1), Amount = 300m },
+                new { DueDate = Today.AddDays(10), Amount = 300m },
+            },
+        })).EnsureSuccessStatusCode();
+        var expenseTypeId = await Client.CreateOperationTypeIdAsync("Expense", "Платёж");
+        (await Client.PayAsync($"/api/v1/loans/{loan.Id}/payments", wallet.Id, expenseTypeId, 900m)).EnsureSuccessStatusCode();
+
+        var upcoming = await GetOkAsync<UpcomingPayments>("/api/v1/reporting/upcoming-payments");
+
+        upcoming.Items.Should().ContainSingle(i => i.Kind == "LoanPayment").Which.Date.Should().Be(Today.AddDays(10));
+        D(upcoming.Items.Single().Amount).Should().Be(100m);
+        D(upcoming.TotalAmount).Should().Be(100m);
+
+        var forecast = await GetOkAsync<Forecast>("/api/v1/reporting/cash-flow-forecast");
+        forecast.Days.SelectMany(d => d.Movements).Where(m => m.Kind == "LoanPayment")
+            .Should().ContainSingle().Which.ConvertedAmount.Should().Match<MoneyResponse>(m => D(m) == -100m);
+        D(forecast.EndBalance).Should().Be(1100m - 100m);
+    }
+
+    [Fact]
     public async Task DebtsSummary_ConvertsToPrimaryCurrencyByLatestRate()
     {
         await AuthenticateAsync();

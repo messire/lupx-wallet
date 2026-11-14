@@ -15,10 +15,6 @@ namespace LupexWallet.Funds.Api;
 /// </summary>
 public static class FundsEndpointsExtensions
 {
-    private const string ValidationType = "https://lupexwallet/errors/fund-validation-error";
-    private const string ConflictType = "https://lupexwallet/errors/fund-conflict";
-    private const string InsufficientFreeFundsType = "https://lupexwallet/errors/fund-insufficient-free-funds";
-
     public static IEndpointRouteBuilder MapFundsEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/funds").WithTags("Funds");
@@ -126,23 +122,13 @@ public static class FundsEndpointsExtensions
         {
             return Results.NotFound();
         }
-        catch (FundInsufficientFreeFundsException ex)
+        catch (Exception ex) when (FundsProblemDetails.TryCreate(ex) is { } problem)
         {
-            return Results.Problem(
-                statusCode: StatusCodes.Status409Conflict, title: "Insufficient free funds", detail: ex.Message, type: InsufficientFreeFundsType);
-        }
-        catch (FundConflictException ex)
-        {
-            return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Fund conflict", detail: ex.Message, type: ConflictType);
-        }
-        catch (FundValidationException ex)
-        {
-            return Validation(ex.Message);
+            return Results.Problem(problem);
         }
     }
 
-    private static IResult Validation(string detail) => Results.Problem(
-        statusCode: StatusCodes.Status400BadRequest, title: "Fund validation failed", detail: detail, type: ValidationType);
+    private static IResult Validation(string detail) => Results.Problem(FundsProblemDetails.Validation(detail));
 
     private static string Format(decimal value) => value.ToString(CultureInfo.InvariantCulture);
 

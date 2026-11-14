@@ -9,7 +9,17 @@ namespace LupexWallet.Planning.Domain;
 /// </summary>
 public sealed record PlannedTransactionCreated(PlannedTransactionId PlannedTransactionId) : DomainEvent;
 
-public sealed record PlannedTransactionUpdated(PlannedTransactionId PlannedTransactionId) : DomainEvent;
+/// <summary>
+/// The plan fields changed. <see cref="RemovedOverrides"/> — overrides of dates that left the schedule and were
+/// dropped by the change (child rows the root diff does not see; ADR-0010 §8). Empty for any other change.
+/// </summary>
+public sealed record PlannedTransactionUpdated(PlannedTransactionId PlannedTransactionId) : DomainEvent
+{
+    public IReadOnlyList<OccurrenceOverrideSnapshot> RemovedOverrides { get; init; } = [];
+}
+
+/// <summary>Values of an occurrence override at the moment it was removed.</summary>
+public sealed record OccurrenceOverrideSnapshot(DateOnly OccurrenceDate, bool IsSkipped, DateOnly? MovedToDate, decimal? Amount);
 
 public sealed record PlannedTransactionFinished(PlannedTransactionId PlannedTransactionId) : DomainEvent;
 

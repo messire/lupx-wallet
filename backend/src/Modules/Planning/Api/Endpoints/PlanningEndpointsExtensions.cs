@@ -16,9 +16,6 @@ namespace LupexWallet.Planning.Api;
 /// </summary>
 public static class PlanningEndpointsExtensions
 {
-    private const string ValidationErrorType = "https://lupexwallet/errors/planning-validation-error";
-    private const string ConflictErrorType = "https://lupexwallet/errors/planning-conflict";
-
     public static IEndpointRouteBuilder MapPlanningEndpoints(this IEndpointRouteBuilder app)
     {
         MapPlannedTransactions(app);
@@ -136,15 +133,9 @@ public static class PlanningEndpointsExtensions
         {
             return Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "Not found", detail: ex.Message);
         }
-        catch (PlanningConflictException ex)
+        catch (PlanningDomainException ex) when (PlanningProblemDetails.TryCreate(ex) is { } problem)
         {
-            return Results.Problem(
-                statusCode: StatusCodes.Status409Conflict, title: "Planning conflict", detail: ex.Message, type: ConflictErrorType);
-        }
-        catch (PlanningDomainException ex)
-        {
-            return Results.Problem(
-                statusCode: StatusCodes.Status400BadRequest, title: "Planning validation failed", detail: ex.Message, type: ValidationErrorType);
+            return Results.Problem(problem);
         }
     }
 

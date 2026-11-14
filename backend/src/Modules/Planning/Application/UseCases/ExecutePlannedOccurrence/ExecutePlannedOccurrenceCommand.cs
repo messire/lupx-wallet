@@ -26,8 +26,26 @@ public sealed class ExecutePlannedOccurrenceCommandHandler(
 {
     public async Task<PlannedOccurrenceExecutionResultDto> Handle(ExecutePlannedOccurrenceCommand request, CancellationToken cancellationToken)
     {
-        var plan = await repository.GetForUpdateAsync(new PlannedTransactionId(request.PlannedTransactionId), cancellationToken)
+        var planId = new PlannedTransactionId(request.PlannedTransactionId);
+
+        // Lock order (review v0.4.0, R7): the wallet lock first, the plan row second — as Wallets commands do (the
+        // wallet lock, then their Planning subscribers update plan rows). The wallet is known before the plan is
+        // locked: the requested one, or the plan's default read without a lock and checked again under it.
+        var lockedWalletId = request.WalletId is { } requestedWallet ? new WalletId(requestedWallet) : await FindDefaultWalletAsync(planId, cancellationToken);
+        if (lockedWalletId is { } walletToLock)
+        {
+            await unitOfWork.AcquireWalletLockAsync(walletToLock, cancellationToken);
+        }
+
+        var plan = await repository.GetForUpdateAsync(planId, cancellationToken)
             ?? throw new PlannedTransactionNotFoundException();
+
+        if (request.WalletId is null && plan.WalletId != lockedWalletId)
+        {
+            // The default wallet changed between the read and the lock (e.g. the wallet was deleted and unlinked
+            // from the plan meanwhile): the held lock is the wrong one.
+            throw new PlannedTransactionModifiedConcurrentlyException();
+        }
 
         var current = await reader.ProjectOneAsync(plan, request.OccurrenceDate, cancellationToken);
         plan.EnsureCanExecute(current);
@@ -57,5 +75,11 @@ public sealed class ExecutePlannedOccurrenceCommandHandler(
 
         var updated = await reader.ProjectOneAsync(plan, request.OccurrenceDate, cancellationToken);
         return new PlannedOccurrenceExecutionResultDto(PlannedOccurrenceDto.From(plan, updated), recorded.OperationId.Value);
+    }
+
+    private async Task<WalletId?> FindDefaultWalletAsync(PlannedTransactionId planId, CancellationToken cancellationToken)
+    {
+        var (exists, walletId) = await repository.FindWalletIdAsync(planId, cancellationToken);
+        return exists ? walletId : throw new PlannedTransactionNotFoundException();
     }
 }

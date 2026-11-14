@@ -111,9 +111,16 @@ public sealed class PlannedTransaction : AggregateRoot<PlannedTransactionId>
         }
 
         Apply(operationTypeId, direction, amount, currencyId, walletId, description, startDate, recurrence);
-        _overrides.RemoveAll(o => !IsOccurrence(o.OccurrenceDate));
+        var removed = _overrides.Where(o => !IsOccurrence(o.OccurrenceDate)).ToList();
+        _overrides.RemoveAll(removed.Contains);
         Touch();
-        Raise(new PlannedTransactionUpdated(Id));
+        Raise(new PlannedTransactionUpdated(Id)
+        {
+            RemovedOverrides = removed
+                .OrderBy(o => o.OccurrenceDate)
+                .Select(o => new OccurrenceOverrideSnapshot(o.OccurrenceDate, o.IsSkipped, o.MovedToDate, o.Amount))
+                .ToList(),
+        });
     }
 
     public void Finish()

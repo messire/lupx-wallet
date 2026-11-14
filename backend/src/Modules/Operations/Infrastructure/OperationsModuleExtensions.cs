@@ -33,6 +33,8 @@ public static class OperationsModuleExtensions
         services.AddScoped<ITransferRepository, TransferRepository>();
         services.AddScoped<IOperationsUnitOfWork, OperationsUnitOfWork>();
         services.AddScoped<IWalletOperationsLookup, WalletOperationsLookup>();
+        services.AddScoped<IOperationRecorder, OperationRecorder>();
+        services.AddScoped<IOperationFactsLookup, OperationFactsLookup>();
         services.AddScoped<IWalletCorrectionsReconciler, WalletCorrectionsReconciler>();
 
         // ADR-0002, §2: единственная реализация Wallets.Application.IWalletHistorySource

@@ -74,6 +74,8 @@ frontend/
 4. Узкий порт, объявленный в `Application` **потребителя**, когда прямая ссылка образовала бы цикл; реализации — в `Infrastructure` одного или нескольких владельцев данных, потребитель внедряет `IEnumerable<TПорт>` и агрегирует ответы сам (например, `IWalletHistorySource`, `IReferenceItemUsageProbe`). Пустой список реализаций — ошибка конфигурации, а не отрицательный ответ.
 5. `*.Infrastructure`-подписчик на доменное событие другого модуля ссылается на `*.Domain` издателя ради типа события (не бизнес-логики).
 
+Связи модулей v0.4.0 (ADR-0010): порты Operations `IOperationRecorder`/`IOperationFactsLookup` (способ 3) для Debts, Planning, Budgeting; порт Debts `IDebtObligationsLookup` (способ 3) для Funds и Reporting; Funds.Infrastructure подписан на события Debts (`DebtRepaymentRecorded`, `LoanPaymentRecorded`) и Operations (`OperationDeleted`, `OperationRestored`) — способ 5; потребительский порт Wallets `IWalletReservationProbe` (способ 4) реализует Funds; Reporting.Application читает Funds, Debts, Planning через их порты.
+
 Подробно, с критерием выбора между портом и событием — [ADR-0001](./adr/0001-modular-monolith.md), §2–§3.
 
 ## 3. Данные: одна база, схема на модуль

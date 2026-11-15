@@ -13,6 +13,8 @@
 
 ## 1. Ограниченные контексты (Bounded Contexts)
 
+> **v0.4.0:** контексты финансового планирования `Debts`, `Funds`, `Budgeting`, `Planning` — раздел 2.9 и [ADR-0010](./adr/0010-financial-planning.md). Они связаны с остальными только по Id, событиям и узким портам; существующие агрегаты не менялись.
+
 | Контекст | Назначение | Владеет агрегатами |
 |---|---|---|
 | **Wallets** | Управление кошельками, единственный основной кошелек, текущий (проекционный) баланс | `Wallet` |
@@ -121,6 +123,20 @@ Wallets, ReferenceData, Operations, BalanceHistory, ExchangeRates ──собы
 Агрегат из одной сущности, представляющий одну неизменяемую запись аудита: что изменилось, когда, какая запись затронута, значение до/после, инициатор (User/System). Создается один раз и никогда не изменяется и не удаляется (append-only).
 
 **Граница агрегата:** одна запись аудита. `AuditEntry` не ссылается на другие агрегаты напрямую типами других контекстов — только по паре `(EntityType: string, EntityId: Guid)`, чтобы Audit оставался независимым и не создавал обратных зависимостей от Wallets/Operations/BalanceHistory/ExchangeRates/ReferenceData.
+
+### 2.9 Контексты финансового планирования (v0.4.0, ADR-0010)
+
+Ни один агрегат этих контекстов не меняет баланс кошелька. Реальные деньги меняют только операции; погашение долга, платёж по кредиту и исполнение плана создают обычную операцию через порт Operations `IOperationRecorder` в той же транзакции, а суммы связанных операций читаются при запросе через `IOperationFactsLookup` (мягко удалённая операция перестаёт учитываться, восстановленная — учитывается снова). Подписок на события Operations для этого не нужно.
+
+**Debts.** `Creditor` — справочник модуля (ADR-0002 §4). `Debt` — кредитор, название, валюта (неизменна), исходная сумма, дата, `CancelledAt`; сущности `DebtRepayment` (OperationId, WalletId, сумма, дата). `Loan` — то же плюс сумма к погашению; сущности `LoanScheduleItem` (дата, сумма, порядок) и `LoanPayment`. Хранятся статусы `Active`/`Cancelled`; `Repaid`, остаток и статусы пунктов графика (`Paid`/`Partial`/`Overdue`/`Expected`) вычисляются из фактов операций: учтённые платежи закрывают самые ранние пункты (`LoanScheduleCalculator`). Проценты не учитываются. Инварианты: сумма > 0; платёж — только в валюте долга, не больше остатка, только у активного; удалить можно только без платежей. События: Creditor{Created,Renamed,Deactivated,Deleted}, Debt{Created,Updated,Cancelled,Deleted,RepaymentRecorded}, Loan{Created,Updated,Cancelled,Deleted,ScheduleChanged,PaymentRecorded}.
+
+**Funds.** Агрегат `Fund`: название, целевая сумма, валюта, необязательный `LinkedDebtId`/`LinkedLoanId`, статус `Active | Closed`; дочерняя сущность `FundAllocation` (`WalletId`, сумма ≥ 0, одна на кошелёк). Инварианты: валюта кошелька = валюта фонда; новая или увеличенная аллокация ≤ свободных средств кошелька (коллекционный инвариант, `ReservationPolicy`, под advisory lock кошелька); снятие ≤ аллокации; валюту меняют и фонд удаляют только без истории резервов; закрытый фонд не меняется. Кошелёк с резервом нельзя архивировать, удалить и сменить ему валюту (порт `IWalletReservationProbe`). Дочерняя сущность `FundLinkedRelease` (`OperationId`, `WalletId`, `Amount`) — сколько резерва сейчас снято платежом связанного долга/кредита; операции `ReleaseForPayment` и `RestoreLinkedRelease` (при мягком удалении платежа, в пределах свободных средств). События: `FundCreated`, `FundUpdated`, `FundClosed`, `FundDeleted`, `FundReserved` (в т.ч. `LinkedPaymentDeleted`), `FundReleased` (причина `Manual | FundClosed | LinkedPayment`).
+
+**Reporting (дополнение v0.4.0).** Read model'и `FreeFunds`, `UpcomingPayments`, `DebtsSummaryReport`, `CashFlowForecast` считаются при запросе и не хранятся. Общая сумма на сегодня = свободные средства (факт − резервы фондов).
+
+**Budgeting.** `ExpenseCategory` (пользовательский справочник): `Name`, `IsActive`, набор `OperationTypeId` (только поведение Expense; тип — не более чем в одной категории). События: `ExpenseCategoryCreated`, `ExpenseCategoryUpdated`, `ExpenseCategoryDeactivated`, `ExpenseCategoryDeleted`. `Budget`: `Month` (VO `BudgetMonth`), `CurrencyId`, коллекция `CategoryLimit { ExpenseCategoryId, Limit ≥ 0 }`; уникален на (месяц, валюта). События: `BudgetCreated`, `BudgetCategoryLimitSet`, `BudgetCategoryLimitRemoved`, `BudgetDeleted`. Исполнение бюджета — read model, не хранится; расходы в другой валюте пересчитываются по историческому курсу на дату операции.
+
+**Planning.** `PlannedTransaction`: `OperationTypeId`, направление Income/Expense, сумма > 0, валюта, необязательный `WalletId` в валюте плана, описание, дата первого наступления, VO `RecurrenceRule` (Daily/Weekly/Monthly/Yearly, интервал, до даты или K повторов), статус Active/Finished; дочерние сущности `OccurrenceOverride` (ключ — исходная дата: пропуск, перенос, сумма) и `OccurrenceExecution` (исходная дата, `OperationId`). Наступления не хранятся: доменные сервисы `OccurrenceSchedule` (развёртывание правила; конец месяца — последний день) и `OccurrenceProjector` (статус Expected/PartiallyExecuted/Executed/Skipped, ожидаемая сумма, просрочка). Инварианты: завершённый план не меняется; при исполнениях валюта и направление неизменны; пропущенное или полностью исполненное наступление нельзя исполнить; план с исполнениями не удаляется физически. События: `PlannedTransactionCreated/Updated/Finished/Deleted`, `PlannedOccurrenceSkipped/Unskipped/Moved/AmountChanged/Executed`. Подписки: `WalletDeleted`, `WalletCurrencyChanged` (сброс кошелька плана).
 
 ## 3. Сущности
 

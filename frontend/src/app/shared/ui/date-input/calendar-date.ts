@@ -147,3 +147,20 @@ export function monthGrid(isoDate: string): string[][] {
   }
   return weeks;
 }
+
+/** `yyyy-MM` → "Ноябрь 2026" (a month switcher label). */
+export function formatMonthLabel(month: string): string {
+  const [year, monthNumber] = month.split('-').map(Number);
+  return `${MONTH_NAMES[monthNumber - 1]} ${year}`;
+}
+
+/** `yyyy-MM` shifted by `delta` months. */
+export function shiftMonth(month: string, delta: number): string {
+  return addMonths(`${month}-01`, delta).slice(0, 7);
+}
+
+/** First and last day (`yyyy-MM-dd`) of a `yyyy-MM` month. */
+export function monthRange(month: string): { from: string; to: string } {
+  const from = `${month}-01`;
+  return { from, to: addDays(addMonths(from, 1), -1) };
+}

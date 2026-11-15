@@ -5,6 +5,7 @@ using LupexWallet.ReferenceData.Application;
 using LupexWallet.Reporting.Application;
 using LupexWallet.SharedKernel;
 using LupexWallet.Wallets.Application;
+using LupexWallet.Funds.Application;
 using NSubstitute;
 using Xunit;
 
@@ -20,6 +21,7 @@ public sealed class GetTotalAmountQueryHandlerTests
     private static readonly CurrencyId Secondary = new(Guid.NewGuid());
     private static readonly WalletId PrimaryWalletId = WalletId.New();
     private static readonly WalletId SecondaryWalletId = WalletId.New();
+    private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
 
     private readonly IWalletTotalsSource _walletTotalsSource = Substitute.For<IWalletTotalsSource>();
     private readonly IWalletBalanceOnDateLookup _balanceOnDateLookup = Substitute.For<IWalletBalanceOnDateLookup>();
@@ -30,9 +32,13 @@ public sealed class GetTotalAmountQueryHandlerTests
     public GetTotalAmountQueryHandlerTests()
     {
         _currencyLookup.GetAsync(Secondary, Arg.Any<CancellationToken>()).Returns(new CurrencyLookupResult(Secondary, "USD"));
+        _reservations.GetReservedByWalletAsync(Arg.Any<CancellationToken>()).Returns([]);
     }
 
-    private GetTotalAmountQueryHandler CreateHandler() => new(_walletTotalsSource, _balanceOnDateLookup, _exchangeRateLookup, _currencyLookup);
+    private readonly IFundReservationsLookup _reservations = Substitute.For<IFundReservationsLookup>();
+
+    private GetTotalAmountQueryHandler CreateHandler() =>
+        new(_walletTotalsSource, _balanceOnDateLookup, _exchangeRateLookup, _currencyLookup, _reservations);
 
     private void SetupWallets(decimal primaryBalance, decimal secondaryBalance, bool secondaryIncludedInTotal = true) =>
         _walletTotalsSource.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<WalletTotalInfo>
@@ -61,14 +67,14 @@ public sealed class GetTotalAmountQueryHandlerTests
         result.Should().NotBeNull();
         result!.Amount.Should().Be(100m);
         result.CurrencyId.Should().Be(Primary.Value);
-        await _exchangeRateLookup.DidNotReceiveWithAnyArgs().GetRateAsync(default, default, default);
+        await _exchangeRateLookup.DidNotReceiveWithAnyArgs().GetLatestRateWithDateAsync(default, default, default);
     }
 
     [Fact]
     public async Task Handle_SecondaryCurrencyWithRate_ConvertsAndSums()
     {
         SetupWallets(primaryBalance: 100m, secondaryBalance: 30m);
-        _exchangeRateLookup.GetRateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns(0.9m);
+        _exchangeRateLookup.GetLatestRateWithDateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns(((decimal Rate, DateOnly RatesAsOfDate)?)(0.9m, Today));
 
         var result = await CreateHandler().Handle(new GetTotalAmountQuery(Date: null), CancellationToken.None);
 
@@ -77,10 +83,25 @@ public sealed class GetTotalAmountQueryHandlerTests
     }
 
     [Fact]
+    public async Task Handle_Current_StaleLatestRate_RatesAsOfDateIsTheRateDateNotToday()
+    {
+        // Review v0.4.0, R9: the refresh failed, the latest rates are three days old — the same date free-funds shows.
+        var rateDate = Today.AddDays(-3);
+        SetupWallets(primaryBalance: 100m, secondaryBalance: 30m);
+        _exchangeRateLookup.GetLatestRateWithDateAsync(Secondary, Primary, Arg.Any<CancellationToken>())
+            .Returns(((decimal Rate, DateOnly RatesAsOfDate)?)(0.9m, rateDate));
+
+        var result = await CreateHandler().Handle(new GetTotalAmountQuery(Date: null), CancellationToken.None);
+
+        result!.RatesAsOfDate.Should().Be(rateDate);
+        result.Amount.Should().Be(100m + 30m * 0.9m);
+    }
+
+    [Fact]
     public async Task Handle_SecondaryCurrencyWithoutRate_ExcludesWalletWithReasonAndSumsOnlyPrimary()
     {
         SetupWallets(primaryBalance: 100m, secondaryBalance: 30m);
-        _exchangeRateLookup.GetRateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns((decimal?)null);
+        _exchangeRateLookup.GetLatestRateWithDateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns(((decimal Rate, DateOnly RatesAsOfDate)?)null);
 
         var result = await CreateHandler().Handle(new GetTotalAmountQuery(Date: null), CancellationToken.None);
 
@@ -107,7 +128,7 @@ public sealed class GetTotalAmountQueryHandlerTests
     {
         SetupWallets(primaryBalance: 100m, secondaryBalance: 30m);
         _currencyLookup.GetAsync(Secondary, Arg.Any<CancellationToken>()).Returns((CurrencyLookupResult?)null);
-        _exchangeRateLookup.GetRateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns((decimal?)null);
+        _exchangeRateLookup.GetLatestRateWithDateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns(((decimal Rate, DateOnly RatesAsOfDate)?)null);
 
         var result = await CreateHandler().Handle(new GetTotalAmountQuery(Date: null), CancellationToken.None);
 
@@ -118,7 +139,7 @@ public sealed class GetTotalAmountQueryHandlerTests
     public async Task Handle_NotIncludedInTotal_IsSkippedEntirelyAndNeverExcluded()
     {
         SetupWallets(primaryBalance: 100m, secondaryBalance: 30m, secondaryIncludedInTotal: false);
-        _exchangeRateLookup.GetRateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns((decimal?)null);
+        _exchangeRateLookup.GetLatestRateWithDateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns(((decimal Rate, DateOnly RatesAsOfDate)?)null);
 
         var result = await CreateHandler().Handle(new GetTotalAmountQuery(Date: null), CancellationToken.None);
 
@@ -157,5 +178,55 @@ public sealed class GetTotalAmountQueryHandlerTests
 
         result!.Amount.Should().Be(0m);
         result.ExcludedWallets.Should().BeEmpty();
+    }
+
+    // ---- ADR-0010 §7, B9: reserves of active funds reduce the current total ----
+
+    [Fact]
+    public async Task Handle_Current_WithReserves_AmountIsFreeAndActualIsShownNextToIt()
+    {
+        SetupWallets(primaryBalance: 100m, secondaryBalance: 30m);
+        _exchangeRateLookup.GetLatestRateWithDateAsync(Secondary, Primary, Arg.Any<CancellationToken>()).Returns(((decimal Rate, DateOnly RatesAsOfDate)?)(0.5m, Today));
+        _reservations.GetReservedByWalletAsync(Arg.Any<CancellationToken>()).Returns(
+        [
+            new WalletReservation(PrimaryWalletId, Primary, 40m),
+            new WalletReservation(SecondaryWalletId, Secondary, 10m),
+        ]);
+
+        var result = await CreateHandler().Handle(new GetTotalAmountQuery(Date: null), CancellationToken.None);
+
+        result!.ActualAmount.Should().Be(100m + 30m * 0.5m);
+        result.ReservedAmount.Should().Be(40m + 10m * 0.5m);
+        result.FreeAmount.Should().Be(115m - 45m);
+        result.Amount.Should().Be(result.FreeAmount!.Value, "B9: the headline total is the free amount");
+    }
+
+    [Fact]
+    public async Task Handle_Current_ReserveOnWalletOutsideTotal_DoesNotReduceTheTotal()
+    {
+        SetupWallets(primaryBalance: 100m, secondaryBalance: 30m, secondaryIncludedInTotal: false);
+        _reservations.GetReservedByWalletAsync(Arg.Any<CancellationToken>()).Returns(
+            [new WalletReservation(SecondaryWalletId, Secondary, 10m)]);
+
+        var result = await CreateHandler().Handle(new GetTotalAmountQuery(Date: null), CancellationToken.None);
+
+        result!.Amount.Should().Be(100m);
+        result.ReservedAmount.Should().Be(0m);
+    }
+
+    [Fact]
+    public async Task Handle_Historical_HasNoReserve_AmountIsActual()
+    {
+        var date = new DateOnly(2026, 1, 1);
+        SetupWallets(primaryBalance: 0m, secondaryBalance: 0m, secondaryIncludedInTotal: false);
+        _balanceOnDateLookup.GetBalanceOnDateAsync(PrimaryWalletId, date, Arg.Any<CancellationToken>()).Returns(70m);
+
+        var result = await CreateHandler().Handle(new GetTotalAmountQuery(date), CancellationToken.None);
+
+        result!.Amount.Should().Be(70m);
+        result.ActualAmount.Should().Be(70m);
+        result.ReservedAmount.Should().BeNull();
+        result.FreeAmount.Should().BeNull();
+        await _reservations.DidNotReceive().GetReservedByWalletAsync(Arg.Any<CancellationToken>());
     }
 }

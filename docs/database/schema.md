@@ -299,6 +299,269 @@ CREATE RULE audit_entries_no_delete AS ON DELETE TO audit.audit_entries DO INSTE
 
 **Про `changes jsonb`.** Список измененных полей (VO `AuditFieldChange` из `ddd-model.md`) хранится как JSONB-массив, а не в отдельной нормализованной таблице — так как список полей разный для каждого `entity_type` и запросы вида «найти все изменения конкретного поля» не входят в бизнес-сценарии (UC-25 — только просмотр истории конкретной записи целиком). Если такая потребность появится, это будет пересмотрено отдельно.
 
+## Схема `planning`
+
+Модуль Planning — плановые операции ([ADR-0010](../architecture/adr/0010-financial-planning.md), §6).
+
+```sql
+CREATE SCHEMA planning;
+
+CREATE TABLE planning.planned_transactions (
+    id                    uuid         PRIMARY KEY,
+    operation_type_id     uuid         NOT NULL,  -- reference_data.operation_types.id, без FK; поведение Income/Expense
+    direction             varchar(16)  NOT NULL,  -- 'Income' | 'Expense' — из поведения типа операции (оно неизменно)
+    amount                numeric      NOT NULL CHECK (amount > 0),
+    currency_id           uuid         NOT NULL,  -- reference_data.currencies.id, без FK
+    wallet_id             uuid,                   -- wallets.wallets.id, без FK; кошелек по умолчанию, в валюте плана
+    description           varchar(500),
+    start_date            date         NOT NULL,  -- дата первого наступления
+    recurrence_frequency  varchar(16),            -- 'Daily' | 'Weekly' | 'Monthly' | 'Yearly'; NULL — разовая
+    recurrence_interval   integer,                -- N >= 1; задан вместе с частотой
+    recurrence_until      date,                   -- окончание «до даты» (включительно)
+    recurrence_count      integer,                -- окончание «после K повторов» (K >= 1, первое наступление входит)
+    status                varchar(16)  NOT NULL,  -- 'Active' | 'Finished'
+    created_at            timestamptz  NOT NULL,
+    updated_at            timestamptz  NOT NULL,
+    finished_at           timestamptz
+    -- ck_planned_transactions_recurrence_*: частота и интервал задаются вместе; until и count
+    -- взаимоисключающие и без частоты не задаются; interval и count >= 1.
+);
+CREATE INDEX ix_planned_transactions_created        ON planning.planned_transactions (created_at, id);
+CREATE INDEX ix_planned_transactions_wallet         ON planning.planned_transactions (wallet_id) WHERE wallet_id IS NOT NULL;
+CREATE INDEX ix_planned_transactions_operation_type ON planning.planned_transactions (operation_type_id);
+CREATE INDEX ix_planned_transactions_currency       ON planning.planned_transactions (currency_id);
+
+-- Отклонения наступления (OccurrenceOverride): одна строка на исходную дату наступления.
+CREATE TABLE planning.occurrence_overrides (
+    planned_transaction_id  uuid    NOT NULL REFERENCES planning.planned_transactions (id) ON DELETE CASCADE,
+    occurrence_date         date    NOT NULL,  -- исходная дата по расписанию
+    is_skipped              boolean NOT NULL,
+    moved_to_date           date,              -- перенос; NULL — не перенесено
+    amount                  numeric CHECK (amount IS NULL OR amount > 0),  -- измененная сумма; NULL — сумма плана
+    PRIMARY KEY (planned_transaction_id, occurrence_date)
+);
+
+-- Исполнения наступлений (OccurrenceExecution): связь с реальной операцией.
+CREATE TABLE planning.occurrence_executions (
+    id                      uuid        PRIMARY KEY,
+    planned_transaction_id  uuid        NOT NULL REFERENCES planning.planned_transactions (id) ON DELETE CASCADE,
+    occurrence_date         date        NOT NULL,
+    operation_id            uuid        NOT NULL,  -- operations.operations.id, без FK
+    amount                  numeric     NOT NULL CHECK (amount > 0),  -- сумма на момент исполнения
+    executed_at             timestamptz NOT NULL
+);
+CREATE INDEX ix_occurrence_executions_occurrence ON planning.occurrence_executions (planned_transaction_id, occurrence_date);
+CREATE UNIQUE INDEX ux_occurrence_executions_operation ON planning.occurrence_executions (operation_id);
+```
+
+**Наступления не хранятся.** Они вычисляются из `start_date` и `recurrence_*` при каждом запросе; хранятся только отклонения и исполнения. Строка `occurrence_overrides` без отклонений (не пропущено, не перенесено, сумма плана) удаляется. При изменении расписания отклонения дат, которых в нем больше нет, удаляются; исполненные наступления обязаны остаться в расписании.
+
+**Исполненная сумма читается из `operations`.** `occurrence_executions.amount` — снимок на момент исполнения; при чтении наступлений используется текущая сумма операции через `IOperationFactsLookup` (мягко удаленная операция дает 0). Поэтому удаление, восстановление и редактирование операции исполнения отражаются без подписки на события и без изменения строк `planning`. Снимок используется, только если операции не нашлось.
+
+**Конкурентный доступ.** Команды над планом блокируют его строку (`SELECT … FOR UPDATE`) до конца транзакции — два одновременных исполнения одного наступления не превысят ожидаемую сумму.
+
+**Удаление.** План без исполнений удаляется физически вместе с `occurrence_overrides` (каскад); план с исполнениями только переводится в `Finished` (ADR-0010, §8). Удаление или смена валюты кошелька обнуляют `wallet_id` у его планов. Тип операции и валюта плана (любого статуса) считаются использованными (ADR-0002, §4).
+
+## Схема `budgeting`
+
+Модуль Budgeting ([ADR-0010](../architecture/adr/0010-financial-planning.md), §5): справочник категорий расходов и месячные бюджеты. Ссылки на типы операций и валюты — без внешних ключей (другие схемы).
+
+```sql
+CREATE SCHEMA budgeting;
+
+-- Пользовательский справочник категорий расходов (В1). Жизненный цикл — ADR-0002 §4.
+CREATE TABLE budgeting.expense_categories (
+    id          uuid         PRIMARY KEY,
+    name        varchar(200) NOT NULL,
+    is_active   boolean      NOT NULL,
+    created_at  timestamptz  NOT NULL,
+    updated_at  timestamptz  NOT NULL
+);
+CREATE UNIQUE INDEX ux_expense_categories_active_name
+    ON budgeting.expense_categories (lower(name)) WHERE is_active;
+
+-- Типы операций (поведение Expense) в категории. Тип входит не более чем в одну категорию.
+CREATE TABLE budgeting.expense_category_operation_types (
+    expense_category_id  uuid NOT NULL REFERENCES budgeting.expense_categories (id) ON DELETE CASCADE,
+    operation_type_id    uuid NOT NULL,   -- reference_data.operation_types.id, без FK
+    PRIMARY KEY (expense_category_id, operation_type_id)
+);
+CREATE UNIQUE INDEX ux_expense_category_operation_types_operation_type
+    ON budgeting.expense_category_operation_types (operation_type_id);
+
+-- Бюджет на месяц в валюте; один на пару (месяц, валюта).
+CREATE TABLE budgeting.budgets (
+    id           uuid        PRIMARY KEY,
+    month        date        NOT NULL CHECK (EXTRACT(DAY FROM month) = 1),   -- первое число месяца
+    currency_id  uuid        NOT NULL,   -- reference_data.currencies.id, без FK
+    created_at   timestamptz NOT NULL,
+    updated_at   timestamptz NOT NULL
+);
+CREATE UNIQUE INDEX ux_budgets_month_currency ON budgeting.budgets (month, currency_id);
+CREATE INDEX ix_budgets_currency ON budgeting.budgets (currency_id);
+
+-- Лимит категории внутри бюджета (CategoryLimit).
+CREATE TABLE budgeting.budget_category_limits (
+    budget_id            uuid    NOT NULL REFERENCES budgeting.budgets (id) ON DELETE CASCADE,
+    expense_category_id  uuid    NOT NULL REFERENCES budgeting.expense_categories (id) ON DELETE RESTRICT,
+    limit_amount         numeric NOT NULL CHECK (limit_amount >= 0),   -- в валюте бюджета
+    PRIMARY KEY (budget_id, expense_category_id)
+);
+CREATE INDEX ix_budget_category_limits_category ON budgeting.budget_category_limits (expense_category_id);
+```
+
+- Исполнение бюджета не хранится: считается при запросе из операций (`IOperationFactsLookup`) и исторических курсов (`IExchangeRateLookup`).
+- Тип операции, входящий в категорию (активную или нет), и валюта бюджета считаются «используемыми» для правил удаления ReferenceData (`BudgetingReferenceItemUsageProbe`).
+- Категория, на которую ссылается лимит, не удаляется (`ON DELETE RESTRICT`, в приложении — 409 с предложением деактивации). Бюджет удаляется физически вместе с лимитами.
+
+## Схема `funds`
+
+Фонды и резервирование денег ([ADR-0010](../architecture/adr/0010-financial-planning.md), §4). Резерв не меняет балансы кошельков — это только пометка «эти деньги заняты».
+
+```sql
+CREATE SCHEMA funds;
+
+CREATE TABLE funds.funds (
+    id              uuid PRIMARY KEY,
+    name            varchar(200) NOT NULL,
+    target_amount   numeric      NOT NULL,
+    currency_id     uuid         NOT NULL,          -- reference_data.currencies.id (без FK между схемами)
+    linked_debt_id  uuid,                            -- Debts: долг, на погашение которого копится фонд (без FK)
+    linked_loan_id  uuid,                            -- Debts: кредит (без FK)
+    status          varchar(16)  NOT NULL,           -- 'Active' | 'Closed'
+    created_at      timestamptz  NOT NULL,
+    updated_at      timestamptz  NOT NULL,           -- токен оптимистичной блокировки агрегата
+    closed_at       timestamptz,
+    CONSTRAINT ck_funds_target_positive CHECK (target_amount > 0),
+    CONSTRAINT ck_funds_single_link     CHECK (linked_debt_id IS NULL OR linked_loan_id IS NULL),
+    CONSTRAINT ck_funds_status          CHECK (status IN ('Active', 'Closed')),
+    CONSTRAINT ck_funds_closed_at       CHECK ((status = 'Closed') = (closed_at IS NOT NULL))
+);
+CREATE INDEX ix_funds_created_at  ON funds.funds (created_at);
+CREATE INDEX ix_funds_currency    ON funds.funds (currency_id);
+CREATE INDEX ix_funds_linked_debt ON funds.funds (linked_debt_id) WHERE linked_debt_id IS NOT NULL;
+CREATE INDEX ix_funds_linked_loan ON funds.funds (linked_loan_id) WHERE linked_loan_id IS NOT NULL;
+
+CREATE TABLE funds.fund_allocations (
+    id          uuid PRIMARY KEY,
+    fund_id     uuid        NOT NULL REFERENCES funds.funds (id) ON DELETE CASCADE,
+    wallet_id   uuid        NOT NULL,                -- wallets.wallets.id (без FK между схемами)
+    amount      numeric     NOT NULL,
+    created_at  timestamptz NOT NULL,
+    updated_at  timestamptz NOT NULL,
+    CONSTRAINT ck_fund_allocations_amount_non_negative CHECK (amount >= 0)
+);
+CREATE UNIQUE INDEX ux_fund_allocations_fund_wallet ON funds.fund_allocations (fund_id, wallet_id);
+CREATE INDEX ix_fund_allocations_wallet ON funds.fund_allocations (wallet_id);
+
+-- В9: сколько резерва фонда сейчас «снято» одной операцией-платежом связанного долга/кредита.
+CREATE TABLE funds.fund_linked_releases (
+    id            uuid PRIMARY KEY,
+    fund_id       uuid        NOT NULL REFERENCES funds.funds (id) ON DELETE CASCADE,
+    operation_id  uuid        NOT NULL,              -- operations.operations.id — расход-платёж (без FK между схемами)
+    wallet_id     uuid        NOT NULL,              -- кошелёк аллокации, с которой снят резерв (без FK)
+    amount        numeric     NOT NULL,              -- снято сейчас (уменьшается при возврате резерва)
+    created_at    timestamptz NOT NULL,
+    updated_at    timestamptz NOT NULL,
+    CONSTRAINT ck_fund_linked_releases_amount_non_negative CHECK (amount >= 0)
+);
+CREATE UNIQUE INDEX ux_fund_linked_releases_fund_operation_wallet
+    ON funds.fund_linked_releases (fund_id, operation_id, wallet_id);
+CREATE INDEX ix_fund_linked_releases_operation ON funds.fund_linked_releases (operation_id);
+```
+
+- **Одна аллокация на пару (фонд, кошелек).** Повторный резерв увеличивает `amount`, снятие — уменьшает. Снятая до нуля аллокация не удаляется: это история резервов, из-за которой фонд нельзя удалить физически (только закрыть, ADR-0010 §8). Закрытие фонда обнуляет все его аллокации.
+- **Валюта аллокации** — валюта фонда; кошелек обязан быть в той же валюте (проверка в приложении, отдельной колонки нет).
+- **Зарезервировано по кошельку** = сумма `amount` аллокаций кошелька по фондам со `status = 'Active'`. Свободные средства и дефицит обеспечения резерва вычисляются при чтении (текущий баланс берется из `wallets`), не хранятся.
+- **Снятие резерва платежом (В9), `fund_linked_releases`.** Погашение долга/платёж по кредиту (события `DebtRepaymentRecorded`/`LoanPaymentRecorded`) снимает резерв активных фондов, связанных с этим долгом/кредитом, по кошельку платежа — не больше суммы платежа и аллокации, старые фонды первыми; снятое записывается строкой на (фонд, операция, кошелёк). Мягкое удаление операции (`OperationDeleted`) возвращает снятое в активные фонды (старые первыми) в пределах свободных средств кошелька после удаления; `amount` уменьшается на возвращённое, невозвращённое остаётся снятым. Восстановление операции (`OperationRestored`) снимает резерв заново, как новый платёж той же (записанной в Debts) суммы, и увеличивает `amount` той же строки. Закрытые фонды не участвуют. Таблица — дочерняя сущность агрегата `Fund` (тот же токен `updated_at`). Изменение суммы операции-платежа (`OperationUpdated`) снятый резерв не пересчитывает.
+- **Конкурентный доступ.** Создание и увеличение резерва выполняются под тем же advisory lock кошелька, что и команды Operations/Wallets (`pg_advisory_xact_lock(hashtextextended(wallet_id, 0))`), поэтому два резерва на один кошелек не могут оба пройти проверку свободных средств. Параллельное изменение одного фонда отсекается проверкой `updated_at` (EF Core concurrency token) → `409`.
+
+## Схема `debts`
+
+Модуль Debts (ADR-0010 §3): справочник кредиторов, долги (#6) и кредиты с графиком (#8). Денег схема не хранит: погашение и платёж — обычные операции расхода в `operations.operations`, здесь только связь по `operation_id`.
+
+```sql
+CREATE SCHEMA debts;
+
+CREATE TABLE debts.creditors (
+    id          uuid PRIMARY KEY,
+    name        varchar(200) NOT NULL,
+    is_active   boolean      NOT NULL,
+    created_at  timestamptz  NOT NULL,
+    updated_at  timestamptz  NOT NULL
+);
+CREATE INDEX ix_creditors_name ON debts.creditors (name, created_at);
+
+CREATE TABLE debts.debts (
+    id               uuid PRIMARY KEY,
+    creditor_id      uuid         NOT NULL REFERENCES debts.creditors (id) ON DELETE RESTRICT,
+    name             varchar(200) NOT NULL,
+    currency_id      uuid         NOT NULL,  -- reference_data.currencies.id, без FK
+    original_amount  numeric      NOT NULL CHECK (original_amount > 0),
+    start_date       date         NOT NULL,
+    cancelled_at     timestamptz  NULL,      -- NOT NULL = статус Cancelled
+    created_at       timestamptz  NOT NULL,
+    updated_at       timestamptz  NOT NULL
+);
+CREATE INDEX ix_debts_creditor    ON debts.debts (creditor_id);
+CREATE INDEX ix_debts_currency    ON debts.debts (currency_id);
+CREATE INDEX ix_debts_created_at  ON debts.debts (created_at);
+
+CREATE TABLE debts.debt_repayments (
+    id              uuid PRIMARY KEY,
+    debt_id         uuid        NOT NULL REFERENCES debts.debts (id) ON DELETE CASCADE,
+    operation_id    uuid        NOT NULL,  -- operations.operations.id, без FK
+    wallet_id       uuid        NOT NULL,  -- wallets.wallets.id, без FK
+    amount          numeric     NOT NULL CHECK (amount > 0),  -- сумма на момент связи
+    repayment_date  date        NOT NULL,
+    created_at      timestamptz NOT NULL
+);
+CREATE UNIQUE INDEX ux_debt_repayments_operation ON debts.debt_repayments (operation_id);
+CREATE INDEX ix_debt_repayments_debt ON debts.debt_repayments (debt_id);
+
+CREATE TABLE debts.loans (
+    id               uuid PRIMARY KEY,
+    creditor_id      uuid         NOT NULL REFERENCES debts.creditors (id) ON DELETE RESTRICT,
+    name             varchar(200) NOT NULL,
+    currency_id      uuid         NOT NULL,  -- reference_data.currencies.id, без FK
+    amount_to_repay  numeric      NOT NULL CHECK (amount_to_repay > 0),
+    start_date       date         NOT NULL,
+    cancelled_at     timestamptz  NULL,
+    created_at       timestamptz  NOT NULL,
+    updated_at       timestamptz  NOT NULL
+);
+CREATE INDEX ix_loans_creditor    ON debts.loans (creditor_id);
+CREATE INDEX ix_loans_currency    ON debts.loans (currency_id);
+CREATE INDEX ix_loans_created_at  ON debts.loans (created_at);
+
+CREATE TABLE debts.loan_schedule_items (
+    id        uuid PRIMARY KEY,
+    loan_id   uuid    NOT NULL REFERENCES debts.loans (id) ON DELETE CASCADE,
+    due_date  date    NOT NULL,
+    amount    numeric NOT NULL CHECK (amount > 0),
+    position  integer NOT NULL  -- порядок ввода, при равных датах
+);
+CREATE INDEX ix_loan_schedule_items_loan_date ON debts.loan_schedule_items (loan_id, due_date);
+
+CREATE TABLE debts.loan_payments (
+    id            uuid PRIMARY KEY,
+    loan_id       uuid        NOT NULL REFERENCES debts.loans (id) ON DELETE CASCADE,
+    operation_id  uuid        NOT NULL,  -- operations.operations.id, без FK
+    wallet_id     uuid        NOT NULL,
+    amount        numeric     NOT NULL CHECK (amount > 0),
+    payment_date  date        NOT NULL,
+    created_at    timestamptz NOT NULL
+);
+CREATE UNIQUE INDEX ux_loan_payments_operation ON debts.loan_payments (operation_id);
+CREATE INDEX ix_loan_payments_loan ON debts.loan_payments (loan_id);
+```
+
+**Что не хранится.** Остаток, статус `Repaid` и статусы пунктов графика («оплачен / частично / просрочен / ожидается») вычисляются при чтении. Источник — факты операций (`IOperationFactsLookup`, удалённые операции включены). Платёж учитывается, если операция не удалена, остаётся расходом и в валюте долга/кредита; сумма берётся из операции в текущем виде. Поэтому мягкое удаление или восстановление операции в Operations не требует синхронизации этой схемы.
+
+**Жизненный цикл (ADR-0010 §8).** Долг или кредит со связанными платежами (включая платежи удалённых операций) не удаляется — `cancelled_at` переводит его в `Cancelled`. Без платежей запись удаляется физически, график — каскадом. Кредитор, на которого ссылается долг или кредит, не удаляется (`ON DELETE RESTRICT` + проверка в приложении), а деактивируется.
+
+**Блокировка.** Команды платежа и изменения берут `SELECT ... FOR UPDATE` по строке долга/кредита до чтения остатка, поэтому два параллельных платежа не превысят остаток.
+
 ## Сводная таблица: схема ↔ модуль ↔ таблицы
 
 | Схема | Модуль | Таблицы |
@@ -309,5 +572,9 @@ CREATE RULE audit_entries_no_delete AS ON DELETE TO audit.audit_entries DO INSTE
 | `balance_history` | BalanceHistory | `balance_snapshots` |
 | `exchange_rates` | ExchangeRates | `latest_exchange_rates`, `historical_exchange_rates`, `historical_rate_coverage` |
 | `audit` | Audit | `audit_entries` |
+| `planning` | Planning | `planned_transactions`, `occurrence_overrides`, `occurrence_executions` |
+| `budgeting` | Budgeting | `expense_categories`, `expense_category_operation_types`, `budgets`, `budget_category_limits` |
+| `funds` | Funds | `funds`, `fund_allocations`, `fund_linked_releases` |
+| `debts` | Debts | `creditors`, `debts`, `debt_repayments`, `loans`, `loan_schedule_items`, `loan_payments` |
 
 `Reporting` не владеет таблицами — читает через узкие read-контракты остальных модулей или (как будущая оптимизация) через SQL-представления, объединяющие несколько схем на чтение.

@@ -43,6 +43,28 @@ tags:
     description: Общая сумма по всем кошелькам — текущая и историческая.
   - name: Audit
     description: Неизменяемый журнал изменений финансовых данных.
+  - name: Planning
+    description: >
+      Плановые операции — разовые и повторяющиеся будущие доходы и расходы, их вычисляемые
+      наступления, отклонения и исполнение обычной операцией (ADR-0010, §6).
+  - name: Creditors
+    description: Справочник кредиторов модуля Debts — общий для долгов и кредитов (ADR-0010 §3).
+  - name: Debts
+    description: Долги перед кредиторами; погашение — обычный расход из кошелька (ADR-0010 §3, issue #6).
+  - name: Loans
+    description: Кредиты с графиком платежей, без процентов (ADR-0010 §3, В5, issue #8).
+  - name: ExpenseCategories
+    description: >
+      Справочник категорий расходов модуля Budgeting (ADR-0010 §5, В1): название и
+      типы операций с поведением «Расход»; тип входит не более чем в одну категорию.
+  - name: Budgets
+    description: >
+      Месячные бюджеты (месяц + валюта) с лимитами по категориям и исполнение бюджета
+      (ADR-0010 §5, В8). Бюджет ничего не резервирует и не меняет балансы.
+  - name: Funds
+    description: >
+      Целевые фонды и резервирование денег кошельков без изменения балансов
+      (ADR-0010, §4).
 
 paths:
   # ---------- Auth ----------
@@ -162,6 +184,8 @@ paths:
           description: >
             У кошелька есть операции (включая удаленные; корректирующие суммы заявленных
             балансов операциями не считаются) — используйте /archive — или он основной.
+            Деньги кошелька зарезервированы в активном фонде (ADR-0010, §4; type
+            https://lupexwallet/errors/wallet-has-reservations).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -181,7 +205,10 @@ paths:
               schema: { $ref: "#/components/schemas/Wallet" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: Нельзя архивировать текущий основной кошелек (решено, Q7).
+          description: >
+            Нельзя архивировать текущий основной кошелек (решено, Q7). Нельзя архивировать
+            кошелек, деньги которого зарезервированы в активном фонде, пока резерв не снят
+            (ADR-0010, §4; type https://lupexwallet/errors/wallet-has-reservations).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -241,7 +268,9 @@ paths:
         "409":
           description: >
             У кошелька уже есть операции (включая удаленные; корректирующие суммы
-            заявленных балансов операциями не считаются).
+            заявленных балансов операциями не считаются). Деньги кошелька зарезервированы
+            в активном фонде — валюта кошелька должна совпадать с валютой фонда (ADR-0010, §4;
+            type https://lupexwallet/errors/wallet-has-reservations).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -695,7 +724,10 @@ paths:
           description: >
             Операция — корректирующая сумма: ее рассчитывает система, удалить нельзя;
             либо операция — часть перевода (удалите через DELETE /transfers/{id}); либо уже
-            удалена; либо запись изменена параллельно — обновите список.
+            удалена; либо запись изменена параллельно — обновите список. Для расхода-платежа
+            по долгу/кредиту — также ошибка возврата связанного резерва (type fund-conflict,
+            например фонд изменен параллельно — повторите запрос; api-design.md, «Ошибки
+            вложенных команд»).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -724,7 +756,8 @@ paths:
             Операция — корректирующая сумма: ее рассчитывает система, восстанавливать
             нельзя; либо операция — часть перевода (восстановите через
             POST /transfers/{id}/restore); либо не удалена; либо запись изменена
-            параллельно — обновите список.
+            параллельно — обновите список. Для расхода-платежа по долгу/кредиту — также ошибка
+            повторного снятия связанного резерва (type fund-conflict).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -951,6 +984,9 @@ paths:
       summary: Общая сумма — текущая или на дату (UC-19, UC-21)
       operationId: getTotalAmount
       description: >
+        Текущая общая сумма (без date) равна свободным средствам — резервы активных фондов её
+        уменьшают (ADR-0010, В9); фактический баланс и резерв возвращаются рядом
+        (actualAmount, reservedAmount, freeAmount). У исторической суммы резервов нет.
         Курсы берутся только из БД, к Frankfurter запрос не обращается (ADR-0004, §8).
         Для даты используется курс на эту дату или ближайший более ранний; ratesAsOfDate —
         фактически примененная дата. Если подходящего курса нет (в том числе пока история
@@ -977,6 +1013,108 @@ paths:
       # id"; схема ответа та же, что у components/responses/NotFound (application/problem+json,
       # Problem), описание переопределено под конкретный смысл этого эндпоинта.
 
+  /reporting/free-funds:
+    get:
+      tags: [Reporting]
+      summary: Свободные средства по кошелькам и сводка (#12, ADR-0010 §7)
+      operationId: getFreeFunds
+      description: >
+        По каждому кошельку — фактический баланс, зарезервировано (аллокации активных фондов),
+        свободно = баланс − резерв (может быть отрицательным) и дефицит обеспечения резерва.
+        Сводка — по кошелькам «в общей сумме» в валюте основного кошелька по последним известным
+        курсам; кошелёк без курса исключается из сводки с причиной (excludedWallets).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FreeFunds" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Нет основного кошелька (валюты сводки).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /reporting/upcoming-payments:
+    get:
+      tags: [Reporting]
+      summary: Ближайшие платежи — плановые расходы и платежи графиков кредитов (#12, ADR-0010 §7)
+      operationId: getUpcomingPayments
+      description: >
+        Ожидаемые наступления плановых расходов (остаток к исполнению, с учётом пропусков и
+        переносов) и неоплаченные пункты графиков кредитов с датой не позже сегодня + days,
+        включая просроченные (плановые — не старше 366 дней). Список не вычитается из свободных средств.
+      parameters:
+        - name: days
+          in: query
+          description: Горизонт в днях от сегодня (1…366), по умолчанию 30.
+          schema: { type: integer, minimum: 1, maximum: 366, default: 30 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpcomingPayments" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Нет основного кошелька (валюты сводки).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /reporting/debts-summary:
+    get:
+      tags: [Reporting]
+      summary: Сводка долгов и кредитов в валюте основного кошелька (#6, #8, ADR-0010 §7)
+      operationId: getReportingDebtsSummary
+      description: >
+        Общий долг и разбивка по кредиторам, остаток кредитов отдельным блоком — по последнему
+        известному курсу с датой и источником. Отменённые и погашенные не входят. Суммы в валюте
+        без курса в итоги не входят и перечислены в missingRates.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DebtsSummaryReport" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Нет основного кошелька (валюты сводки).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /reporting/cash-flow-forecast:
+    get:
+      tags: [Reporting]
+      summary: Прогноз денежного потока (#10, ADR-0010 §7)
+      operationId: getCashFlowForecast
+      description: >
+        Read model, считается при запросе. Старт — фактические балансы кошельков «в общей сумме»;
+        движения — ожидаемые наступления плановых операций и неоплаченные платежи графиков
+        кредитов; просроченные — на сегодня. Валюта расчёта — валюта основного кошелька,
+        последние известные курсы; будущее изменение курсов не моделируется (см. assumptions).
+      parameters:
+        - name: months
+          in: query
+          description: Горизонт в месяцах — 1, 3, 6 или 12; по умолчанию 3.
+          schema: { type: integer, enum: [1, 3, 6, 12], default: 3 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CashFlowForecast" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Нет основного кошелька (валюты сводки).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
   # ---------- Audit ----------
   /audit-entries:
     get:
@@ -1002,6 +1140,1221 @@ paths:
               schema: { $ref: "#/components/schemas/AuditEntryPage" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  # ---------- Planning (ADR-0010 §6) ----------
+  /planned-transactions:
+    get:
+      tags: [Planning]
+      summary: Список плановых операций (issue #9)
+      operationId: listPlannedTransactions
+      description: Порядок — по моменту создания. Без status — активные и завершенные.
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [Active, Finished] }
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedTransactionPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Planning]
+      summary: Создать плановую операцию — разовую или повторяющуюся (issue #9)
+      operationId: createPlannedTransaction
+      description: >
+        Тип операции — активный, с поведением Income или Expense (плановые переводы в объем
+        не входят); направление плана берется из типа. Валюта — активная. Кошелек необязателен,
+        если указан — в валюте плана. До исполнения план не меняет ни баланс, ни историю баланса.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlannedTransactionWriteRequest" }
+      responses:
+        "201":
+          description: Создана
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedTransaction" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /planned-transactions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Planning]
+      summary: Получить плановую операцию
+      operationId: getPlannedTransaction
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedTransaction" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Planning]
+      summary: Редактировать плановую операцию
+      operationId: updatePlannedTransaction
+      description: >
+        Все поля передаются полностью (как в остальных PATCH). Отклонения наступлений, которых
+        нет в новом расписании, удаляются. Если у плана есть исполнения: валюту и направление
+        (доход/расход) менять нельзя, и каждое исполненное наступление должно остаться в новом
+        расписании — иначе 409. Неактивный тип операции допустим, только если он не меняется.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlannedTransactionWriteRequest" }
+      responses:
+        "200":
+          description: Обновлена
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedTransaction" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: План завершен; либо смена валюты, направления или расписания противоречит исполнениям.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+    delete:
+      tags: [Planning]
+      summary: Удалить плановую операцию (ADR-0010, §8)
+      operationId: deletePlannedTransaction
+      description: >
+        План без исполнений удаляется физически (204) вместе с отклонениями. План с исполнениями
+        не удаляется, а завершается (200 с планом в статусе Finished; уже завершенный остается как есть).
+      responses:
+        "200":
+          description: У плана есть исполнения — он завершен, а не удален
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedTransaction" }
+        "204": { description: Удалена }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /planned-transactions/{id}/finish:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Planning]
+      summary: Завершить плановую операцию
+      operationId: finishPlannedTransaction
+      description: >
+        Завершенный план больше ничего не ожидает: его наступления не попадают в ожидаемые
+        и в прогноз; в списке наступлений остаются только исполненные (полностью или частично).
+        Изменять завершенный план и его наступления нельзя.
+      responses:
+        "200":
+          description: Завершена
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedTransaction" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: План уже завершен.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /planned-occurrences:
+    get:
+      tags: [Planning]
+      summary: Наступления плановых операций за период
+      operationId: listPlannedOccurrences
+      description: >
+        Наступления вычисляются из правила повторения и не хранятся (ADR-0010, §6). В период
+        попадает наступление, чья фактическая дата (effectiveDate, после переноса) в [from, to]:
+        перенос может ввести наступление в период или вывести из него. Исполненная сумма берется
+        из текущих данных операций исполнения: мягко удаленная операция не учитывается
+        (наступление снова ожидается), восстановленная — учитывается снова. Порядок — по
+        effectiveDate. Без пагинации: период ограничен 731 днем.
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: plannedTransactionId
+          in: query
+          description: Только наступления этого плана.
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedOccurrenceList" }
+        "400":
+          description: Не указан from или to, from позже to либо период длиннее 731 дня.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /planned-transactions/{id}/occurrences/{date}/skip:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - $ref: "#/components/parameters/OccurrenceDateParam"
+    post:
+      tags: [Planning]
+      summary: Пропустить наступление
+      operationId: skipPlannedOccurrence
+      description: >
+        Пропущенное наступление больше не ожидается (в том числе остаток частично исполненного).
+        Повторный пропуск ничего не меняет.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedOccurrence" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: План завершен либо наступление уже исполнено полностью.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /planned-transactions/{id}/occurrences/{date}/unskip:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - $ref: "#/components/parameters/OccurrenceDateParam"
+    post:
+      tags: [Planning]
+      summary: Отменить пропуск наступления
+      operationId: unskipPlannedOccurrence
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedOccurrence" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: План завершен либо наступление не пропущено.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /planned-transactions/{id}/occurrences/{date}/move:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - $ref: "#/components/parameters/OccurrenceDateParam"
+    post:
+      tags: [Planning]
+      summary: Перенести наступление на другую дату
+      operationId: movePlannedOccurrence
+      description: Перенос на исходную дату отменяет перенос. Ограничений на новую дату нет.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date]
+              properties:
+                date: { type: string, format: date }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedOccurrence" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: План завершен.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /planned-transactions/{id}/occurrences/{date}/amount:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - $ref: "#/components/parameters/OccurrenceDateParam"
+    put:
+      tags: [Planning]
+      summary: Изменить сумму одного наступления
+      operationId: changePlannedOccurrenceAmount
+      description: amount = null (или сумма плана) возвращает наступление к сумме плана.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount: { type: [string, "null"], format: decimal }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedOccurrence" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: План завершен.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /planned-transactions/{id}/occurrences/{date}/execute:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - $ref: "#/components/parameters/OccurrenceDateParam"
+    post:
+      tags: [Planning]
+      summary: Исполнить наступление — создать обычную операцию
+      operationId: executePlannedOccurrence
+      description: >
+        В одной транзакции создается обычная операция дохода/расхода (как POST /operations:
+        баланс, история баланса, корректирующие суммы, аудит) и связывается с наступлением.
+        По умолчанию: кошелек плана, сумма — остаток ожидаемой, дата операции — фактическая
+        дата наступления. Кошелек — в валюте плана; дата — в [accountingStartDate кошелька ..
+        сегодня]. Сумма меньше остатка — частичное исполнение: остаток по-прежнему ожидается;
+        больше остатка допустима, наступление считается исполненным. Описание плана в операцию
+        не переносится (у операции нет описания). Параллельные команды по одному плану
+        выполняются по очереди (блокировка строки плана).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlannedOccurrenceExecuteRequest" }
+      responses:
+        "201":
+          description: Операция создана; Location — /operations/{operationId}
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlannedOccurrenceExecutionResult" }
+        "400":
+          description: >
+            Нет кошелька ни в плане, ни в запросе; кошелек не найден или в другой валюте; дата
+            операции вне допустимого диапазона (в том числе будущая фактическая дата по умолчанию);
+            сумма не положительна; тип операции деактивирован.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: >
+            План завершен; наступление пропущено или уже исполнено полностью; кошелек плана
+            сброшен параллельно (удален или сменил валюту, пока исполнение ждало блокировки) —
+            повторите запрос. Ошибка создания операции — с type Operations (operation-conflict;
+            400 — operation-validation-error), api-design.md, «Ошибки вложенных команд».
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  # ---------- Debts (ADR-0010 §3) ----------
+  /creditors:
+    get:
+      tags: [Creditors]
+      summary: Список кредиторов (по названию)
+      operationId: listCreditors
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - name: includeInactive
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreditorPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Creditors]
+      summary: Добавить кредитора
+      operationId: createCreditor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreditorRequest" }
+      responses:
+        "201":
+          description: Создан
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Creditor" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /creditors/{id}:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    patch:
+      tags: [Creditors]
+      summary: Переименовать кредитора
+      operationId: renameCreditor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreditorRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Creditor" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Creditors]
+      summary: Удалить неиспользуемого кредитора (ADR-0002 §4)
+      operationId: deleteCreditor
+      responses:
+        "204": { description: Удален }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Кредитор используется долгом или кредитом (включая отменённые) — используйте деактивацию.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /creditors/{id}/deactivate:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    post:
+      tags: [Creditors]
+      summary: Деактивировать кредитора (нельзя выбрать в новом или изменяемом долге/кредите)
+      operationId: deactivateCreditor
+      responses:
+        "200":
+          description: Деактивирован
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Creditor" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /debts:
+    get:
+      tags: [Debts]
+      summary: Список долгов (по дате создания)
+      operationId: listDebts
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - name: creditorId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DebtPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Debts]
+      summary: Завести долг (#6). Операция не создаётся (ADR-0010, В3)
+      operationId: createDebt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DebtCreateRequest" }
+      responses:
+        "201":
+          description: Создан
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Debt" }
+        "400":
+          description: Нет обязательного поля, сумма ≤ 0, кредитор не найден или деактивирован, валюта не активна.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /debts/summary:
+    get:
+      tags: [Debts]
+      summary: Общий долг и разбивка по кредиторам (#6), по валютам
+      description: >
+        Учитываются неотменённые долги с остатком > 0. Суммы сгруппированы по валюте долга;
+        пересчёт в валюту основного кошелька — задача Reporting (ADR-0010 §7), здесь не выполняется.
+      operationId: getDebtSummary
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DebtSummary" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /debts/{id}:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    get:
+      tags: [Debts]
+      summary: Долг с историей погашений
+      operationId: getDebt
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Debt" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Debts]
+      summary: Изменить долг (кредитор, название, исходная сумма, дата). Валюта неизменна
+      operationId: updateDebt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DebtUpdateRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Debt" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [Debts]
+      summary: Удалить долг без погашений (ADR-0010 §8)
+      operationId: deleteDebt
+      responses:
+        "204": { description: Удален }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: По долгу есть погашения (включая погашения удалённых операций) — используйте отмену.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /debts/{id}/cancel:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    post:
+      tags: [Debts]
+      summary: Отменить долг (конечный статус Cancelled)
+      operationId: cancelDebt
+      responses:
+        "200":
+          description: Отменён
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Debt" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /debts/{id}/repayments:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    post:
+      tags: [Debts]
+      summary: Зафиксировать погашение (частичное или полное) расходом из кошелька (ADR-0010, В4)
+      description: >
+        В одной транзакции создаёт обычную операцию расхода (через Operations — баланс, история,
+        аудит как у POST /operations) и связывает её с долгом. Мягкое удаление этой операции
+        исключает погашение из расчёта, восстановление — возвращает.
+      operationId: recordDebtRepayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaymentCreateRequest" }
+      responses:
+        "201":
+          description: Погашение зафиксировано; в ответе — долг с обновлённым остатком
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Debt" }
+        "400":
+          description: >
+            Нет обязательного поля; сумма ≤ 0; кошелёк или тип операции не найден; тип операции
+            деактивирован или не «Расход»; дата вне [дата начала учёта кошелька .. сегодня].
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: >
+            Долг отменён; остаток равен нулю; сумма больше остатка; валюта кошелька ≠ валюте долга.
+            Ошибка снятия связанного резерва — type fund-conflict (например, фонд изменен
+            параллельно — повторите запрос); ошибка создания операции — type Operations
+            (operation-conflict; 400 — operation-validation-error). См. api-design.md,
+            «Ошибки вложенных команд».
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /loans:
+    get:
+      tags: [Loans]
+      summary: Список кредитов (по дате создания)
+      operationId: listLoans
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - name: creditorId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoanPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Loans]
+      summary: Завести кредит (#8). Операция не создаётся (ADR-0010, В3)
+      operationId: createLoan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoanCreateRequest" }
+      responses:
+        "201":
+          description: Создан (график пуст)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Loan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /loans/{id}:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    get:
+      tags: [Loans]
+      summary: Кредит с графиком, статусами пунктов, ближайшим платежом и платежами
+      operationId: getLoan
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Loan" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Loans]
+      summary: Изменить условия кредита (кредитор, название, сумма к погашению, дата начала). Валюта неизменна
+      operationId: updateLoan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoanUpdateRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Loan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [Loans]
+      summary: Удалить кредит без платежей (график удаляется вместе с ним, ADR-0010 §8)
+      operationId: deleteLoan
+      responses:
+        "204": { description: Удален }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: По кредиту есть платежи — используйте отмену.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /loans/{id}/schedule:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    put:
+      tags: [Loans]
+      summary: Заменить график целиком (перенос даты, изменение сумм, добавление/удаление пунктов)
+      description: >
+        Сумма графика не обязана совпадать с суммой к погашению — расхождение видно по
+        scheduledAmount. Пункты с одной датой допускаются и упорядочиваются в порядке ввода.
+      operationId: replaceLoanSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoanScheduleReplaceRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Loan" }
+        "400":
+          description: Нет обязательного поля пункта или сумма пункта ≤ 0.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /loans/{id}/schedule/generate:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    post:
+      tags: [Loans]
+      summary: Сгенерировать график из N равных ежемесячных платежей (заменяет текущий)
+      description: >
+        Платёж = сумма к погашению / N, округлённая вниз до 2 знаков; последний платёж
+        получает остаток, так что сумма графика равна сумме к погашению. Даты — ежемесячно
+        от firstPaymentDate; если числа нет в месяце — последний день месяца.
+      operationId: generateLoanSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoanScheduleGenerateRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Loan" }
+        "400":
+          description: N вне [1..600] или платёж после округления равен нулю.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /loans/{id}/cancel:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    post:
+      tags: [Loans]
+      summary: Отменить кредит (конечный статус Cancelled)
+      operationId: cancelLoan
+      responses:
+        "200":
+          description: Отменён
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Loan" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /loans/{id}/payments:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    post:
+      tags: [Loans]
+      summary: Зафиксировать платёж по кредиту расходом из кошелька (ADR-0010, В4)
+      description: >
+        В одной транзакции создаёт операцию расхода и связывает её с кредитом. Учтённые платежи
+        закрывают самые ранние неоплаченные пункты графика.
+      operationId: recordLoanPayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaymentCreateRequest" }
+      responses:
+        "201":
+          description: Платёж зафиксирован; в ответе — кредит с пересчитанным графиком
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Loan" }
+        "400":
+          description: Как у POST /debts/{id}/repayments.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: >
+            Кредит отменён; остаток равен нулю; сумма больше остатка; валюта кошелька ≠ валюте кредита.
+            Ошибки снятия связанного резерва и создания операции — как у POST /debts/{id}/repayments.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  # ---------- Budgeting (ADR-0010 §5) ----------
+  /expense-categories:
+    get:
+      tags: [ExpenseCategories]
+      summary: Список категорий расходов
+      operationId: listExpenseCategories
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - name: includeInactive
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: OK, отсортировано по названию
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExpenseCategoryPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [ExpenseCategories]
+      summary: Добавить категорию расходов
+      operationId: createExpenseCategory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExpenseCategoryCreateRequest" }
+      responses:
+        "201":
+          description: Создана
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExpenseCategory" }
+        "400":
+          description: >
+            Пустое или длинное (более 200 символов) название; тип операции не найден,
+            деактивирован или не является расходом.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "409":
+          description: >
+            Тип операции уже входит в другую категорию; активная категория с таким
+            названием (без учета регистра) уже есть.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /expense-categories/{id}:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    get:
+      tags: [ExpenseCategories]
+      summary: Категория расходов
+      operationId: getExpenseCategory
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExpenseCategory" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [ExpenseCategories]
+      summary: Переименовать категорию и/или заменить набор ее типов операций
+      operationId: updateExpenseCategory
+      description: >
+        Отсутствующее поле не меняется. operationTypeIds — полный новый набор. Тип, уже
+        входящий в категорию, можно оставить, даже если он деактивирован; новый тип должен
+        быть активным расходом. Состав категории применяется ко всем бюджетам, включая
+        прошлые месяцы: исполнение считается при запросе по текущему составу.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExpenseCategoryUpdateRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExpenseCategory" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [ExpenseCategories]
+      summary: Удалить неиспользуемую категорию расходов
+      operationId: deleteExpenseCategory
+      responses:
+        "204": { description: Удалена }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Категория используется в лимите бюджета — используйте деактивацию.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /expense-categories/{id}/deactivate:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    post:
+      tags: [ExpenseCategories]
+      summary: Деактивировать категорию расходов
+      operationId: deactivateExpenseCategory
+      description: >
+        Категория скрывается из списка по умолчанию, новый лимит по ней задать нельзя;
+        существующие лимиты и ее типы операций сохраняются (тип остается занятым ею).
+      responses:
+        "200":
+          description: Деактивирована (повторный вызов — без изменений)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExpenseCategory" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /budgets:
+    get:
+      tags: [Budgets]
+      summary: Список бюджетов
+      operationId: listBudgets
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - name: month
+          in: query
+          description: Фильтр по месяцу ГГГГ-ММ.
+          schema: { type: string, pattern: "^\\d{4}-\\d{2}$", example: "2026-10" }
+      responses:
+        "200":
+          description: OK, по месяцу по убыванию, затем по времени создания
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BudgetPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Budgets]
+      summary: Создать бюджет на месяц в валюте
+      operationId: createBudget
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BudgetCreateRequest" }
+      responses:
+        "201":
+          description: Создан (без лимитов)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Budget" }
+        "400":
+          description: Месяц не в формате ГГГГ-ММ; валюта не найдена среди активных.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "409":
+          description: Бюджет на этот месяц в этой валюте уже есть.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /budgets/{id}:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    get:
+      tags: [Budgets]
+      summary: Бюджет с лимитами
+      operationId: getBudget
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Budget" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Budgets]
+      summary: Удалить бюджет вместе с лимитами
+      operationId: deleteBudget
+      responses:
+        "204": { description: Удален }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /budgets/{id}/limits/{categoryId}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - name: categoryId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      tags: [Budgets]
+      summary: Задать или изменить лимит категории
+      operationId: setBudgetCategoryLimit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BudgetLimitRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Budget" }
+        "400":
+          description: Лимит не указан или меньше нуля; категория не найдена или деактивирована.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Budgets]
+      summary: Убрать лимит категории
+      operationId: removeBudgetCategoryLimit
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Budget" }
+        "404":
+          description: Бюджет не найден или в нем нет лимита по категории.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /budgets/{id}/execution:
+    parameters: [{ $ref: "#/components/parameters/IdParam" }]
+    get:
+      tags: [Budgets]
+      summary: Исполнение бюджета
+      operationId: getBudgetExecution
+      description: >
+        Факт по категории — сумма не удаленных расходов (поведение «Расход») ее типов
+        операций с датой в месяце, по всем кошелькам; корректирующие суммы и переводы не
+        учитываются. Операция в другой валюте пересчитывается по историческому курсу на
+        дату операции, при его отсутствии — по ближайшему более раннему (В8, ADR-0004 §8);
+        если пары «валюта → валюта бюджета» в истории нет, используется обратная пара.
+        Если курса нет совсем, операция не входит в суммы и перечисляется в
+        excludedOperations с причиной. Курсы читаются только из БД. Остаток = лимит − факт,
+        превышение — отрицательный остаток. Перенос остатка между месяцами не делается.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BudgetExecution" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ---------- Funds (ADR-0010 §4) ----------
+  /funds:
+    get:
+      tags: [Funds]
+      summary: Список фондов (по времени создания)
+      operationId: listFunds
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - name: includeClosed
+          in: query
+          description: Включать закрытые фонды. По умолчанию — только активные.
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FundPage" }
+    post:
+      tags: [Funds]
+      summary: Создать фонд
+      operationId: createFund
+      description: >
+        Фонд в одной валюте (ADR-0010, В6); валюта — активная (GET /currencies).
+        Связь с долгом или кредитом необязательна, указывается не более одной; долг/кредит
+        должен существовать, быть в валюте фонда и не быть отменённым. Платёж по связанному
+        долгу/кредиту сам снимает резерв фонда по кошельку платежа (ADR-0010, В9).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FundCreateRequest" }
+      responses:
+        "201":
+          description: Создан
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Fund" }
+        "400":
+          description: >
+            Пустое или длиннее 200 символов название, целевая сумма не указана или не больше нуля,
+            валюта не активна, указаны одновременно долг и кредит, связанный долг/кредит не найден
+            или в другой валюте.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "409":
+          description: Связанный долг или кредит отменён.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /funds/{fundId}:
+    parameters:
+      - $ref: "#/components/parameters/FundIdParam"
+    get:
+      tags: [Funds]
+      summary: Получить фонд
+      operationId: getFund
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Fund" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Funds]
+      summary: Изменить фонд (все поля передаются целиком)
+      operationId: updateFund
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FundUpdateRequest" }
+      responses:
+        "200":
+          description: Обновлен
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Fund" }
+        "400":
+          description: Те же проверки, что при создании.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: >
+            Фонд закрыт; смена валюты фонда, по которому уже были резервы (даже снятые);
+            новая связь с отменённым долгом/кредитом; параллельное изменение фонда.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+    delete:
+      tags: [Funds]
+      summary: Удалить фонд без истории резервов
+      operationId: deleteFund
+      responses:
+        "204": { description: Удален }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: По фонду уже были резервы — фонд не удаляется, а закрывается (ADR-0010, §8).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /funds/{fundId}/close:
+    parameters:
+      - $ref: "#/components/parameters/FundIdParam"
+    post:
+      tags: [Funds]
+      summary: Закрыть фонд — снимает все резервы
+      operationId: closeFund
+      description: Закрытие окончательно; закрытый фонд нельзя изменить, пополнить или открыть снова.
+      responses:
+        "200":
+          description: Закрыт
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Fund" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Фонд уже закрыт.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /funds/{fundId}/reserve:
+    parameters:
+      - $ref: "#/components/parameters/FundIdParam"
+    post:
+      tags: [Funds]
+      summary: Зарезервировать деньги кошелька в фонде (создать или увеличить аллокацию)
+      operationId: reserveFund
+      description: >
+        Баланс кошелька не меняется. Сумма не больше свободных средств кошелька =
+        текущий баланс − резервы всех активных фондов по этому кошельку (ADR-0010, В7).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FundAllocationRequest" }
+      responses:
+        "200":
+          description: Зарезервировано
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Fund" }
+        "400":
+          description: Сумма не указана или не больше нуля; кошелек не найден; валюта кошелька не совпадает с валютой фонда.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: >
+            Недостаточно свободных средств (type
+            https://lupexwallet/errors/fund-insufficient-free-funds, в detail — доступная сумма);
+            кошелек архивный; фонд закрыт; параллельное изменение.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /funds/{fundId}/release:
+    parameters:
+      - $ref: "#/components/parameters/FundIdParam"
+    post:
+      tags: [Funds]
+      summary: Снять резерв фонда с кошелька (уменьшить аллокацию)
+      operationId: releaseFund
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FundAllocationRequest" }
+      responses:
+        "200":
+          description: Резерв снят
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Fund" }
+        "400":
+          description: Сумма не указана или не больше нуля.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Сумма больше резерва фонда по этому кошельку; фонд закрыт; параллельное изменение.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /funds/wallet-reservations:
+    get:
+      tags: [Funds]
+      summary: Резервы по всем кошелькам — баланс, зарезервировано, свободно, дефицит
+      operationId: listWalletReservations
+      description: >
+        Все кошельки, включая архивные (у архивного резерв всегда 0). Без пагинации:
+        список кошельков небольшой и нужен целиком (как GET /currencies/available).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/WalletReservation" }
+
+  /funds/wallet-reservations/{walletId}:
+    parameters:
+      - $ref: "#/components/parameters/WalletIdParam"
+    get:
+      tags: [Funds]
+      summary: Резервы одного кошелька
+      operationId: getWalletReservation
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WalletReservation" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
 components:
   parameters:
     WalletIdParam:
@@ -1014,11 +2367,22 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    FundIdParam:
+      name: fundId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
     IdParam:
       name: id
       in: path
       required: true
       schema: { type: string, format: uuid }
+    OccurrenceDateParam:
+      name: date
+      in: path
+      required: true
+      description: Исходная дата наступления по расписанию (occurrenceDate), в том числе после переноса.
+      schema: { type: string, format: date }
     CursorParam:
       name: cursor
       in: query
@@ -1425,20 +2789,35 @@ components:
     # ---- Reporting ----
     TotalAmount:
       type: object
-      required: [amount, ratesAsOfDate, excludedWallets]
+      required: [amount, actualAmount, reservedAmount, freeAmount, ratesAsOfDate, excludedWallets]
       properties:
         date:
           type: [string, "null"]
           format: date
           description: Запрошенная дата; null означает «текущая сумма» (UC-19).
-        amount: { $ref: "#/components/schemas/Money" }
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: >-
+            Общая сумма. Текущая — свободные средства (= freeAmount, ADR-0010 В9); на дату —
+            фактическая (= actualAmount).
+        actualAmount:
+          $ref: "#/components/schemas/Money"
+          description: Сумма фактических балансов кошельков «в общей сумме».
+        reservedAmount:
+          $ref: "#/components/schemas/NullableMoney"
+          description: Резервы активных фондов на этих кошельках; null для суммы на дату (история резервов не хранится).
+        freeAmount:
+          $ref: "#/components/schemas/NullableMoney"
+          description: actualAmount − reservedAmount (может быть отрицательной при дефиците); null для суммы на дату.
         ratesAsOfDate:
           type: string
           format: date
           description: >-
             Дата курса, реально примененного при конвертации (может отличаться от запрошенной,
             если точного курса нет — раздел 5). Если применены курсы на разные даты — самая
-            ранняя из них; для текущей суммы — сегодняшняя дата.
+            ранняя из них; для текущей суммы — дата получения последних известных курсов
+            (как ratesAsOfDate у /reporting/free-funds; при сбое обновления — не сегодня);
+            сегодня, если пересчёт не понадобился.
         excludedWallets:
           type: array
           description: >-
@@ -1453,6 +2832,170 @@ components:
       properties:
         walletId: { type: string, format: uuid }
         reason: { type: string, description: "Человекочитаемая причина исключения кошелька из суммы; для отсутствующего курса содержит код валюты (и дату для исторической суммы)." }
+    AppliedRate:
+      type: object
+      required: [fromCurrencyId, toCurrencyId, rate, rateDate, source]
+      properties:
+        fromCurrencyId: { type: string, format: uuid }
+        toCurrencyId: { type: string, format: uuid }
+        rate: { type: string, format: decimal }
+        rateDate: { type: string, format: date, description: Дата получения последнего известного курса. }
+        source: { type: string, example: Frankfurter }
+    MissingRate:
+      type: object
+      required: [currencyId, reason, itemCount]
+      properties:
+        currencyId: { type: string, format: uuid }
+        reason: { type: string, description: "Например «Курс валюты XYZ недоступен.»" }
+        itemCount: { type: integer, description: Сколько позиций в этой валюте не вошло в итоги. }
+    NullableMoney:
+      oneOf:
+        - $ref: "#/components/schemas/Money"
+        - type: "null"
+    WalletFreeFunds:
+      type: object
+      required: [walletId, currencyId, includeInTotal, isPrimary, balance, reserved, free, deficit]
+      properties:
+        walletId: { type: string, format: uuid }
+        currencyId: { type: string, format: uuid }
+        includeInTotal: { type: boolean }
+        isPrimary: { type: boolean }
+        balance: { $ref: "#/components/schemas/Money" }
+        reserved: { $ref: "#/components/schemas/Money" }
+        free: { $ref: "#/components/schemas/Money", description: "balance − reserved, может быть отрицательным." }
+        deficit: { $ref: "#/components/schemas/Money", description: "Дефицит обеспечения резерва = reserved − balance, если > 0, не больше reserved." }
+    FreeFunds:
+      type: object
+      required: [actualAmount, reservedAmount, freeAmount, deficitAmount, ratesAsOfDate, rateSource, rates, excludedWallets, wallets]
+      properties:
+        actualAmount: { $ref: "#/components/schemas/Money" }
+        reservedAmount: { $ref: "#/components/schemas/Money" }
+        freeAmount: { $ref: "#/components/schemas/Money", description: "actualAmount − reservedAmount." }
+        deficitAmount: { $ref: "#/components/schemas/Money" }
+        ratesAsOfDate: { type: string, format: date, description: "Самая ранняя дата применённых курсов; сегодня, если пересчёт не понадобился." }
+        rateSource: { type: string, example: Frankfurter }
+        rates: { type: array, items: { $ref: "#/components/schemas/AppliedRate" } }
+        excludedWallets: { type: array, items: { $ref: "#/components/schemas/ExcludedWallet" } }
+        wallets:
+          type: array
+          description: Все кошельки (сначала основной), суммы в валюте кошелька.
+          items: { $ref: "#/components/schemas/WalletFreeFunds" }
+    UpcomingPayment:
+      type: object
+      required: [kind, date, isOverdue, amount, convertedAmount]
+      properties:
+        kind: { type: string, enum: [PlannedExpense, LoanPayment] }
+        date: { type: string, format: date, description: "Дата наступления (с учётом переноса) или дата пункта графика." }
+        isOverdue: { type: boolean }
+        amount: { $ref: "#/components/schemas/Money", description: "Остаток к оплате в валюте позиции. Для пункта графика — не больше остатка кредита, распределённого по неоплаченным пунктам по порядку графика." }
+        convertedAmount: { $ref: "#/components/schemas/NullableMoney", description: "В валюте основного кошелька; null без курса." }
+        plannedTransactionId: { type: [string, "null"], format: uuid }
+        occurrenceDate: { type: [string, "null"], format: date, description: "Исходная дата наступления плана (до переноса)." }
+        operationTypeId: { type: [string, "null"], format: uuid }
+        walletId: { type: [string, "null"], format: uuid }
+        loanId: { type: [string, "null"], format: uuid }
+        loanName: { type: [string, "null"] }
+        creditorId: { type: [string, "null"], format: uuid }
+        creditorName: { type: [string, "null"] }
+        scheduleItemStatus: { type: [string, "null"], enum: [Partial, Overdue, Expected, null] }
+    UpcomingPayments:
+      type: object
+      required: [from, to, totalAmount, overdueAmount, ratesAsOfDate, rateSource, rates, missingRates, items]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        totalAmount: { $ref: "#/components/schemas/Money", description: "Сумма convertedAmount (без позиций без курса)." }
+        overdueAmount: { $ref: "#/components/schemas/Money" }
+        ratesAsOfDate: { type: string, format: date }
+        rateSource: { type: string }
+        rates: { type: array, items: { $ref: "#/components/schemas/AppliedRate" } }
+        missingRates: { type: array, items: { $ref: "#/components/schemas/MissingRate" } }
+        items: { type: array, items: { $ref: "#/components/schemas/UpcomingPayment" } }
+    CreditorDebt:
+      type: object
+      required: [creditorId, creditorName, amount, debtCount]
+      properties:
+        creditorId: { type: string, format: uuid }
+        creditorName: { type: string }
+        amount: { $ref: "#/components/schemas/Money" }
+        debtCount: { type: integer }
+    ObligationRemaining:
+      type: object
+      required: [id, name, creditorId, creditorName, remainingAmount, convertedAmount]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        creditorId: { type: string, format: uuid }
+        creditorName: { type: string }
+        remainingAmount: { $ref: "#/components/schemas/Money", description: "В валюте долга/кредита." }
+        convertedAmount: { $ref: "#/components/schemas/NullableMoney" }
+    DebtsSummaryReport:
+      type: object
+      required: [totalDebtAmount, debtCount, creditors, debts, totalLoanRemainingAmount, loanCount, loans, ratesAsOfDate, rateSource, rates, missingRates]
+      properties:
+        totalDebtAmount: { $ref: "#/components/schemas/Money" }
+        debtCount: { type: integer }
+        creditors: { type: array, items: { $ref: "#/components/schemas/CreditorDebt" } }
+        debts: { type: array, items: { $ref: "#/components/schemas/ObligationRemaining" } }
+        totalLoanRemainingAmount: { $ref: "#/components/schemas/Money" }
+        loanCount: { type: integer }
+        loans: { type: array, items: { $ref: "#/components/schemas/ObligationRemaining" } }
+        ratesAsOfDate: { type: string, format: date }
+        rateSource: { type: string }
+        rates: { type: array, items: { $ref: "#/components/schemas/AppliedRate" } }
+        missingRates: { type: array, items: { $ref: "#/components/schemas/MissingRate" } }
+    ForecastMovement:
+      type: object
+      required: [kind, date, originalDate, isOverdue, amount, convertedAmount]
+      properties:
+        kind: { type: string, enum: [PlannedIncome, PlannedExpense, LoanPayment] }
+        date: { type: string, format: date, description: "Дата в прогнозе (просроченное — сегодня)." }
+        originalDate: { type: string, format: date }
+        isOverdue: { type: boolean }
+        amount: { $ref: "#/components/schemas/Money", description: "Со знаком (доход +, расход −), в валюте позиции." }
+        convertedAmount: { $ref: "#/components/schemas/Money", description: "Со знаком, в валюте расчёта." }
+        plannedTransactionId: { type: [string, "null"], format: uuid }
+        walletId: { type: [string, "null"], format: uuid }
+        loanId: { type: [string, "null"], format: uuid }
+        loanName: { type: [string, "null"] }
+    ForecastDay:
+      type: object
+      required: [date, netChange, expectedBalance, isNegative, movements]
+      properties:
+        date: { type: string, format: date }
+        netChange: { $ref: "#/components/schemas/Money" }
+        expectedBalance: { $ref: "#/components/schemas/Money", description: "Ожидаемый остаток на конец дня." }
+        isNegative: { type: boolean }
+        movements: { type: array, items: { $ref: "#/components/schemas/ForecastMovement" } }
+    NegativePeriod:
+      type: object
+      required: [from, to]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date, description: "Включительно." }
+    CashFlowForecast:
+      type: object
+      required: [from, to, horizonMonths, startBalance, endBalance, minBalance, minBalanceDate, firstNegativeDate, negativePeriods, days, ratesAsOfDate, rateSource, rates, assumptions, excludedWallets, missingRates]
+      properties:
+        from: { type: string, format: date, description: "Сегодня." }
+        to: { type: string, format: date }
+        horizonMonths: { type: integer, enum: [1, 3, 6, 12] }
+        startBalance: { $ref: "#/components/schemas/Money", description: "Валюта — валюта основного кошелька (валюта расчёта)." }
+        endBalance: { $ref: "#/components/schemas/Money" }
+        minBalance: { $ref: "#/components/schemas/Money" }
+        minBalanceDate: { type: string, format: date }
+        firstNegativeDate: { type: [string, "null"], format: date }
+        negativePeriods: { type: array, items: { $ref: "#/components/schemas/NegativePeriod" } }
+        days:
+          type: array
+          description: Сегодня и каждая дата с движениями, по возрастанию.
+          items: { $ref: "#/components/schemas/ForecastDay" }
+        ratesAsOfDate: { type: string, format: date }
+        rateSource: { type: string }
+        rates: { type: array, items: { $ref: "#/components/schemas/AppliedRate" } }
+        assumptions: { type: array, items: { type: string }, description: "Явные предположения расчёта для показа в UI." }
+        excludedWallets: { type: array, items: { $ref: "#/components/schemas/ExcludedWallet" } }
+        missingRates: { type: array, items: { $ref: "#/components/schemas/MissingRate" } }
 
     # ---- Audit ----
     AuditFieldChange:
@@ -1482,6 +3025,541 @@ components:
       properties:
         data: { type: array, items: { $ref: "#/components/schemas/AuditEntry" } }
         pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+
+    # ---- Planning (ADR-0010 §6) ----
+    Recurrence:
+      type: object
+      required: [frequency]
+      description: >
+        Правило повторения. День недели/месяца/года берется из startDate; для Monthly при
+        отсутствии числа в месяце — последний день месяца (31 янв → 28/29 фев → 31 мар), для
+        Yearly 29 февраля в невисокосный год — 28 февраля. until и count взаимоисключающие.
+      properties:
+        frequency: { type: string, enum: [Daily, Weekly, Monthly, Yearly] }
+        interval: { type: integer, minimum: 1, maximum: 1000, default: 1 }
+        until: { type: [string, "null"], format: date, description: "Последняя возможная дата наступления (включительно)." }
+        count: { type: [integer, "null"], minimum: 1, description: "Всего наступлений, включая первое." }
+    PlannedTransactionWriteRequest:
+      type: object
+      required: [operationTypeId, amount, currencyId, startDate]
+      properties:
+        operationTypeId: { type: string, format: uuid }
+        amount: { type: string, format: decimal, description: "Положительная; направление — из типа операции." }
+        currencyId: { type: string, format: uuid }
+        walletId: { type: [string, "null"], format: uuid }
+        description: { type: [string, "null"], maxLength: 500 }
+        startDate: { type: string, format: date, description: "Дата первого наступления." }
+        recurrence:
+          description: null — разовая операция.
+          oneOf:
+            - $ref: "#/components/schemas/Recurrence"
+            - type: "null"
+    PlannedTransaction:
+      type: object
+      required: [id, operationTypeId, direction, amount, startDate, status, hasExecutions, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        operationTypeId: { type: string, format: uuid }
+        direction: { type: string, enum: [Income, Expense], readOnly: true }
+        amount: { $ref: "#/components/schemas/Money" }
+        walletId:
+          type: [string, "null"]
+          format: uuid
+          description: Сбрасывается в null, если кошелек удален или сменил валюту.
+        description: { type: [string, "null"] }
+        startDate: { type: string, format: date }
+        recurrence:
+          oneOf:
+            - $ref: "#/components/schemas/Recurrence"
+            - type: "null"
+        status: { type: string, enum: [Active, Finished], readOnly: true }
+        hasExecutions: { type: boolean, readOnly: true }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+        finishedAt: { type: [string, "null"], format: date-time, readOnly: true }
+    PlannedTransactionPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/PlannedTransaction" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+    PlannedOccurrenceExecution:
+      type: object
+      required: [operationId, amount, isOperationDeleted, executedAt]
+      properties:
+        operationId: { type: string, format: uuid }
+        amount:
+          description: Учтенная сумма — текущая сумма операции, 0 для мягко удаленной.
+          allOf:
+            - $ref: "#/components/schemas/Money"
+        isOperationDeleted: { type: boolean }
+        executedAt: { type: string, format: date-time }
+    PlannedOccurrence:
+      type: object
+      required:
+        [plannedTransactionId, occurrenceDate, effectiveDate, operationTypeId, direction, plannedAmount,
+         executedAmount, expectedAmount, status, isOverdue, isMoved, isAmountChanged, executions]
+      properties:
+        plannedTransactionId: { type: string, format: uuid }
+        occurrenceDate: { type: string, format: date, description: "Исходная дата по расписанию — идентификатор наступления в путях." }
+        effectiveDate: { type: string, format: date, description: "Фактическая дата (после переноса)." }
+        operationTypeId: { type: string, format: uuid }
+        direction: { type: string, enum: [Income, Expense] }
+        walletId: { type: [string, "null"], format: uuid }
+        description: { type: [string, "null"] }
+        plannedAmount:
+          description: Сумма плана или измененная сумма наступления.
+          allOf:
+            - $ref: "#/components/schemas/Money"
+        executedAmount: { $ref: "#/components/schemas/Money" }
+        expectedAmount:
+          description: Еще ожидается — plannedAmount − executedAmount; 0 для пропущенного, исполненного и наступления завершенного плана.
+          allOf:
+            - $ref: "#/components/schemas/Money"
+        status: { type: string, enum: [Expected, PartiallyExecuted, Executed, Skipped] }
+        isOverdue: { type: boolean, description: "effectiveDate раньше сегодняшнего дня (UTC), а наступление еще ожидается." }
+        isMoved: { type: boolean }
+        isAmountChanged: { type: boolean }
+        executions: { type: array, items: { $ref: "#/components/schemas/PlannedOccurrenceExecution" } }
+    PlannedOccurrenceList:
+      type: object
+      required: [from, to, data]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        data: { type: array, items: { $ref: "#/components/schemas/PlannedOccurrence" } }
+    PlannedOccurrenceExecuteRequest:
+      type: object
+      properties:
+        walletId: { type: [string, "null"], format: uuid, description: "По умолчанию — кошелек плана." }
+        amount: { type: [string, "null"], format: decimal, description: "По умолчанию — остаток ожидаемой суммы." }
+        operationDate: { type: [string, "null"], format: date, description: "По умолчанию — фактическая дата наступления." }
+    PlannedOccurrenceExecutionResult:
+      type: object
+      required: [occurrence, operationId]
+      properties:
+        occurrence: { $ref: "#/components/schemas/PlannedOccurrence" }
+        operationId: { type: string, format: uuid }
+
+    # ---- Debts (ADR-0010 §3) ----
+    Creditor:
+      type: object
+      required: [id, name, isActive]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 200 }
+        isActive: { type: boolean }
+    CreditorRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 200 }
+    CreditorPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Creditor" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+    ObligationStatus:
+      type: string
+      enum: [Active, Repaid, Cancelled]
+      description: >
+        Repaid вычисляется: учтённые платежи покрывают сумму. Если операцию платежа удалили,
+        статус возвращается в Active. Cancelled — конечный статус.
+    Payment:
+      type: object
+      description: >
+        Связь долга/кредита с операцией расхода. Сумма, дата и кошелёк берутся из операции в
+        её текущем виде. isCounted = операция не удалена, остаётся расходом и в валюте долга/кредита.
+      required: [id, operationId, walletId, amount, paymentDate, isCounted, isOperationDeleted, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        operationId: { type: string, format: uuid }
+        walletId: { type: string, format: uuid }
+        amount: { $ref: "#/components/schemas/Money" }
+        paymentDate: { type: string, format: date }
+        isCounted: { type: boolean }
+        isOperationDeleted: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    PaymentCreateRequest:
+      type: object
+      required: [walletId, operationTypeId, amount, paymentDate]
+      properties:
+        walletId: { type: string, format: uuid, description: Кошелёк в валюте долга/кредита }
+        operationTypeId: { type: string, format: uuid, description: Активный тип операции с поведением Expense }
+        amount: { type: string, format: decimal, description: "> 0 и не больше остатка" }
+        paymentDate: { type: string, format: date }
+    Debt:
+      type: object
+      required: [id, creditorId, name, currencyId, originalAmount, repaidAmount, remainingAmount, startDate, status, cancelledAt, createdAt, updatedAt, repayments]
+      properties:
+        id: { type: string, format: uuid }
+        creditorId: { type: string, format: uuid }
+        name: { type: string }
+        currencyId: { type: string, format: uuid }
+        originalAmount: { $ref: "#/components/schemas/Money" }
+        repaidAmount: { $ref: "#/components/schemas/Money" }
+        remainingAmount:
+          allOf: [{ $ref: "#/components/schemas/Money" }]
+          description: max(0, originalAmount − repaidAmount)
+        startDate: { type: string, format: date }
+        status: { $ref: "#/components/schemas/ObligationStatus" }
+        cancelledAt: { type: [string, "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        repayments: { type: array, items: { $ref: "#/components/schemas/Payment" } }
+    DebtCreateRequest:
+      type: object
+      required: [creditorId, name, currencyId, originalAmount, startDate]
+      properties:
+        creditorId: { type: string, format: uuid }
+        name: { type: string, maxLength: 200 }
+        currencyId: { type: string, format: uuid }
+        originalAmount: { type: string, format: decimal }
+        startDate: { type: string, format: date }
+    DebtUpdateRequest:
+      type: object
+      required: [creditorId, name, originalAmount, startDate]
+      properties:
+        creditorId: { type: string, format: uuid }
+        name: { type: string, maxLength: 200 }
+        originalAmount: { type: string, format: decimal }
+        startDate: { type: string, format: date }
+    DebtPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Debt" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+    DebtSummary:
+      type: object
+      required: [currencies]
+      properties:
+        currencies:
+          type: array
+          items:
+            type: object
+            required: [currencyId, totalRemainingAmount, debtCount, creditors]
+            properties:
+              currencyId: { type: string, format: uuid }
+              totalRemainingAmount: { $ref: "#/components/schemas/Money" }
+              debtCount: { type: integer }
+              creditors:
+                type: array
+                items:
+                  type: object
+                  required: [creditorId, creditorName, remainingAmount, debtCount]
+                  properties:
+                    creditorId: { type: string, format: uuid }
+                    creditorName: { type: string }
+                    remainingAmount: { $ref: "#/components/schemas/Money" }
+                    debtCount: { type: integer }
+    LoanScheduleItem:
+      type: object
+      required: [dueDate, amount, paidAmount, outstandingAmount, status]
+      properties:
+        dueDate: { type: string, format: date }
+        amount: { $ref: "#/components/schemas/Money" }
+        paidAmount: { $ref: "#/components/schemas/Money" }
+        outstandingAmount: { $ref: "#/components/schemas/Money" }
+        status:
+          type: string
+          enum: [Paid, Partial, Overdue, Expected]
+          description: >
+            Paid — покрыт полностью; Overdue — дата < сегодня (UTC), покрыт не полностью;
+            Partial — покрыт частично, дата ≥ сегодня; Expected — не покрыт, дата ≥ сегодня.
+    Loan:
+      type: object
+      required: [id, creditorId, name, currencyId, amountToRepay, paidAmount, remainingAmount, scheduledAmount, startDate, status, nextPayment, schedule, payments, cancelledAt, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        creditorId: { type: string, format: uuid }
+        name: { type: string }
+        currencyId: { type: string, format: uuid }
+        amountToRepay: { $ref: "#/components/schemas/Money" }
+        paidAmount: { $ref: "#/components/schemas/Money" }
+        remainingAmount: { $ref: "#/components/schemas/Money" }
+        scheduledAmount:
+          allOf: [{ $ref: "#/components/schemas/Money" }]
+          description: Сумма пунктов графика (может отличаться от amountToRepay)
+        startDate: { type: string, format: date }
+        status: { $ref: "#/components/schemas/ObligationStatus" }
+        nextPayment:
+          oneOf: [{ $ref: "#/components/schemas/LoanScheduleItem" }, { type: "null" }]
+          description: Самый ранний не полностью оплаченный пункт (включая просроченный); null у отменённого кредита
+        schedule: { type: array, items: { $ref: "#/components/schemas/LoanScheduleItem" } }
+        payments: { type: array, items: { $ref: "#/components/schemas/Payment" } }
+        cancelledAt: { type: [string, "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    LoanCreateRequest:
+      type: object
+      required: [creditorId, name, currencyId, amountToRepay, startDate]
+      properties:
+        creditorId: { type: string, format: uuid }
+        name: { type: string, maxLength: 200 }
+        currencyId: { type: string, format: uuid }
+        amountToRepay: { type: string, format: decimal }
+        startDate: { type: string, format: date }
+    LoanUpdateRequest:
+      type: object
+      required: [creditorId, name, amountToRepay, startDate]
+      properties:
+        creditorId: { type: string, format: uuid }
+        name: { type: string, maxLength: 200 }
+        amountToRepay: { type: string, format: decimal }
+        startDate: { type: string, format: date }
+    LoanScheduleReplaceRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [dueDate, amount]
+            properties:
+              dueDate: { type: string, format: date }
+              amount: { type: string, format: decimal }
+    LoanScheduleGenerateRequest:
+      type: object
+      required: [firstPaymentDate, numberOfPayments]
+      properties:
+        firstPaymentDate: { type: string, format: date }
+        numberOfPayments: { type: integer, minimum: 1, maximum: 600 }
+    LoanPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Loan" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+
+    # ---- Budgeting (ADR-0010 §5) ----
+    ExpenseCategory:
+      type: object
+      required: [id, name, isActive, operationTypeIds]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 200 }
+        isActive: { type: boolean }
+        operationTypeIds:
+          type: array
+          items: { type: string, format: uuid }
+    ExpenseCategoryCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 200 }
+        operationTypeIds:
+          type: array
+          description: Активные типы операций с поведением «Расход»; можно пусто.
+          items: { type: string, format: uuid }
+    ExpenseCategoryUpdateRequest:
+      type: object
+      properties:
+        name: { type: string, maxLength: 200 }
+        operationTypeIds:
+          type: array
+          description: Полный новый набор типов; отсутствие поля — набор не меняется.
+          items: { type: string, format: uuid }
+    ExpenseCategoryPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/ExpenseCategory" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+    CategoryLimit:
+      type: object
+      required: [expenseCategoryId, limit]
+      properties:
+        expenseCategoryId: { type: string, format: uuid }
+        limit: { type: string, format: decimal, description: "В валюте бюджета, не меньше нуля." }
+    Budget:
+      type: object
+      required: [id, month, currencyId, limits, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        month: { type: string, pattern: "^\\d{4}-\\d{2}$", example: "2026-10" }
+        currencyId: { type: string, format: uuid }
+        limits: { type: array, items: { $ref: "#/components/schemas/CategoryLimit" } }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    BudgetCreateRequest:
+      type: object
+      required: [month, currencyId]
+      properties:
+        month: { type: string, pattern: "^\\d{4}-\\d{2}$", example: "2026-10" }
+        currencyId: { type: string, format: uuid, description: "Активная валюта." }
+    BudgetLimitRequest:
+      type: object
+      required: [limit]
+      properties:
+        limit: { type: string, format: decimal, example: "15000.00" }
+    BudgetPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Budget" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+    BudgetCategoryExecution:
+      type: object
+      required: [expenseCategoryId, name, isActive, limit, actual, remaining, isOverspent]
+      properties:
+        expenseCategoryId: { type: string, format: uuid }
+        name: { type: string }
+        isActive: { type: boolean }
+        limit: { type: string, format: decimal }
+        actual: { type: string, format: decimal, description: "Факт в валюте бюджета." }
+        remaining: { type: string, format: decimal, description: "Лимит − факт; отрицательный при превышении." }
+        isOverspent: { type: boolean, description: "true, если remaining < 0." }
+    BudgetAppliedRate:
+      type: object
+      required: [fromCurrencyId, operationDate, rateDate, rate, isFallback]
+      properties:
+        fromCurrencyId: { type: string, format: uuid }
+        operationDate: { type: string, format: date }
+        rateDate: { type: string, format: date, description: "Дата примененного курса." }
+        rate: { type: string, format: decimal, description: "Множитель из fromCurrencyId в валюту бюджета." }
+        isFallback: { type: boolean, description: "Курса на дату операции нет — применен ближайший более ранний." }
+    BudgetExcludedOperation:
+      type: object
+      required: [operationId, currencyId, operationDate, amount, reason]
+      properties:
+        operationId: { type: string, format: uuid }
+        currencyId: { type: string, format: uuid }
+        operationDate: { type: string, format: date }
+        amount: { type: string, format: decimal, description: "Сумма в валюте операции." }
+        reason: { type: string, example: "Курс валюты USD к EUR на дату 2026-10-03 недоступен." }
+    BudgetExecution:
+      type: object
+      required: [budgetId, month, currencyId, categories, unbudgeted, totals, rateSource, appliedRates, excludedOperations]
+      properties:
+        budgetId: { type: string, format: uuid }
+        month: { type: string, example: "2026-10" }
+        currencyId: { type: string, format: uuid, description: "Валюта расчета = валюта бюджета." }
+        categories:
+          type: array
+          description: Одна строка на каждую категорию с лимитом в этом бюджете.
+          items: { $ref: "#/components/schemas/BudgetCategoryExecution" }
+        unbudgeted:
+          type: object
+          description: >
+            Строка «Без бюджета»: расходы, тип которых не входит ни в одну категорию с лимитом
+            в этом бюджете (категория без лимита или тип вне категорий).
+          required: [actual]
+          properties:
+            actual: { type: string, format: decimal }
+        totals:
+          type: object
+          required: [limit, budgetedActual, remaining, actual]
+          properties:
+            limit: { type: string, format: decimal, description: "Сумма лимитов." }
+            budgetedActual: { type: string, format: decimal, description: "Факт по категориям с лимитом." }
+            remaining: { type: string, format: decimal, description: "limit − budgetedActual." }
+            actual: { type: string, format: decimal, description: "Все учтенные расходы месяца (budgetedActual + «Без бюджета»)." }
+        rateSource: { type: string, example: Frankfurter }
+        appliedRates:
+          type: array
+          description: Курсы, примененные к операциям в другой валюте, — по одной записи на (валюта, дата операции).
+          items: { $ref: "#/components/schemas/BudgetAppliedRate" }
+        excludedOperations:
+          type: array
+          description: Расходы, не вошедшие в суммы из-за отсутствия курса.
+          items: { $ref: "#/components/schemas/BudgetExcludedOperation" }
+
+    # ---- Funds (ADR-0010 §4) ----
+    Fund:
+      type: object
+      required:
+        [id, name, currencyId, targetAmount, reserved, progress, deficit, status,
+         hasAllocationHistory, allocations, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        name: { type: string, maxLength: 200 }
+        currencyId: { type: string, format: uuid }
+        targetAmount: { $ref: "#/components/schemas/Money" }
+        reserved:
+          $ref: "#/components/schemas/Money"
+          description: Сумма аллокаций фонда.
+        progress:
+          type: string
+          format: decimal
+          description: reserved / targetAmount, без округления (ADR-0005); 1 и больше — цель достигнута.
+          example: "0.5"
+        deficit:
+          $ref: "#/components/schemas/Money"
+          description: Сумма дефицитов обеспечения по аллокациям фонда (0 у закрытого фонда).
+        linkedDebtId: { type: [string, "null"], format: uuid }
+        linkedLoanId: { type: [string, "null"], format: uuid }
+        status: { type: string, enum: [Active, Closed] }
+        hasAllocationHistory:
+          type: boolean
+          description: По фонду были резервы (даже снятые) — фонд нельзя удалить и сменить ему валюту.
+        allocations:
+          type: array
+          description: Ненулевые аллокации в порядке создания.
+          items: { $ref: "#/components/schemas/FundAllocation" }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+        closedAt: { type: [string, "null"], format: date-time, readOnly: true }
+    FundAllocation:
+      type: object
+      required: [walletId, amount, deficit]
+      properties:
+        walletId: { type: string, format: uuid }
+        amount: { $ref: "#/components/schemas/Money" }
+        deficit:
+          $ref: "#/components/schemas/Money"
+          description: >
+            Дефицит обеспечения кошелька (его резервы всех фондов − баланс, не больше резервов),
+            ограниченный суммой этой аллокации.
+    FundCreateRequest:
+      type: object
+      required: [name, targetAmount, currencyId]
+      properties:
+        name: { type: string, maxLength: 200 }
+        targetAmount: { type: string, format: decimal }
+        currencyId: { type: string, format: uuid }
+        linkedDebtId: { type: [string, "null"], format: uuid }
+        linkedLoanId: { type: [string, "null"], format: uuid }
+    FundUpdateRequest:
+      type: object
+      required: [name, targetAmount, currencyId]
+      description: Все поля передаются целиком; пропущенная связь с долгом/кредитом снимается.
+      properties:
+        name: { type: string, maxLength: 200 }
+        targetAmount: { type: string, format: decimal }
+        currencyId: { type: string, format: uuid }
+        linkedDebtId: { type: [string, "null"], format: uuid }
+        linkedLoanId: { type: [string, "null"], format: uuid }
+    FundAllocationRequest:
+      type: object
+      required: [walletId, amount]
+      properties:
+        walletId: { type: string, format: uuid }
+        amount: { type: string, format: decimal, description: "Больше нуля, в валюте фонда" }
+    FundPage:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Fund" } }
+        pagination: { $ref: "#/components/schemas/CursorPageMeta" }
+    WalletReservation:
+      type: object
+      required: [walletId, currencyId, balance, reserved, free, deficit]
+      properties:
+        walletId: { type: string, format: uuid }
+        currencyId: { type: string, format: uuid }
+        balance: { $ref: "#/components/schemas/Money" }
+        reserved:
+          $ref: "#/components/schemas/Money"
+          description: Сумма аллокаций активных фондов по кошельку.
+        free:
+          $ref: "#/components/schemas/Money"
+          description: balance − reserved; может быть отрицательной, если расходы опустили баланс ниже резервов.
+        deficit:
+          $ref: "#/components/schemas/Money"
+          description: Дефицит обеспечения резерва = reserved − balance, если больше нуля, но не больше reserved.
 
   responses:
     BadRequest:

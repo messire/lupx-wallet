@@ -1,0 +1,188 @@
+<div class="page">
+  <div class="page-heading">
+    <h1>Свободные средства</h1>
+  </div>
+
+  @if (freeFundsLoading() && !freeFunds()) {
+    <app-loading-state label="Загрузка…">
+      <app-skeleton height="88px" />
+      <app-skeleton height="220px" />
+    </app-loading-state>
+  } @else if (noPrimaryWallet()) {
+    <app-empty-state
+      title="Свободные средства не могут быть посчитаны"
+      description="В системе не назначен основной кошелёк — его валюта нужна для сводки."
+    />
+  } @else if (freeFundsError(); as error) {
+    <app-error-state [message]="error" (retry)="loadFreeFunds()" />
+  } @else if (freeFunds(); as funds) {
+    <section class="summary-grid" aria-label="Сводка в валюте основного кошелька">
+      <div class="summary-tile">
+        <span class="metadata">Фактический баланс</span>
+        <strong class="summary-value money">{{ money(funds.actualAmount) }}</strong>
+      </div>
+      <div class="summary-tile">
+        <span class="metadata">Зарезервировано в фондах</span>
+        <strong class="summary-value money">{{ money(funds.reservedAmount) }}</strong>
+      </div>
+      <div class="summary-tile summary-tile--accent">
+        <span class="metadata">Свободно = баланс − резерв</span>
+        <strong class="summary-value money" [class.amount-negative]="isNegative(funds.freeAmount.amount)">{{ money(funds.freeAmount) }}</strong>
+      </div>
+      <div class="summary-tile">
+        <span class="metadata">Дефицит обеспечения резерва</span>
+        <strong class="summary-value money" [class.amount-negative]="hasDeficit()">{{ money(funds.deficitAmount) }}</strong>
+        @if (hasDeficit()) {
+          <span class="metadata">Резерв больше баланса кошелька — расходы не блокируются</span>
+        }
+      </div>
+    </section>
+
+    <div class="free-funds-layout">
+      <section class="free-funds-wallets" aria-labelledby="wallets-heading">
+        <h2 id="wallets-heading" class="section-title">По кошелькам</h2>
+        <div class="table-scroll" role="region" aria-label="Свободные средства по кошелькам" tabindex="0">
+          <table class="app-table app-table--min-520">
+            <thead>
+              <tr>
+                <th>Кошелёк</th>
+                <th class="amount-col">Баланс</th>
+                <th class="amount-col">Резерв</th>
+                <th class="amount-col">Свободно</th>
+                <th class="amount-col">Дефицит</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (wallet of funds.wallets; track wallet.walletId) {
+                <tr>
+                  <td>
+                    {{ walletName(wallet.walletId) }}
+                    @if (wallet.isPrimary) {
+                      <app-badge tone="accent">Основной</app-badge>
+                    }
+                    @if (!wallet.includeInTotal) {
+                      <app-badge tone="neutral">Не в общей сумме</app-badge>
+                    }
+                  </td>
+                  <td class="amount-col money">{{ money(wallet.balance) }}</td>
+                  <td class="amount-col money">{{ money(wallet.reserved) }}</td>
+                  <td class="amount-col money" [class.amount-negative]="isNegative(wallet.free.amount)">{{ money(wallet.free) }}</td>
+                  <td class="amount-col money" [class.amount-negative]="!isZero(wallet.deficit.amount)">
+                    {{ money(wallet.deficit) }}
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="5" class="metadata">Кошельков пока нет</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <div class="report-note metadata" role="note">
+          <p>
+            Сводка — по кошелькам «в общей сумме» в валюте основного кошелька. Курсы на {{ formatDate(funds.ratesAsOfDate) }}, источник:
+            {{ funds.rateSource }}. Резерв фондов не меняет баланс кошелька — <a routerLink="/funds">Фонды</a>.
+          </p>
+          @if (funds.rates.length > 0) {
+            <details>
+              <summary>Применённые курсы ({{ funds.rates.length }})</summary>
+              <ul>
+                @for (item of funds.rates; track item.fromCurrencyId) {
+                  <li>{{ rate(item) }}</li>
+                }
+              </ul>
+            </details>
+          }
+          @if (funds.excludedWallets.length > 0) {
+            <p><app-badge tone="warning">Не учтено кошельков: {{ funds.excludedWallets.length }}</app-badge></p>
+            <ul>
+              @for (excluded of funds.excludedWallets; track excluded.walletId) {
+                <li>{{ walletName(excluded.walletId) }} — {{ excluded.reason }}</li>
+              }
+            </ul>
+          }
+        </div>
+      </section>
+
+      <section class="upcoming" aria-labelledby="upcoming-heading">
+        <div class="upcoming__head">
+          <h2 id="upcoming-heading" class="section-title">Ближайшие платежи</h2>
+          <app-field label="Горизонт" class="upcoming__days">
+            <app-select [formControl]="daysControl" ariaLabel="Горизонт ближайших платежей">
+              @for (days of dayOptions; track days) {
+                <app-select-option [value]="days" [label]="days + ' дней'" />
+              }
+            </app-select>
+          </app-field>
+        </div>
+        <p class="metadata upcoming__note">Показаны отдельно и не вычитаются из свободных средств.</p>
+
+        @if (upcomingLoading() && !upcoming()) {
+          <app-loading-state label="Загрузка…">
+            <app-skeleton height="48px" />
+            <app-skeleton height="48px" />
+          </app-loading-state>
+        } @else if (upcomingError(); as error) {
+          <app-error-state [message]="error" (retry)="loadUpcoming()" />
+        } @else if (upcoming(); as payments) {
+          <dl class="detail-list detail-list--compact upcoming__totals">
+              <dt>Всего до {{ formatDate(payments.to) }}</dt>
+              <dd class="money">{{ money(payments.totalAmount) }}</dd>
+            @if (overdueCount() > 0) {
+                <dt class="amount-negative">Просрочено ({{ overdueCount() }})</dt>
+                <dd class="money amount-negative">{{ money(payments.overdueAmount) }}</dd>
+            }
+          </dl>
+
+          @if (payments.items.length === 0) {
+            <app-empty-state title="Платежей нет" description="В выбранном горизонте нет плановых расходов и платежей по кредитам." />
+          } @else {
+            <ul class="upcoming-list">
+              @for (item of payments.items; track item.kind + (item.plannedTransactionId ?? item.loanId) + item.date + (item.occurrenceDate ?? '')) {
+                <li class="upcoming-item" [class.upcoming-item--overdue]="item.isOverdue">
+                  <div class="upcoming-item__main">
+                    <span class="upcoming-item__date">{{ formatDate(item.date) }}</span>
+                    <a class="upcoming-item__title" [routerLink]="paymentLink(item)">{{ paymentTitle(item) }}</a>
+                    <span class="metadata">
+                      {{ kindLabels[item.kind] }}
+                      @if (movedFrom(item); as original) {
+                        · перенесено с {{ formatDate(original) }}
+                      }
+                      @if (item.walletId) {
+                        · {{ walletName(item.walletId) }}
+                      }
+                    </span>
+                  </div>
+                  <div class="upcoming-item__amount">
+                    @if (item.isOverdue) {
+                      <app-badge tone="danger">Просрочен</app-badge>
+                    }
+                    <span class="money">{{ money(item.amount) }}</span>
+                    @if (item.convertedAmount && item.convertedAmount.currencyId !== item.amount.currencyId) {
+                      <span class="metadata money">≈ {{ money(item.convertedAmount) }}</span>
+                    } @else if (!item.convertedAmount) {
+                      <span class="metadata">нет курса — не в итоге</span>
+                    }
+                  </div>
+                </li>
+              }
+            </ul>
+          }
+
+          @if (payments.missingRates.length > 0) {
+            <div class="report-note metadata" role="note">
+              <p>Не вошли в итог — нет курса:</p>
+              <ul>
+                @for (missing of payments.missingRates; track missing.currencyId) {
+                  <li>{{ missing.reason }} Позиций: {{ missing.itemCount }}.</li>
+                }
+              </ul>
+            </div>
+          }
+        }
+      </section>
+    </div>
+  }
+</div>

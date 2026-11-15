@@ -14,14 +14,23 @@ namespace LupexWallet.IntegrationTests.Infrastructure;
 /// </summary>
 public sealed class ApiTestFixture : IAsyncLifetime
 {
-    private static readonly string[] Schemas = ["wallets", "reference_data", "operations", "balance_history", "exchange_rates"];
+    private static readonly string[] Schemas = ["wallets", "reference_data", "operations", "balance_history", "exchange_rates", "budgeting", "funds", "debts", "planning"];
 
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder()
-        .WithImage("postgres:16")
-        .WithDatabase("lupex_wallet")
-        .WithUsername("postgres")
-        .WithPassword("postgres")
-        .Build();
+    /// <summary>
+    /// Optional external database (for environments without Docker). When set, the database is
+    /// dropped and recreated on start instead of starting a Testcontainers Postgres.
+    /// </summary>
+    private static readonly string? ExternalConnectionString =
+        Environment.GetEnvironmentVariable("LUPEX_TEST_POSTGRES");
+
+    private readonly PostgreSqlContainer? _container = ExternalConnectionString is null
+        ? new PostgreSqlBuilder()
+            .WithImage("postgres:16")
+            .WithDatabase("lupex_wallet")
+            .WithUsername("postgres")
+            .WithPassword("postgres")
+            .Build()
+        : null;
 
     private string _connectionString = null!;
     private Respawner _respawner = null!;
@@ -41,8 +50,15 @@ public sealed class ApiTestFixture : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        await _container.StartAsync();
-        _connectionString = _container.GetConnectionString();
+        if (_container is not null)
+        {
+            await _container.StartAsync();
+            _connectionString = _container.GetConnectionString();
+        }
+        else
+        {
+            _connectionString = await RecreateExternalDatabaseAsync(ExternalConnectionString!);
+        }
         TestDataBuilder.UseDatabase(_connectionString);
 
         Factory = new LupexWalletApiFactory(_connectionString);
@@ -91,7 +107,26 @@ public sealed class ApiTestFixture : IAsyncLifetime
     public async Task DisposeAsync()
     {
         await Factory.DisposeAsync();
-        await _container.DisposeAsync();
+        if (_container is not null)
+        {
+            await _container.DisposeAsync();
+        }
+    }
+
+    private static async Task<string> RecreateExternalDatabaseAsync(string connectionString)
+    {
+        var builder = new NpgsqlConnectionStringBuilder(connectionString);
+        var database = builder.Database ?? "lupex_wallet_tests";
+        var adminBuilder = new NpgsqlConnectionStringBuilder(connectionString) { Database = "postgres", Pooling = false };
+
+        await using var admin = new NpgsqlConnection(adminBuilder.ConnectionString);
+        await admin.OpenAsync();
+        await using var command = admin.CreateCommand();
+        command.CommandText = $"DROP DATABASE IF EXISTS \"{database}\" WITH (FORCE); CREATE DATABASE \"{database}\";";
+        await command.ExecuteNonQueryAsync();
+
+        builder.Database = database;
+        return builder.ConnectionString;
     }
 }
 

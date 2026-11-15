@@ -12,6 +12,12 @@ public interface IExchangeRateLookup
     Task<decimal?> GetRateAsync(CurrencyId from, CurrencyId to, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Latest known rate with the date it was fetched from the rate service (ADR-0010 §7: the rate date
+    /// is shown with forecasts and summaries). Same currency → (1, today). null if the pair was never requested.
+    /// </summary>
+    Task<(decimal Rate, DateOnly RatesAsOfDate)?> GetLatestRateWithDateAsync(CurrencyId from, CurrencyId to, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Rate as of a date (UC-21) from the loaded history: the rate of that date, or the closest
     /// earlier one when the date has none (weekend, holiday) — <c>RatesAsOfDate</c> carries the
     /// date actually applied. Same currency → (1, date). null when the history holds nothing

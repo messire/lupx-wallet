@@ -1,0 +1,92 @@
+<form class="entity-form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+  <p class="metadata entity-form__intro">
+    Плановая операция не меняет баланс, пока её не исполнят. При исполнении создаётся обычная операция.
+  </p>
+
+  <app-field label="Тип операции" [required]="true" [error]="typeError()" hint="Доход или расход — направление берётся из типа">
+    <app-select formControlName="operationTypeId" placeholder="— выберите тип —" emptyText="Нет активных типов дохода и расхода">
+      @for (option of typeOptions(); track option.type.id) {
+        <app-select-option [value]="option.type.id" [label]="directionLabel(option)" />
+      }
+    </app-select>
+  </app-field>
+
+  <app-field label="Валюта" [required]="true" [error]="currencyError()">
+    <app-select formControlName="currencyId" placeholder="— выберите валюту —">
+      @for (currency of currencies(); track currency.id) {
+        <app-select-option [value]="currency.id" [label]="currency.code + ' — ' + currency.name" />
+      }
+    </app-select>
+  </app-field>
+
+  <app-field label="Сумма" [required]="true" [error]="amountError()">
+    <div class="input-suffix">
+      <input appFieldControl type="text" inputmode="decimal" placeholder="0.00" formControlName="amount" />
+      @if (currencyCode()) {
+        <span class="input-suffix__code">{{ currencyCode() }}</span>
+      }
+    </div>
+  </app-field>
+
+  <app-field label="Кошелёк" [hint]="walletHint()">
+    <app-select formControlName="walletId" emptyText="Сначала выберите валюту">
+      <app-select-option value="" label="— не указан —" />
+      @for (wallet of walletOptions(); track wallet.id) {
+        <app-select-option [value]="wallet.id" [label]="wallet.name" />
+      }
+    </app-select>
+  </app-field>
+
+  <app-field label="Описание">
+    <input appFieldControl type="text" formControlName="description" maxlength="500" placeholder="Например, «Аренда квартиры»" />
+  </app-field>
+
+  <app-field label="Дата первого наступления" [required]="true">
+    <app-date-input formControlName="startDate" />
+  </app-field>
+
+  <app-checkbox label="Повторять" formControlName="repeats" />
+
+  @if (repeats()) {
+    <fieldset class="recurrence">
+      <legend class="visually-hidden">Правило повторения</legend>
+      <app-field label="Частота" hint="День недели, месяца или года — как у первого наступления; если числа нет в месяце — последний день">
+        <app-select formControlName="frequency">
+          @for (option of frequencies; track option.value) {
+            <app-select-option [value]="option.value" [label]="option.label" />
+          }
+        </app-select>
+      </app-field>
+      <app-field label="Интервал" [error]="intervalError()" hint="1 — каждый период, 2 — через один и т. д.">
+        <input appFieldControl type="number" inputmode="numeric" min="1" max="1000" formControlName="interval" />
+      </app-field>
+
+      <span class="metadata" id="plan-end-label">Окончание</span>
+      <app-radio-group formControlName="endMode" ariaLabelledBy="plan-end-label">
+        <app-radio-option value="never" label="Без окончания" />
+        <app-radio-option value="until" label="До даты" />
+        <app-radio-option value="count" label="После N наступлений" />
+      </app-radio-group>
+
+      @if (showUntil()) {
+        <app-field label="Последняя дата" [required]="true" [error]="untilError()">
+          <app-date-input formControlName="until" />
+        </app-field>
+      }
+      @if (showCount()) {
+        <app-field label="Всего наступлений" [required]="true" [error]="countError()" hint="Включая первое">
+          <input appFieldControl type="number" inputmode="numeric" min="1" formControlName="count" />
+        </app-field>
+      }
+    </fieldset>
+  }
+
+  @if (errorMessage()) {
+    <p class="form-error" role="alert">{{ errorMessage() }}</p>
+  }
+
+  <div class="form-actions">
+    <app-button type="submit" variant="primary" [loading]="isSubmitting()" loadingText="Сохранение…">{{ plan() ? 'Сохранить' : 'Создать' }}</app-button>
+    <app-button type="button" variant="secondary" (click)="cancel.emit()">Отмена</app-button>
+  </div>
+</form>

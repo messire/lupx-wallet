@@ -49,6 +49,16 @@ public sealed class WalletCommandHandlersTests
         }).ToArray();
     }
 
+    private static IEnumerable<IWalletReservationProbe> NoReservations() => Reservations(false);
+
+    private static IEnumerable<IWalletReservationProbe> Reservations(params bool[] results) =>
+        results.Select(result =>
+        {
+            var probe = Substitute.For<IWalletReservationProbe>();
+            probe.HasActiveReservationsAsync(Arg.Any<WalletId>(), Arg.Any<CancellationToken>()).Returns(result);
+            return probe;
+        }).ToArray();
+
     // walletTypeId is checked for existence and activity; the currency code is resolved/activated through ICurrencyActivation.
     private static IWalletTypeLookup WalletTypeLookupReturning(bool? isActive)
     {
@@ -265,7 +275,7 @@ public sealed class WalletCommandHandlersTests
     public async Task ArchiveWallet_UnknownWallet_ThrowsWalletNotFoundException()
     {
         var repository = RepositoryReturning(null);
-        var handler = new ArchiveWalletCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>());
+        var handler = new ArchiveWalletCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>(), NoReservations());
 
         var act = () => handler.Handle(new ArchiveWalletCommand(Guid.NewGuid()), CancellationToken.None);
 
@@ -277,7 +287,7 @@ public sealed class WalletCommandHandlersTests
     {
         var wallet = CreateWallet(isFirstWallet: true);
         var repository = RepositoryReturning(wallet);
-        var handler = new ArchiveWalletCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>());
+        var handler = new ArchiveWalletCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>(), NoReservations());
 
         var act = () => handler.Handle(new ArchiveWalletCommand(wallet.Id.Value), CancellationToken.None);
 
@@ -290,7 +300,7 @@ public sealed class WalletCommandHandlersTests
         var wallet = CreateWallet(isFirstWallet: false);
         var repository = RepositoryReturning(wallet);
         var unitOfWork = Substitute.For<IWalletsUnitOfWork>();
-        var handler = new ArchiveWalletCommandHandler(repository, unitOfWork);
+        var handler = new ArchiveWalletCommandHandler(repository, unitOfWork, NoReservations());
 
         var dto = await handler.Handle(new ArchiveWalletCommand(wallet.Id.Value), CancellationToken.None);
 
@@ -356,7 +366,7 @@ public sealed class WalletCommandHandlersTests
     public async Task DeleteWallet_UnknownWallet_ThrowsWalletNotFoundException()
     {
         var repository = RepositoryReturning(null);
-        var handler = new DeleteWalletCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>(), HistorySources(false));
+        var handler = new DeleteWalletCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>(), HistorySources(false), NoReservations());
 
         var act = () => handler.Handle(new DeleteWalletCommand(Guid.NewGuid()), CancellationToken.None);
 
@@ -368,7 +378,7 @@ public sealed class WalletCommandHandlersTests
     {
         var wallet = CreateWallet();
         var repository = RepositoryReturning(wallet);
-        var handler = new DeleteWalletCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>(), Array.Empty<IWalletHistorySource>());
+        var handler = new DeleteWalletCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>(), Array.Empty<IWalletHistorySource>(), NoReservations());
 
         var act = () => handler.Handle(new DeleteWalletCommand(wallet.Id.Value), CancellationToken.None);
 
@@ -380,7 +390,7 @@ public sealed class WalletCommandHandlersTests
     {
         var wallet = CreateWallet(isFirstWallet: false);
         var repository = RepositoryReturning(wallet);
-        var handler = new DeleteWalletCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>(), HistorySources(false, true));
+        var handler = new DeleteWalletCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>(), HistorySources(false, true), NoReservations());
 
         var act = () => handler.Handle(new DeleteWalletCommand(wallet.Id.Value), CancellationToken.None);
 
@@ -392,7 +402,7 @@ public sealed class WalletCommandHandlersTests
     {
         var wallet = CreateWallet(isFirstWallet: true);
         var repository = RepositoryReturning(wallet);
-        var handler = new DeleteWalletCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>(), HistorySources(false, false));
+        var handler = new DeleteWalletCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>(), HistorySources(false, false), NoReservations());
 
         var act = () => handler.Handle(new DeleteWalletCommand(wallet.Id.Value), CancellationToken.None);
 
@@ -405,7 +415,7 @@ public sealed class WalletCommandHandlersTests
         var wallet = CreateWallet(isFirstWallet: false);
         var repository = RepositoryReturning(wallet);
         var unitOfWork = Substitute.For<IWalletsUnitOfWork>();
-        var handler = new DeleteWalletCommandHandler(repository, unitOfWork, HistorySources(false, false));
+        var handler = new DeleteWalletCommandHandler(repository, unitOfWork, HistorySources(false, false), NoReservations());
 
         await handler.Handle(new DeleteWalletCommand(wallet.Id.Value), CancellationToken.None);
 
@@ -419,7 +429,7 @@ public sealed class WalletCommandHandlersTests
     public async Task ChangeWalletCurrency_UnknownWallet_ThrowsWalletNotFoundException()
     {
         var repository = RepositoryReturning(null);
-        var handler = new ChangeWalletCurrencyCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>(), HistorySources(false), CurrencyLookupReturning(true));
+        var handler = new ChangeWalletCurrencyCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>(), HistorySources(false), CurrencyLookupReturning(true), NoReservations());
 
         var act = () => handler.Handle(new ChangeWalletCurrencyCommand(Guid.NewGuid(), Guid.NewGuid()), CancellationToken.None);
 
@@ -432,7 +442,7 @@ public sealed class WalletCommandHandlersTests
         var wallet = CreateWallet();
         var repository = RepositoryReturning(wallet);
         var handler = new ChangeWalletCurrencyCommandHandler(
-            repository, Substitute.For<IWalletsUnitOfWork>(), HistorySources(false), CurrencyLookupReturning(false));
+            repository, Substitute.For<IWalletsUnitOfWork>(), HistorySources(false), CurrencyLookupReturning(false), NoReservations());
 
         var act = () => handler.Handle(new ChangeWalletCurrencyCommand(wallet.Id.Value, Guid.NewGuid()), CancellationToken.None);
 
@@ -444,7 +454,7 @@ public sealed class WalletCommandHandlersTests
     {
         var wallet = CreateWallet();
         var repository = RepositoryReturning(wallet);
-        var handler = new ChangeWalletCurrencyCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>(), HistorySources(true, false), CurrencyLookupReturning(true));
+        var handler = new ChangeWalletCurrencyCommandHandler(repository, Substitute.For<IWalletsUnitOfWork>(), HistorySources(true, false), CurrencyLookupReturning(true), NoReservations());
 
         var act = () => handler.Handle(new ChangeWalletCurrencyCommand(wallet.Id.Value, Guid.NewGuid()), CancellationToken.None);
 
@@ -457,7 +467,7 @@ public sealed class WalletCommandHandlersTests
         var wallet = CreateWallet();
         var repository = RepositoryReturning(wallet);
         var unitOfWork = Substitute.For<IWalletsUnitOfWork>();
-        var handler = new ChangeWalletCurrencyCommandHandler(repository, unitOfWork, HistorySources(false, false), CurrencyLookupReturning(true));
+        var handler = new ChangeWalletCurrencyCommandHandler(repository, unitOfWork, HistorySources(false, false), CurrencyLookupReturning(true), NoReservations());
         var newCurrencyId = Guid.NewGuid();
 
         var dto = await handler.Handle(new ChangeWalletCurrencyCommand(wallet.Id.Value, newCurrencyId), CancellationToken.None);
@@ -484,7 +494,7 @@ public sealed class WalletCommandHandlersTests
     {
         var wallet = CreateWallet(isFirstWallet: false);
         var (repository, unitOfWork, calls) = RecordedCalls(wallet);
-        var handler = new DeleteWalletCommandHandler(repository, unitOfWork, HistorySources(false, false));
+        var handler = new DeleteWalletCommandHandler(repository, unitOfWork, HistorySources(false, false), NoReservations());
 
         await handler.Handle(new DeleteWalletCommand(wallet.Id.Value), CancellationToken.None);
 
@@ -496,7 +506,7 @@ public sealed class WalletCommandHandlersTests
     public async Task DeleteWallet_UnknownWallet_StillTakesTheLockFirst()
     {
         var (repository, unitOfWork, calls) = RecordedCalls(null);
-        var handler = new DeleteWalletCommandHandler(repository, unitOfWork, HistorySources(false));
+        var handler = new DeleteWalletCommandHandler(repository, unitOfWork, HistorySources(false), NoReservations());
 
         var act = () => handler.Handle(new DeleteWalletCommand(Guid.NewGuid()), CancellationToken.None);
 
@@ -509,7 +519,7 @@ public sealed class WalletCommandHandlersTests
     {
         var wallet = CreateWallet();
         var (repository, unitOfWork, calls) = RecordedCalls(wallet);
-        var handler = new ChangeWalletCurrencyCommandHandler(repository, unitOfWork, HistorySources(false, false), CurrencyLookupReturning(true));
+        var handler = new ChangeWalletCurrencyCommandHandler(repository, unitOfWork, HistorySources(false, false), CurrencyLookupReturning(true), NoReservations());
 
         await handler.Handle(new ChangeWalletCurrencyCommand(wallet.Id.Value, Guid.NewGuid()), CancellationToken.None);
 
@@ -521,7 +531,7 @@ public sealed class WalletCommandHandlersTests
     public async Task ChangeWalletCurrency_UnknownWalletAndUnknownCurrency_ReportsTheWalletFirst()
     {
         var handler = new ChangeWalletCurrencyCommandHandler(
-            RepositoryReturning(null), Substitute.For<IWalletsUnitOfWork>(), HistorySources(true), CurrencyLookupReturning(false));
+            RepositoryReturning(null), Substitute.For<IWalletsUnitOfWork>(), HistorySources(true), CurrencyLookupReturning(false), NoReservations());
 
         var act = () => handler.Handle(new ChangeWalletCurrencyCommand(Guid.NewGuid(), Guid.NewGuid()), CancellationToken.None);
 
@@ -534,11 +544,92 @@ public sealed class WalletCommandHandlersTests
         var wallet = CreateWallet();
         var sources = HistorySources(true).ToList();
         var handler = new ChangeWalletCurrencyCommandHandler(
-            RepositoryReturning(wallet), Substitute.For<IWalletsUnitOfWork>(), sources, CurrencyLookupReturning(false));
+            RepositoryReturning(wallet), Substitute.For<IWalletsUnitOfWork>(), sources, CurrencyLookupReturning(false), NoReservations());
 
         var act = () => handler.Handle(new ChangeWalletCurrencyCommand(wallet.Id.Value, Guid.NewGuid()), CancellationToken.None);
 
         await act.Should().ThrowAsync<CurrencyReferenceNotFoundException>("400 comes before the 409 about the history");
         await sources[0].DidNotReceiveWithAnyArgs().HasHistoryAsync(default, default);
+    }
+
+    // ---- Fund reserves (ADR-0010 §4, IWalletReservationProbe) ----
+
+    [Fact]
+    public async Task ArchiveWallet_WithActiveReservations_ThrowsAndDoesNotArchive()
+    {
+        var wallet = CreateWallet(isFirstWallet: false);
+        var unitOfWork = Substitute.For<IWalletsUnitOfWork>();
+        var handler = new ArchiveWalletCommandHandler(RepositoryReturning(wallet), unitOfWork, Reservations(false, true));
+
+        var act = () => handler.Handle(new ArchiveWalletCommand(wallet.Id.Value), CancellationToken.None);
+
+        await act.Should().ThrowAsync<WalletHasActiveReservationsException>();
+        wallet.IsArchived.Should().BeFalse();
+        await unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ArchiveWallet_TakesTheWalletLockBeforeReadingTheWallet()
+    {
+        var wallet = CreateWallet(isFirstWallet: false);
+        var (repository, unitOfWork, calls) = RecordedCalls(wallet);
+        var handler = new ArchiveWalletCommandHandler(repository, unitOfWork, NoReservations());
+
+        await handler.Handle(new ArchiveWalletCommand(wallet.Id.Value), CancellationToken.None);
+
+        calls.Should().Equal("lock", "read-wallet", "save");
+    }
+
+    [Fact]
+    public async Task ArchiveWallet_NoReservationProbes_IsAConfigurationError()
+    {
+        var wallet = CreateWallet(isFirstWallet: false);
+        var handler = new ArchiveWalletCommandHandler(
+            RepositoryReturning(wallet), Substitute.For<IWalletsUnitOfWork>(), Array.Empty<IWalletReservationProbe>());
+
+        var act = () => handler.Handle(new ArchiveWalletCommand(wallet.Id.Value), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Fact]
+    public async Task DeleteWallet_WithActiveReservations_ThrowsAndDoesNotDelete()
+    {
+        var wallet = CreateWallet(isFirstWallet: false);
+        var repository = RepositoryReturning(wallet);
+        var handler = new DeleteWalletCommandHandler(
+            repository, Substitute.For<IWalletsUnitOfWork>(), HistorySources(false), Reservations(true));
+
+        var act = () => handler.Handle(new DeleteWalletCommand(wallet.Id.Value), CancellationToken.None);
+
+        await act.Should().ThrowAsync<WalletHasActiveReservationsException>();
+        repository.DidNotReceive().Remove(Arg.Any<Wallet>());
+    }
+
+    [Fact]
+    public async Task ChangeWalletCurrency_WithActiveReservations_ThrowsAndKeepsTheCurrency()
+    {
+        var wallet = CreateWallet();
+        var currencyId = wallet.CurrencyId;
+        var handler = new ChangeWalletCurrencyCommandHandler(
+            RepositoryReturning(wallet), Substitute.For<IWalletsUnitOfWork>(), HistorySources(false), CurrencyLookupReturning(true), Reservations(true));
+
+        var act = () => handler.Handle(new ChangeWalletCurrencyCommand(wallet.Id.Value, Guid.NewGuid()), CancellationToken.None);
+
+        await act.Should().ThrowAsync<WalletHasActiveReservationsException>();
+        wallet.CurrencyId.Should().Be(currencyId);
+    }
+
+    [Fact]
+    public async Task ChangeWalletCurrency_SameCurrency_DoesNotAskTheReservationProbes()
+    {
+        var wallet = CreateWallet();
+        var probes = Reservations(true).ToList();
+        var handler = new ChangeWalletCurrencyCommandHandler(
+            RepositoryReturning(wallet), Substitute.For<IWalletsUnitOfWork>(), HistorySources(false), CurrencyLookupReturning(true), probes);
+
+        await handler.Handle(new ChangeWalletCurrencyCommand(wallet.Id.Value, wallet.CurrencyId.Value), CancellationToken.None);
+
+        await probes[0].DidNotReceiveWithAnyArgs().HasActiveReservationsAsync(default, default);
     }
 }

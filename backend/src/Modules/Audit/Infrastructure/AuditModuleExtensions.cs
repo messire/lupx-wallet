@@ -1,7 +1,9 @@
 using LupexWallet.Audit.Application;
 using LupexWallet.BalanceHistory.Domain;
 using LupexWallet.BuildingBlocks.Infrastructure;
+using LupexWallet.Debts.Domain;
 using LupexWallet.ExchangeRates.Domain;
+using LupexWallet.Funds.Domain;
 using LupexWallet.Operations.Domain;
 using LupexWallet.ReferenceData.Domain;
 using LupexWallet.Wallets.Domain;
@@ -40,6 +42,9 @@ public static class AuditModuleExtensions
         services.AddScoped<AuditRecorder>();
 
         RegisterEventHandlers(services);
+
+        // Planning (ADR-0010 §6, §8)
+        PlanningAuditHandlers.Register(services);
 
         return services;
     }
@@ -89,5 +94,33 @@ public static class AuditModuleExtensions
         services.AddScoped<INotificationHandler<DomainEventNotification<ExchangeRatesUpdated>>, ExchangeRatesUpdatedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<ExchangeRateUpdateFailed>>, ExchangeRateUpdateFailedAuditHandler>();
         services.AddScoped<INotificationHandler<DomainEventNotification<ExchangeRateHistoryLoaded>>, ExchangeRateHistoryLoadedAuditHandler>();
+
+        // Debts (ADR-0010 §3, §8): creditors, debts, loans; repayments/payments/schedule enrich the owner's record.
+        services.AddScoped<INotificationHandler<DomainEventNotification<CreditorCreated>>, CreditorCreatedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<CreditorRenamed>>, CreditorRenamedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<CreditorDeactivated>>, CreditorDeactivatedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<CreditorDeleted>>, CreditorDeletedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<DebtCreated>>, DebtCreatedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<DebtUpdated>>, DebtUpdatedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<DebtCancelled>>, DebtCancelledAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<DebtDeleted>>, DebtDeletedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<DebtRepaymentRecorded>>, DebtRepaymentRecordedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<LoanCreated>>, LoanCreatedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<LoanUpdated>>, LoanUpdatedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<LoanCancelled>>, LoanCancelledAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<LoanDeleted>>, LoanDeletedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<LoanScheduleChanged>>, LoanScheduleChangedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<LoanPaymentRecorded>>, LoanPaymentRecordedAuditHandler>();
+
+        // Budgeting (ExpenseCategory*, Budget*) — ADR-0010 §8.
+        services.AddBudgetingAuditHandlers();
+
+        // ---- Funds (ADR-0010 §4, §8): FundCreated/Updated/Closed/Deleted, FundReserved/Released ----
+        services.AddScoped<INotificationHandler<DomainEventNotification<FundCreated>>, FundCreatedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<FundUpdated>>, FundUpdatedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<FundClosed>>, FundClosedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<FundDeleted>>, FundDeletedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<FundReserved>>, FundReservedAuditHandler>();
+        services.AddScoped<INotificationHandler<DomainEventNotification<FundReleased>>, FundReleasedAuditHandler>();
     }
 }

@@ -1,4 +1,75 @@
-import { amountValidator, formatAmount, formatMoney, isValidAmount, isZeroAmount, parseAmountInput, subtractAmounts } from './money';
+import { FormControl } from '@angular/forms';
+import {
+  addAmounts,
+  amountValidator,
+  compareAmounts,
+  formatAmount,
+  formatMoney,
+  isPositiveAmount,
+  isValidAmount,
+  isZeroAmount,
+  nonNegativeAmountValidator,
+  parseAmountInput,
+  positiveAmountValidator,
+  ratioToPercent,
+  subtractAmounts,
+} from './money';
+
+describe('addAmounts', () => {
+  it('adds exactly, keeping the larger scale', () => {
+    expect(addAmounts('0.1', '0.2')).toBe('0.3');
+    expect(addAmounts('100', '-0.50')).toBe('99.50');
+    expect(addAmounts('-1', '-1')).toBe('-2');
+  });
+});
+
+describe('compareAmounts', () => {
+  it('compares exactly, independent of the number of decimal digits', () => {
+    expect(compareAmounts('100', '100.00')).toBe(0);
+    expect(compareAmounts('99.99', '100')).toBe(-1);
+    expect(compareAmounts('100.01', '100')).toBe(1);
+    expect(compareAmounts('-1', '0')).toBe(-1);
+    expect(compareAmounts('12345678901234567890.000000000000000002', '12345678901234567890.000000000000000001')).toBe(1);
+  });
+
+  it('isPositiveAmount rejects zero, negatives and garbage', () => {
+    expect(isPositiveAmount('0.01')).toBe(true);
+    expect(isPositiveAmount('0.00')).toBe(false);
+    expect(isPositiveAmount('-5')).toBe(false);
+    expect(isPositiveAmount('abc')).toBe(false);
+  });
+});
+
+describe('positiveAmountValidator / nonNegativeAmountValidator', () => {
+  it('positive: rejects zero and negatives, ignores empty and malformed values', () => {
+    expect(positiveAmountValidator(new FormControl('10'))).toBeNull();
+    expect(positiveAmountValidator(new FormControl('0.00'))).toEqual({ positiveAmount: true });
+    expect(positiveAmountValidator(new FormControl('-1'))).toEqual({ positiveAmount: true });
+    expect(positiveAmountValidator(new FormControl(''))).toBeNull();
+    expect(positiveAmountValidator(new FormControl('abc'))).toBeNull();
+  });
+
+  it('non-negative: allows zero, rejects negatives', () => {
+    expect(nonNegativeAmountValidator(new FormControl('0'))).toBeNull();
+    expect(nonNegativeAmountValidator(new FormControl('-0.01'))).toEqual({ negativeAmount: true });
+  });
+});
+
+describe('ratioToPercent', () => {
+  it('turns a decimal ratio into a whole percentage rounded down', () => {
+    expect(ratioToPercent('0')).toBe('0');
+    expect(ratioToPercent('0.355')).toBe('35');
+    expect(ratioToPercent('0.5')).toBe('50');
+    expect(ratioToPercent('1')).toBe('100');
+    expect(ratioToPercent('1.2')).toBe('120');
+    expect(ratioToPercent('0.0099')).toBe('0');
+  });
+
+  it('returns "0" for invalid or negative input', () => {
+    expect(ratioToPercent('-0.5')).toBe('0');
+    expect(ratioToPercent('n/a')).toBe('0');
+  });
+});
 
 describe('isValidAmount', () => {
   it('accepts a plain integer', () => {

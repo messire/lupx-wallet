@@ -1,0 +1,37 @@
+@if (geometry(); as chart) {
+  <figure class="forecast-chart">
+    <div class="forecast-chart__scale metadata" aria-hidden="true">
+      <span>макс. {{ chart.maxLabel }} {{ currencyCode() }}</span>
+      <span>мин. {{ chart.minLabel }} {{ currencyCode() }}</span>
+    </div>
+    <svg
+      class="forecast-chart__svg"
+      [attr.viewBox]="'0 0 ' + width + ' ' + height"
+      preserveAspectRatio="none"
+      role="img"
+      [attr.aria-label]="summary()"
+    >
+      @for (area of chart.negativeAreas; track area.x) {
+        <rect class="forecast-chart__negative" [attr.x]="area.x" y="0" [attr.width]="area.width" [attr.height]="height" />
+      }
+      <line class="forecast-chart__zero" x1="0" [attr.x2]="width" [attr.y1]="chart.zeroY" [attr.y2]="chart.zeroY" />
+      <path class="forecast-chart__line" [attr.d]="chart.linePath" />
+      @for (point of chart.points; track point.date) {
+        <!-- A zero-length round-capped stroke stays a circle in a non-uniformly scaled viewBox. -->
+        <path
+          class="forecast-chart__point"
+          [class.forecast-chart__point--negative]="point.negative"
+          [attr.d]="'M ' + point.x + ' ' + point.y + ' h 0'"
+        />
+      }
+    </svg>
+    <div class="forecast-chart__axis metadata" aria-hidden="true">
+      <span>{{ formatDate(from()) }}</span>
+      <span class="forecast-chart__legend">
+        <span class="forecast-chart__swatch"></span>
+        период с отрицательным остатком
+      </span>
+      <span>{{ formatDate(to()) }}</span>
+    </div>
+  </figure>
+}

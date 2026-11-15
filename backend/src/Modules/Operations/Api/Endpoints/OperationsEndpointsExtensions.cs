@@ -31,7 +31,7 @@ public static class OperationsEndpointsExtensions
                     statusCode: StatusCodes.Status400BadRequest,
                     title: "Operation validation failed",
                     detail: "Укажите баланс на конец дня.",
-                    type: "https://lupexwallet/errors/operation-validation-error");
+                    type: OperationsProblemDetails.ValidationType);
             }
 
             try
@@ -226,14 +226,7 @@ public static class OperationsEndpointsExtensions
         }).WithName("restoreTransfer");
     }
 
-    /// <summary>
-    /// Soft-delete lifecycle violations (ADR-0002, §3) and concurrent modification — all answered
-    /// with 409. TransferLegMismatchException is deliberately absent: it signals corrupted data (500).
-    /// </summary>
-    private static bool IsLifecycleConflict(OperationsDomainException ex) => ex is
-        OperationPartOfTransferException or OperationAlreadyDeletedException or OperationNotDeletedException
-        or OperationIsDeletedException or TransferAlreadyDeletedException or TransferNotDeletedException
-        or CorrectionNotEditableException or RecordModifiedConcurrentlyException;
+    private static bool IsLifecycleConflict(OperationsDomainException ex) => OperationsProblemDetails.IsLifecycleConflict(ex);
 
     /// <summary>
     /// Absolute is recognized before enum binding and answered with 400: the balance for a date is
@@ -275,18 +268,10 @@ public static class OperationsEndpointsExtensions
         return null;
     }
 
-    private static IResult ValidationProblem(OperationsDomainException ex) => Results.Problem(
-        statusCode: StatusCodes.Status400BadRequest,
-        title: "Operation validation failed",
-        detail: ex.Message,
-        type: "https://lupexwallet/errors/operation-validation-error");
+    private static IResult ValidationProblem(OperationsDomainException ex) => Results.Problem(OperationsProblemDetails.Validation(ex));
 
-    private static IResult ConflictProblem(OperationsDomainException ex, string? instance = null) => Results.Problem(
-        statusCode: StatusCodes.Status409Conflict,
-        title: "Operation conflict",
-        detail: ex.Message,
-        instance: instance,
-        type: "https://lupexwallet/errors/operation-conflict");
+    private static IResult ConflictProblem(OperationsDomainException ex, string? instance = null) =>
+        Results.Problem(OperationsProblemDetails.Conflict(ex, instance));
 
     private static OperationResponse ToResponse(OperationDto dto) => new(
         dto.Id, dto.WalletId, dto.OperationTypeId, new MoneyResponse(dto.Amount.ToString(CultureInfo.InvariantCulture), dto.CurrencyId),

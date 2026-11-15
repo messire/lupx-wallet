@@ -120,6 +120,10 @@ public static class WalletsEndpointsExtensions
                 {
                     return Results.NotFound();
                 }
+                catch (WalletHasActiveReservationsException ex)
+                {
+                    return ReservationsConflictProblem(ex);
+                }
                 catch (CannotArchivePrimaryWalletException ex)
                 {
                     return ConflictProblem(ex);
@@ -164,6 +168,10 @@ public static class WalletsEndpointsExtensions
                 {
                     return ValidationProblem(ex);
                 }
+                catch (WalletHasActiveReservationsException ex)
+                {
+                    return ReservationsConflictProblem(ex);
+                }
                 catch (WalletCurrencyChangeNotAllowedException ex)
                 {
                     return ConflictProblem(ex);
@@ -181,6 +189,10 @@ public static class WalletsEndpointsExtensions
                 catch (WalletNotFoundException)
                 {
                     return Results.NotFound();
+                }
+                catch (WalletHasActiveReservationsException ex)
+                {
+                    return ReservationsConflictProblem(ex);
                 }
                 catch (WalletDomainException ex) when (ex is WalletDeletionNotAllowedException or CannotDeletePrimaryWalletException)
                 {
@@ -203,6 +215,13 @@ public static class WalletsEndpointsExtensions
         title: "Wallet conflict",
         detail: ex.Message,
         type: "https://lupexwallet/errors/wallet-conflict");
+
+    /// <summary>ADR-0010 §4: a separate type, so the client can offer to release the reserve.</summary>
+    private static IResult ReservationsConflictProblem(WalletDomainException ex) => Results.Problem(
+        statusCode: StatusCodes.Status409Conflict,
+        title: "Wallet has fund reservations",
+        detail: ex.Message,
+        type: "https://lupexwallet/errors/wallet-has-reservations");
 
     private static WalletPageResponse ToResponse(WalletPageDto page) => new(
         page.Data.Select(ToResponse).ToList(),

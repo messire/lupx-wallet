@@ -1,0 +1,173 @@
+<div class="page">
+  <div class="page-heading">
+    <h1>Прогноз</h1>
+  </div>
+
+  <div class="toolbar">
+    <div class="segmented" role="group" aria-label="Горизонт прогноза">
+      @for (option of horizons; track option.value) {
+        <button
+          type="button"
+          class="segmented__option"
+          [class.segmented__option--active]="horizon() === option.value"
+          [attr.aria-pressed]="horizon() === option.value"
+          (click)="selectHorizon(option.value)"
+        >
+          {{ option.label }}
+        </button>
+      }
+    </div>
+  </div>
+
+  @if (isLoading() && !forecast()) {
+    <app-loading-state label="Загрузка…">
+      <app-skeleton height="88px" />
+      <app-skeleton height="240px" />
+    </app-loading-state>
+  } @else if (noPrimaryWallet()) {
+    <app-empty-state title="Прогноз не может быть построен" description="В системе не назначен основной кошелёк — его валюта нужна для расчёта." />
+  } @else if (loadError(); as error) {
+    <app-error-state [message]="error" (retry)="load()" />
+  } @else if (forecast(); as data) {
+    <div [class.forecast--stale]="isLoading()" [attr.aria-busy]="isLoading()">
+      <section class="summary-grid" aria-label="Итоги прогноза">
+        <div class="summary-tile">
+          <span class="metadata">Сейчас · {{ formatDate(data.from) }}</span>
+          <strong class="summary-value money" [class.amount-negative]="isNegative(data.startBalance.amount)">{{ money(data.startBalance) }}</strong>
+        </div>
+        <div class="summary-tile">
+          <span class="metadata">Ожидается на {{ formatDate(data.to) }}</span>
+          <strong class="summary-value money" [class.amount-negative]="isNegative(data.endBalance.amount)">{{ money(data.endBalance) }}</strong>
+        </div>
+        <div class="summary-tile">
+          <span class="metadata">Минимальный остаток · {{ formatDate(data.minBalanceDate) }}</span>
+          <strong class="summary-value money" [class.amount-negative]="isNegative(data.minBalance.amount)">{{ money(data.minBalance) }}</strong>
+        </div>
+        <div class="summary-tile">
+          <span class="metadata">Первая дата с минусом</span>
+          @if (data.firstNegativeDate) {
+            <strong class="summary-value amount-negative">{{ formatDate(data.firstNegativeDate) }}</strong>
+          } @else {
+            <strong class="summary-value">Не ожидается</strong>
+          }
+        </div>
+      </section>
+
+      @if (data.negativePeriods.length > 0) {
+        <div class="forecast-alert" role="note">
+          <app-badge tone="danger">Отрицательный остаток</app-badge>
+          <span>
+            @for (period of data.negativePeriods; track period.from; let last = $last) {
+              {{ period.from === period.to ? formatDate(period.from) : formatDate(period.from) + ' — ' + formatDate(period.to) }}{{ last ? '' : ', ' }}
+            }
+          </span>
+        </div>
+      }
+
+      <app-forecast-chart
+        [days]="data.days"
+        [from]="data.from"
+        [to]="data.to"
+        [negativePeriods]="data.negativePeriods"
+        [currencyCode]="calculationCurrency()"
+      />
+
+      <h2 class="section-title">Движения по дням</h2>
+      @if (movementDays().length === 0) {
+        <app-empty-state
+          title="Движений не ожидается"
+          description="Добавьте плановые операции или график кредита — прогноз учитывает только их и текущие балансы."
+        />
+        <p class="metadata"><a routerLink="/planning">Плановые операции</a></p>
+      } @else {
+        <div class="table-scroll" role="region" aria-label="Движения прогноза по дням" tabindex="0">
+          <table class="app-table app-table--min-720">
+            <thead>
+              <tr>
+                <th class="date-col">Дата</th>
+                <th>Движения</th>
+                <th class="amount-col">Изменение</th>
+                <th class="amount-col">Остаток на конец дня</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (day of movementDays(); track day.date) {
+                <tr [class.forecast-row--negative]="day.isNegative">
+                  <td class="date-col">{{ formatDate(day.date) }}</td>
+                  <td>
+                    <ul class="movement-list">
+                      @for (movement of day.movements; track $index) {
+                        <li>
+                          <span>{{ movementTitle(movement) }}</span>
+                          <span class="metadata">
+                            {{ kindLabels[movement.kind] }}
+                            @if (movement.isOverdue) {
+                              · <span class="amount-negative">просрочено с {{ formatDate(movement.originalDate) }}</span>
+                            }
+                            @if (movement.walletId) {
+                              · {{ walletName(movement.walletId) }}
+                            }
+                          </span>
+                          <span class="money movement-list__amount" [class.amount-negative]="isNegative(movement.convertedAmount.amount)">
+                            {{ money(movement.convertedAmount) }}
+                            @if (isConverted(movement)) {
+                              <span class="metadata">({{ money(movement.amount) }})</span>
+                            }
+                          </span>
+                        </li>
+                      }
+                    </ul>
+                  </td>
+                  <td class="amount-col money" [class.amount-negative]="isNegative(day.netChange.amount)">{{ money(day.netChange) }}</td>
+                  <td class="amount-col money" [class.amount-negative]="day.isNegative">
+                    {{ money(day.expectedBalance) }}
+                    @if (day.isNegative) {
+                      <span class="visually-hidden">(отрицательный)</span>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+
+      <section class="report-note metadata" aria-label="Как посчитан прогноз">
+        <p>
+          Валюта расчёта — {{ calculationCurrency() }} (валюта основного кошелька). Курсы на {{ formatDate(data.ratesAsOfDate) }}, источник: {{ data.rateSource }}.
+        </p>
+        @if (data.rates.length > 0) {
+          <ul>
+            @for (item of data.rates; track item.fromCurrencyId) {
+              <li>{{ rate(item) }}</li>
+            }
+          </ul>
+        }
+        @if (data.assumptions.length > 0) {
+          <p><strong>Предположения расчёта:</strong></p>
+          <ul>
+            @for (assumption of data.assumptions; track $index) {
+              <li>{{ assumption }}</li>
+            }
+          </ul>
+        }
+        @if (data.excludedWallets.length > 0) {
+          <p><app-badge tone="warning">Не учтено кошельков: {{ data.excludedWallets.length }}</app-badge></p>
+          <ul>
+            @for (excluded of data.excludedWallets; track excluded.walletId) {
+              <li>{{ walletName(excluded.walletId) }} — {{ excluded.reason }}</li>
+            }
+          </ul>
+        }
+        @if (data.missingRates.length > 0) {
+          <p><app-badge tone="warning">Не вошли в прогноз — нет курса</app-badge></p>
+          <ul>
+            @for (missing of data.missingRates; track missing.currencyId) {
+              <li>{{ missing.reason }} Позиций: {{ missing.itemCount }}.</li>
+            }
+          </ul>
+        }
+      </section>
+    </div>
+  }
+</div>

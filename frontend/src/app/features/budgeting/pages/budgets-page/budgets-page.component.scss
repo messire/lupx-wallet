@@ -1,0 +1,38 @@
+.budget-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lw-space-2);
+}
+
+.unbudgeted-row td {
+  color: var(--lw-text-secondary);
+  font-style: italic;
+}
+
+tfoot th,
+tfoot td {
+  border-top: 1px solid var(--lw-border);
+  font-weight: 500;
+}
+
+.types-col {
+  min-width: 220px;
+  white-space: normal;
+}
+
+.rates-note {
+  margin-top: var(--lw-space-4);
+
+  .metadata {
+    margin: 0 0 var(--lw-space-2);
+  }
+}
+
+.rates-summary {
+  cursor: pointer;
+}
+
+.rates-list {
+  margin: 0 0 var(--lw-space-3);
+  padding-left: var(--lw-space-6);
+}

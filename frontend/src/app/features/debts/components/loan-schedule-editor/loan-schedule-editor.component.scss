@@ -1,0 +1,46 @@
+:host {
+  display: grid;
+  gap: var(--lw-space-6);
+}
+
+.schedule-section {
+  display: grid;
+  gap: var(--lw-space-3);
+
+  .metadata {
+    margin: 0;
+  }
+}
+
+.schedule-section__title {
+  margin: 0;
+  font-size: var(--lw-type-body);
+  font-weight: 500;
+}
+
+.schedule-generate,
+.schedule-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--lw-space-3);
+}
+
+.schedule-generate__field,
+.schedule-row__field {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.schedule-rows {
+  display: grid;
+  gap: var(--lw-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.schedule-row {
+  padding-bottom: var(--lw-space-2);
+  border-bottom: 1px solid var(--lw-divider);
+}

@@ -6,10 +6,18 @@ using LupexWallet.Audit.Infrastructure;
 using LupexWallet.BalanceHistory.Api;
 using LupexWallet.BalanceHistory.Infrastructure;
 using LupexWallet.BuildingBlocks.Infrastructure;
+using LupexWallet.Budgeting.Api;
+using LupexWallet.Budgeting.Infrastructure;
+using LupexWallet.Debts.Api;
+using LupexWallet.Debts.Infrastructure;
 using LupexWallet.ExchangeRates.Api;
 using LupexWallet.ExchangeRates.Infrastructure;
+using LupexWallet.Funds.Api;
+using LupexWallet.Funds.Infrastructure;
 using LupexWallet.Operations.Api;
 using LupexWallet.Operations.Infrastructure;
+using LupexWallet.Planning.Api;
+using LupexWallet.Planning.Infrastructure;
 using LupexWallet.ReferenceData.Api;
 using LupexWallet.ReferenceData.Infrastructure;
 using LupexWallet.Reporting.Api;
@@ -93,6 +101,12 @@ builder.Services.AddBalanceHistoryModule(builder.Configuration);
 builder.Services.AddExchangeRatesModule(builder.Configuration);
 builder.Services.AddAuditModule(builder.Configuration);
 builder.Services.AddReportingModule(builder.Configuration);
+builder.Services.AddBudgetingModule(builder.Configuration);
+
+// ---- ADR-0010 modules ----
+builder.Services.AddFundsModule(builder.Configuration);
+builder.Services.AddDebtsModule(builder.Configuration);
+builder.Services.AddPlanningModule(builder.Configuration);
 
 // ---- CORS: разрешённые origin'ы фронтенда — из конфига (Cors:AllowedOrigins), +
 // localhost:4200 в Development. Список пуст в проде, пока не задан деплойментом
@@ -157,6 +171,12 @@ using (var migrationScope = app.Services.CreateScope())
     await services.GetRequiredService<LupexWallet.BalanceHistory.Infrastructure.BalanceHistoryDbContext>().Database.MigrateAsync();
     await services.GetRequiredService<LupexWallet.ExchangeRates.Infrastructure.ExchangeRatesDbContext>().Database.MigrateAsync();
     await services.GetRequiredService<LupexWallet.Audit.Infrastructure.AuditDbContext>().Database.MigrateAsync();
+    await services.GetRequiredService<LupexWallet.Budgeting.Infrastructure.BudgetingDbContext>().Database.MigrateAsync();
+
+    // ---- ADR-0010 modules ----
+    await services.GetRequiredService<LupexWallet.Funds.Infrastructure.FundsDbContext>().Database.MigrateAsync();
+    await services.GetRequiredService<LupexWallet.Debts.Infrastructure.DebtsDbContext>().Database.MigrateAsync();
+    await services.GetRequiredService<LupexWallet.Planning.Infrastructure.PlanningDbContext>().Database.MigrateAsync();
 }
 
 if (app.Environment.IsDevelopment())
@@ -179,6 +199,10 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
+// Ошибки другого модуля во вложенной команде → тот же ProblemDetails, что у его собственных
+// эндпоинтов, а не 500 (docs/api/api-design.md, «Ошибки вложенных команд»).
+app.UseModuleExceptionMapping();
+
 // /auth/login — единственный анонимный эндпоинт; все остальные требуют Bearer-токен
 // (docs/api/api-design.md, §"Аутентификация").
 app.MapAuthEndpoints();
@@ -191,6 +215,12 @@ api.MapBalanceHistoryEndpoints();
 api.MapExchangeRatesEndpoints();
 api.MapAuditEndpoints();
 api.MapReportingEndpoints();
+api.MapBudgetingEndpoints();
+
+// ---- ADR-0010 modules ----
+api.MapFundsEndpoints();
+api.MapDebtsEndpoints();
+api.MapPlanningEndpoints();
 
 app.Run();
 

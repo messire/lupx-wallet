@@ -3,10 +3,9 @@ namespace LupexWallet.ReferenceData.Application;
 /// <summary>
 /// Consumer-owned port (ADR-0001 §2, way d; usage rule — ADR-0002 §4): "is this reference
 /// item used by at least one record". Used by Delete{WalletType|OperationType|Currency}
-/// CommandHandler. Exactly two implementations are expected, one per data owner:
-/// Wallets.Infrastructure.WalletsReferenceItemUsageProbe (WalletType/Currency, archived
-/// wallets included) and Operations.Infrastructure.OperationsReferenceItemUsageProbe
-/// (OperationType/Currency, soft-deleted operations included). Exchange rates do not count as
+/// CommandHandler. One implementation per module that references reference items (data
+/// owners): Wallets, Operations, Budgeting, Funds, Debts, Planning — each in its own
+/// Infrastructure, registered by its Add*Module. Exchange rates do not count as
 /// usage: they are deleted together with the currency (ExchangeRates CurrencyDeletedHandler).
 /// The consumer injects IEnumerable&lt;IReferenceItemUsageProbe&gt; and treats isUsed as true if
 /// any source confirms it; an empty list is a DI configuration error (fail-fast), not "not
@@ -43,10 +42,9 @@ public static class ReferenceItemUsageProbeExtensions
         if (materializedProbes.Count == 0)
         {
             throw new InvalidOperationException(
-                "Не зарегистрировано ни одной реализации IReferenceItemUsageProbe — ожидались ровно две: " +
-                "Wallets.Infrastructure.WalletsReferenceItemUsageProbe (AddWalletsModule) и " +
-                "Operations.Infrastructure.OperationsReferenceItemUsageProbe (AddOperationsModule; " +
-                "удалённые операции считаются, курсы валют — нет). " +
+                "Не зарегистрировано ни одной реализации IReferenceItemUsageProbe — каждый модуль, " +
+                "ссылающийся на элементы справочников (Wallets, Operations, Budgeting, Funds, Debts, Planning), " +
+                "регистрирует свою реализацию в Add*Module. " +
                 "Пустой список — ошибка конфигурации DI, не «не используется» (ADR-0001, «Обязательное " +
                 "условие: пустой список реализаций — ошибка, не «false»»).");
         }

@@ -1,5 +1,6 @@
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { environment } from '../../../../../environments/environment';
 import { ReportingComponent } from './reporting-page.component';
 
@@ -25,6 +26,7 @@ describe('ReportingComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [ReportingComponent, HttpClientTestingModule],
+      providers: [provideRouter([])],
     }).compileComponents();
 
     httpMock = TestBed.inject(HttpTestingController);
@@ -52,6 +54,9 @@ describe('ReportingComponent', () => {
       .flush({
         date: null,
         amount: { amount: '1234.56', currencyId: 'cur-usd' },
+        actualAmount: { amount: '1234.56', currencyId: 'cur-usd' },
+        reservedAmount: { amount: '0', currencyId: 'cur-usd' },
+        freeAmount: { amount: '1234.56', currencyId: 'cur-usd' },
         ratesAsOfDate: '2026-09-11',
         excludedWallets: [],
       });
@@ -61,6 +66,26 @@ describe('ReportingComponent', () => {
     expect(component.currentTotal()?.amount.amount).toBe('1234.56');
     expect(component.currencyCode('cur-usd')).toBe('USD');
     expect(component.currentNoPrimaryWallet()).toBe(false);
+  });
+
+  it('shows the current total as free funds next to the actual balance and reserves (ADR-0010 В9)', () => {
+    const fixture = createComponent();
+
+    httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/reporting/total-amount`).flush({
+      date: null,
+      amount: { amount: '700.00', currencyId: 'cur-usd' },
+      actualAmount: { amount: '1000.00', currencyId: 'cur-usd' },
+      reservedAmount: { amount: '300.00', currencyId: 'cur-usd' },
+      freeAmount: { amount: '700.00', currencyId: 'cur-usd' },
+      ratesAsOfDate: new Date().toISOString().slice(0, 10),
+      excludedWallets: [],
+    });
+    fixture.detectChanges();
+
+    const text = ((fixture.nativeElement as HTMLElement).textContent ?? '').replace(/\s+/g, ' ');
+    expect(text).toContain('Свободно');
+    expect(text).toContain('Фактический баланс');
+    expect(text).toContain('Зарезервировано в фондах');
   });
 
   it('shows a friendly message when there is no primary wallet (404), not a raw error', () => {
@@ -84,6 +109,9 @@ describe('ReportingComponent', () => {
       .flush({
         date: null,
         amount: { amount: '100', currencyId: 'cur-usd' },
+        actualAmount: { amount: '100', currencyId: 'cur-usd' },
+        reservedAmount: { amount: '0', currencyId: 'cur-usd' },
+        freeAmount: { amount: '100', currencyId: 'cur-usd' },
         ratesAsOfDate: '2026-09-11',
         excludedWallets: [{ walletId: 'wallet-crypto', reason: 'Курс валюты недоступен.' }],
       });
@@ -100,6 +128,9 @@ describe('ReportingComponent', () => {
     httpMock.expectOne((req) => req.url === `${environment.apiBaseUrl}/reporting/total-amount`).flush({
       date: null,
       amount: { amount: '100', currencyId: 'cur-usd' },
+      actualAmount: { amount: '100', currencyId: 'cur-usd' },
+      reservedAmount: { amount: '0', currencyId: 'cur-usd' },
+      freeAmount: { amount: '100', currencyId: 'cur-usd' },
       ratesAsOfDate: '2026-09-11',
       excludedWallets: [],
     });
@@ -114,6 +145,9 @@ describe('ReportingComponent', () => {
       .flush({
         date: '2026-05-01',
         amount: { amount: '80', currencyId: 'cur-usd' },
+        actualAmount: { amount: '80', currencyId: 'cur-usd' },
+        reservedAmount: null,
+        freeAmount: null,
         ratesAsOfDate: '2026-04-20',
         excludedWallets: [],
       });
@@ -132,6 +166,9 @@ describe('ReportingComponent', () => {
       httpMock.expectOne((req) => totalUrl(req) && !req.params.has('date')).flush({
         date: null,
         amount: { amount: '100', currencyId: 'cur-usd' },
+        actualAmount: { amount: '100', currencyId: 'cur-usd' },
+        reservedAmount: { amount: '0', currencyId: 'cur-usd' },
+        freeAmount: { amount: '100', currencyId: 'cur-usd' },
         ratesAsOfDate: '2026-09-11',
         excludedWallets: [],
       });
@@ -140,6 +177,9 @@ describe('ReportingComponent', () => {
       httpMock.expectOne((req) => totalUrl(req) && req.params.get('date') === '2026-05-01').flush({
         date: '2026-05-01',
         amount: { amount: '80', currencyId: 'cur-usd' },
+        actualAmount: { amount: '80', currencyId: 'cur-usd' },
+        reservedAmount: null,
+        freeAmount: null,
         ...historical,
       });
       fixture.detectChanges();
@@ -183,6 +223,9 @@ describe('ReportingComponent', () => {
       httpMock.expectOne(totalUrl).flush({
         date: null,
         amount: { amount: '100', currencyId: 'cur-usd' },
+        actualAmount: { amount: '100', currencyId: 'cur-usd' },
+        reservedAmount: { amount: '0', currencyId: 'cur-usd' },
+        freeAmount: { amount: '100', currencyId: 'cur-usd' },
         ratesAsOfDate: '2026-09-11',
         excludedWallets: [{ walletId: 'wallet-crypto', reason: 'Курс валюты недоступен.' }],
       });

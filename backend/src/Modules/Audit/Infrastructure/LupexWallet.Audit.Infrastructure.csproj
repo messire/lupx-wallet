@@ -10,6 +10,18 @@
     <ProjectReference Include="..\..\Operations\Domain\LupexWallet.Operations.Domain.csproj" />
     <ProjectReference Include="..\..\BalanceHistory\Domain\LupexWallet.BalanceHistory.Domain.csproj" />
     <ProjectReference Include="..\..\ExchangeRates\Domain\LupexWallet.ExchangeRates.Domain.csproj" />
+    <ProjectReference Include="..\..\Budgeting\Domain\LupexWallet.Budgeting.Domain.csproj" />
+  </ItemGroup>
+
+  <!-- Funds (ADR-0010 §4): event types only. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\Funds\Domain\LupexWallet.Funds.Domain.csproj" />
+    <ProjectReference Include="..\..\Debts\Domain\LupexWallet.Debts.Domain.csproj" />
+  </ItemGroup>
+
+  <!-- Planning (ADR-0010 §6) -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\Planning\Domain\LupexWallet.Planning.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -235,6 +235,9 @@ body {
    `transfers-page.component.scss` был без `:focus-visible` — фокусируемый по
    `tabindex="0"` регион оставался без видимого кольца фокуса, дефект доступности). */
 .table-scroll {
+  /* position: relative — иначе абсолютно позиционированный `.visually-hidden`
+     (подпись столбца действий) выходит из области прокрутки и растягивает страницу. */
+  position: relative;
   overflow-x: auto;
   border-radius: var(--lw-radius-sm);
 
@@ -466,4 +469,236 @@ input[type='number'].app-field__input {
   flex-wrap: wrap;
   gap: var(--lw-space-3);
   margin-top: var(--lw-space-2);
+}
+
+/* Вертикальная форма в диалоге (v0.4: долги, кредиты, фонды, бюджеты, планы) —
+   то же, что локальные `.entity-form` форм операций и переводов. */
+.entity-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lw-space-4);
+}
+
+.entity-form__intro {
+  margin: 0;
+}
+
+/* Список действий строки, открываемый по «···» (паттерн Operations/Transfers,
+   docs/design/transfers.html #transfer-actions) — общий для экранов v0.4. */
+.row-actions-list {
+  display: grid;
+  gap: var(--lw-space-2);
+
+  .metadata {
+    margin: var(--lw-space-2) 0 0;
+  }
+}
+
+.row-actions-list__link {
+  display: block;
+  box-sizing: border-box;
+  min-height: var(--lw-control-height);
+  padding: 10px var(--lw-space-4);
+  border-radius: var(--lw-radius-sm);
+  color: var(--lw-text);
+  font-size: var(--lw-type-body);
+  text-decoration: none;
+
+  &:hover {
+    background: var(--lw-accent-soft);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--lw-accent);
+    outline-offset: 2px;
+  }
+}
+
+/* Минимальная ширина таблицы: на узком экране она прокручивается внутри
+   `.table-scroll`, а не сжимает суммы (ui-kit §4). */
+.app-table--min-520 {
+  min-width: 520px;
+}
+
+.app-table--min-720 {
+  min-width: 720px;
+}
+
+.app-table--min-860 {
+  min-width: 860px;
+}
+
+/* В таблицах с минимальной шириной (экраны v0.4) даты и суммы не переносятся:
+   таблица прокручивается целиком. */
+.app-table--min-520,
+.app-table--min-720,
+.app-table--min-860 {
+  .amount-col,
+  .date-col {
+    white-space: nowrap;
+  }
+
+  /* `.app-table th/td { text-align: left }` специфичнее общего `.amount-col`. */
+  .amount-col {
+    text-align: right;
+  }
+}
+
+/* Ячейка «···» в конце строки таблицы. */
+.app-table td.actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Сводка ключевых значений карточками по ширине (ui-kit §4: минимум 260px на
+   карточку, на узком экране одна колонка). */
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: var(--lw-space-4);
+  margin-bottom: var(--lw-space-6);
+}
+
+.summary-tile {
+  padding: var(--lw-space-4) var(--lw-space-6);
+  border: 1px solid var(--lw-surface-border);
+  border-radius: var(--lw-radius-md);
+  background: var(--lw-glass);
+}
+
+.summary-value {
+  display: block;
+  margin: var(--lw-space-1) 0;
+  font-size: var(--lw-type-section);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* Пары «подпись — значение» в диалоге деталей. */
+.detail-list {
+  display: grid;
+  grid-template-columns: minmax(140px, auto) 1fr;
+  gap: var(--lw-space-2) var(--lw-space-4);
+  margin: 0 0 var(--lw-space-4);
+  font-size: var(--lw-type-small);
+
+  dt {
+    color: var(--lw-text-secondary);
+  }
+
+  dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* Компактный вариант внутри карточки сводки: подпись слева, сумма справа без переноса. */
+.detail-list--compact {
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin: var(--lw-space-2) 0 0;
+
+  dd {
+    text-align: right;
+    white-space: nowrap;
+  }
+}
+
+/* Вкладки экрана под заголовком страницы (как в «Справочниках»). */
+.page > app-tabs {
+  display: block;
+  margin-bottom: var(--lw-space-6);
+}
+
+/* Полоса прогресса (фонд): рядом всегда текстовое значение — не только цвет. */
+.progress-bar {
+  display: block;
+  width: 100%;
+  min-width: 80px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--lw-divider);
+}
+
+.progress-bar__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--lw-primary-fill);
+}
+
+/* Отрицательное значение (перерасход, дефицит) — цвет дополняет знак и подпись. */
+.amount-negative {
+  color: var(--lw-danger);
+}
+
+.dialog-section-title {
+  margin: var(--lw-space-4) 0 var(--lw-space-2);
+  font-size: var(--lw-type-body);
+  font-weight: 500;
+}
+
+/* Переключатель периода «‹ Октябрь 2026 ›» (бюджеты, планы). */
+.period-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--lw-space-2);
+}
+
+.period-switcher__label {
+  min-width: 140px;
+  font-weight: 500;
+  text-align: center;
+}
+
+/* Примечание отчёта о курсах и исключениях (свободные средства, прогноз, долги). */
+.report-note {
+  margin: var(--lw-space-4) 0 0;
+
+  p,
+  ul {
+    margin: 0 0 var(--lw-space-2);
+  }
+
+  ul {
+    padding-left: var(--lw-space-6);
+  }
+
+  summary {
+    cursor: pointer;
+  }
+}
+
+/* Строка фильтров/переключателей над таблицей экрана v0.4. */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--lw-space-4);
+  margin-bottom: var(--lw-space-6);
+}
+
+.toolbar__field {
+  flex: 0 1 260px;
+  min-width: 180px;
+}
+
+@media (max-width: 767px) {
+  .detail-list:not(.detail-list--compact) {
+    grid-template-columns: 1fr;
+    gap: 0;
+
+    dd {
+      margin-bottom: var(--lw-space-2);
+    }
+  }
+
+  .toolbar__field {
+    flex: 1 1 100%;
+  }
+
+  /* В перенесённой строке выравнивание кнопок по инпуту соседнего поля не нужно. */
+  .toolbar .app-field-align {
+    margin-top: 0;
+  }
 }

@@ -18,6 +18,8 @@
 │ Wallets  │Reference │Operations │BalanceHistory │ ExchangeRates │
 │ module   │Data      │module     │module         │ module        │
 ├──────────┴──────────┴───────────┴──────────────┴───────────────┤
+│ Debts │ Funds │ Budgeting │ Planning   (v0.4.0, ADR-0010)       │
+├──────────────────────────────────────────────────────────────┤
 │ Reporting module (read-only, композиция поверх остальных)      │
 ├──────────────────────────────────────────────────────────────┤
 │ Audit module (сквозной, подписан на события всех модулей)      │
@@ -28,7 +30,7 @@
 ┌───────────────────────────────▼───────────────────────────────┐
 │  PostgreSQL — одна база, отдельная схема на модуль             │
 │  wallets | reference_data | operations | balance_history |     │
-│  exchange_rates | audit                                        │
+│  exchange_rates | audit | debts | funds | budgeting | planning │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -72,11 +74,13 @@ frontend/
 4. Узкий порт, объявленный в `Application` **потребителя**, когда прямая ссылка образовала бы цикл; реализации — в `Infrastructure` одного или нескольких владельцев данных, потребитель внедряет `IEnumerable<TПорт>` и агрегирует ответы сам (например, `IWalletHistorySource`, `IReferenceItemUsageProbe`). Пустой список реализаций — ошибка конфигурации, а не отрицательный ответ.
 5. `*.Infrastructure`-подписчик на доменное событие другого модуля ссылается на `*.Domain` издателя ради типа события (не бизнес-логики).
 
+Связи модулей v0.4.0 (ADR-0010): порты Operations `IOperationRecorder`/`IOperationFactsLookup` (способ 3) для Debts, Planning, Budgeting; порт Debts `IDebtObligationsLookup` (способ 3) для Funds и Reporting; Funds.Infrastructure подписан на события Debts (`DebtRepaymentRecorded`, `LoanPaymentRecorded`) и Operations (`OperationDeleted`, `OperationRestored`) — способ 5; потребительский порт Wallets `IWalletReservationProbe` (способ 4) реализует Funds; Reporting.Application читает Funds, Debts, Planning через их порты.
+
 Подробно, с критерием выбора между портом и событием — [ADR-0001](./adr/0001-modular-monolith.md), §2–§3.
 
 ## 3. Данные: одна база, схема на модуль
 
-- Один физический экземпляр PostgreSQL, шесть схем: `wallets`, `reference_data`, `operations`, `balance_history`, `exchange_rates`, `audit`.
+- Один физический экземпляр PostgreSQL, десять схем: `wallets`, `reference_data`, `operations`, `balance_history`, `exchange_rates`, `audit` и с v0.4.0 (ADR-0010) `debts`, `funds`, `budgeting`, `planning`.
 - У каждого модуля (кроме `Reporting`) — собственный `DbContext` и собственные EF Core-миграции, ограниченные своей схемой. Это дает настоящую компиляционную границу: код модуля `Operations` физически не может обратиться к `DbSet<Wallet>`, потому что у него нет такого `DbContext`.
 - `Reporting` не имеет своей схемы на запись; для чтения использует либо узкие read-контракты других модулей (см. §2, п.3), либо (как оптимизация в будущем) SQL-представления (views), объединяющие данные из нескольких схем — что допустимо для чисто читающего CQRS-модуля и не нарушает границу записи.
 

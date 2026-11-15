@@ -31,6 +31,22 @@
     <ProjectReference Include="..\..\Modules\Audit\Api\LupexWallet.Audit.Api.csproj" />
     <ProjectReference Include="..\..\Modules\Reporting\Infrastructure\LupexWallet.Reporting.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Reporting\Api\LupexWallet.Reporting.Api.csproj" />
+    <ProjectReference Include="..\..\Modules\Budgeting\Infrastructure\LupexWallet.Budgeting.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Budgeting\Api\LupexWallet.Budgeting.Api.csproj" />
+  </ItemGroup>
+
+  <!-- Funds (ADR-0010 §4) -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\Modules\Funds\Infrastructure\LupexWallet.Funds.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Funds\Api\LupexWallet.Funds.Api.csproj" />
+    <ProjectReference Include="..\..\Modules\Debts\Infrastructure\LupexWallet.Debts.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Debts\Api\LupexWallet.Debts.Api.csproj" />
+  </ItemGroup>
+
+  <!-- Planning (ADR-0010 §6) -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\Modules\Planning\Infrastructure\LupexWallet.Planning.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Planning\Api\LupexWallet.Planning.Api.csproj" />
   </ItemGroup>
 
 </Project>

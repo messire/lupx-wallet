@@ -31,5 +31,9 @@ public sealed class WalletTypeReferenceNotFoundException() : WalletDomainExcepti
 public sealed class WalletTypeReferenceInactiveException()
     : WalletDomainException("Тип кошелька деактивирован — нельзя ссылаться на него в новом/изменяемом кошельке.");
 
+/// <summary>ADR-0010 §4: the wallet holds a reserve of an active fund (archive, delete, currency change).</summary>
+public sealed class WalletHasActiveReservationsException()
+    : WalletDomainException("В кошельке есть деньги, зарезервированные в фондах. Сначала снимите резерв.");
+
 /// <summary>The currency is neither active nor (for creation by code) available.</summary>
 public sealed class CurrencyReferenceNotFoundException() : WalletDomainException("Валюта не найдена или недоступна.");

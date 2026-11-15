@@ -37,6 +37,33 @@ export const routes: Routes = [
           import('./features/transfers/pages/transfers-page/transfers-page.component').then((m) => m.TransfersComponent),
       },
       {
+        // UI Planning — planned transactions and their occurrences (#9, #13, ADR-0010 §6).
+        path: 'planning',
+        loadComponent: () =>
+          import('./features/planning/pages/planning-page/planning-page.component').then((m) => m.PlanningComponent),
+      },
+      {
+        // UI Budgeting — monthly budgets and expense categories (#11, #13, ADR-0010 §5).
+        path: 'budgets',
+        loadComponent: () =>
+          import('./features/budgeting/pages/budgets-page/budgets-page.component').then((m) => m.BudgetsComponent),
+      },
+      {
+        // UI Debts — debts and the creditor dictionary (#6, #13, ADR-0010 §3).
+        path: 'debts',
+        loadComponent: () => import('./features/debts/pages/debts-page/debts-page.component').then((m) => m.DebtsComponent),
+      },
+      {
+        // UI Debts — loans with a payment schedule (#8, #13, ADR-0010 §3).
+        path: 'loans',
+        loadComponent: () => import('./features/debts/pages/loans-page/loans-page.component').then((m) => m.LoansComponent),
+      },
+      {
+        // UI Funds — funds and reservations (#7, #13, ADR-0010 §4).
+        path: 'funds',
+        loadComponent: () => import('./features/funds/pages/funds-page/funds-page.component').then((m) => m.FundsComponent),
+      },
+      {
         // UI BalanceHistory (UC-18, UC-20, UC-23).
         path: 'balance-history',
         loadComponent: () =>
@@ -57,6 +84,17 @@ export const routes: Routes = [
         path: 'reporting',
         loadComponent: () =>
           import('./features/reporting/pages/reporting-page/reporting-page.component').then((m) => m.ReportingComponent),
+      },
+      {
+        // Free funds and upcoming payments (#12, ADR-0010 §7, В9).
+        path: 'free-funds',
+        loadComponent: () =>
+          import('./features/reporting/pages/free-funds-page/free-funds-page.component').then((m) => m.FreeFundsComponent),
+      },
+      {
+        // Cash-flow forecast (#10, ADR-0010 §7).
+        path: 'forecast',
+        loadComponent: () => import('./features/reporting/pages/forecast-page/forecast-page.component').then((m) => m.ForecastComponent),
       },
       {
         // UI for managing reference data (UC-26, UC-27 + deactivate/delete; UC-28 — the "Валюты" tab:

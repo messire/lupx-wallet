@@ -23,6 +23,18 @@ public sealed class ExchangeRateLookup(
         return quote?.Rate.Rate;
     }
 
+    public async Task<(decimal Rate, DateOnly RatesAsOfDate)?> GetLatestRateWithDateAsync(
+        CurrencyId from, CurrencyId to, CancellationToken cancellationToken)
+    {
+        if (from == to)
+        {
+            return (1m, DateOnly.FromDateTime(DateTime.UtcNow));
+        }
+
+        var quote = await latestRepository.FindAsync(from, to, cancellationToken);
+        return quote is null ? null : (quote.Rate.Rate, DateOnly.FromDateTime(quote.FetchedAt.UtcDateTime));
+    }
+
     public async Task<(decimal Rate, DateOnly RatesAsOfDate)?> GetHistoricalRateAsync(
         CurrencyId from, CurrencyId to, DateOnly date, CancellationToken cancellationToken)
     {

@@ -42,9 +42,12 @@ public static class ExchangeRatesModuleExtensions
 
         // Клиент Frankfurter (ADR-0004) — FrankfurterTestableHandler всегда делегирует
         // реальному SocketsHttpHandler в production/разработке; интеграционные тесты
-        // подставляют TestOverride через тот же Singleton-экземпляр (без реального сетевого
-        // вызова).
-        services.AddSingleton<FrankfurterTestableHandler>();
+        // подставляют обработчик через Singleton FrankfurterTestOverride (без реального сетевого
+        // вызова). Сам handler — Transient: IHttpClientFactory периодически пересоздаёт цепочку
+        // и освобождает (Dispose) старую вместе с primary handler'ом; Singleton-handler после
+        // первой ротации навсегда оставался disposed → 500 на /exchange-rates/refresh.
+        services.AddSingleton<FrankfurterTestOverride>();
+        services.AddTransient<FrankfurterTestableHandler>();
         services
             .AddHttpClient(FrankfurterClient.HttpClientName, client =>
             {

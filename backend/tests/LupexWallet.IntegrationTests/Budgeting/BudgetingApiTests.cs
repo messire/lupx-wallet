@@ -28,7 +28,7 @@ public sealed record BudgetExecutionDtoResponse(
 /// <summary>Budgeting API (ADR-0010 §5): expense categories, monthly budgets and their execution.</summary>
 public sealed class BudgetingApiTests(ApiTestFixture fixture) : IntegrationTestBase(fixture)
 {
-    private readonly FrankfurterFake _fake = new(fixture.Factory.GetFrankfurterTestableHandler());
+    private readonly FrankfurterFake _fake = new(fixture.Factory.GetFrankfurterTestOverride());
 
     private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
 

@@ -15,7 +15,7 @@ namespace LupexWallet.IntegrationTests.ReferenceData;
 /// </summary>
 public sealed class AvailableCurrenciesApiTests(ApiTestFixture fixture) : IntegrationTestBase(fixture)
 {
-    private readonly FrankfurterFake _fake = new(fixture.Factory.GetFrankfurterTestableHandler());
+    private readonly FrankfurterFake _fake = new(fixture.Factory.GetFrankfurterTestOverride());
 
     private async Task<IReadOnlyList<AvailableCurrencyResponse>> GetAvailableAsync()
     {

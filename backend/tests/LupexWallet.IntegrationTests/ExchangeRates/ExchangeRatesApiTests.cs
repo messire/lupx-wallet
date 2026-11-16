@@ -23,9 +23,9 @@ public sealed record LatestExchangeRatesResponse(DateTimeOffset? LastSuccessfulU
 public sealed class ExchangeRatesApiTests(ApiTestFixture fixture) : IntegrationTestBase(fixture)
 {
     // xunit создаёт новый экземпляр класса теста на каждый [Fact] — новый FrankfurterFake заменяет
-    // TestOverride Singleton-обработчика (общий на весь прогон коллекции) и сбрасывает настройки,
+    // FrankfurterTestOverride (Singleton, общий на весь прогон коллекции) и сбрасывает настройки,
     // так что подмена предыдущего теста не доживает до следующего.
-    private readonly FrankfurterFake _fake = new(fixture.Factory.GetFrankfurterTestableHandler());
+    private readonly FrankfurterFake _fake = new(fixture.Factory.GetFrankfurterTestOverride());
 
     private void SetSuccessfulRate(decimal rate) => _fake.DefaultRate = rate;
 

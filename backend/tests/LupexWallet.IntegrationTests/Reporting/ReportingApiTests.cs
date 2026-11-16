@@ -21,7 +21,7 @@ public sealed record TotalAmountResponse(
 /// </summary>
 public sealed class ReportingApiTests(ApiTestFixture fixture) : IntegrationTestBase(fixture)
 {
-    private readonly FrankfurterFake _fake = new(fixture.Factory.GetFrankfurterTestableHandler());
+    private readonly FrankfurterFake _fake = new(fixture.Factory.GetFrankfurterTestOverride());
 
     private void SetSuccessfulRate(decimal rate) => _fake.DefaultRate = rate;
 

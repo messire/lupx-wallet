@@ -24,12 +24,12 @@ public enum FrankfurterFakeFailure
 public sealed record FrankfurterRatesRequest(string Base, string Quote, DateOnly? From, DateOnly? To);
 
 /// <summary>
-/// Stand-in for the Frankfurter v2 service, installed as <see cref="FrankfurterTestableHandler.TestOverride"/>
+/// Stand-in for the Frankfurter v2 service, installed as <see cref="FrankfurterTestOverride.Handler"/>
 /// (no network). Routes by path: <c>currencies</c> → the configured catalog; <c>rates</c> with
 /// <c>from</c>/<c>to</c> → a daily series (without weekends unless <see cref="IncludeWeekends"/>), <c>rates</c>
 /// without a period → the latest rate (the last served day not after today). Counts calls and can fail
 /// per endpoint or per source currency. Creating an instance replaces the override and starts from
-/// the defaults, so every test gets a clean fake (the handler is a singleton for the whole run).
+/// the defaults, so every test gets a clean fake (the override holder is a singleton for the whole run).
 /// </summary>
 public sealed class FrankfurterFake
 {
@@ -54,9 +54,9 @@ public sealed class FrankfurterFake
     private int _currenciesCalls;
     private int _ratesCalls;
 
-    public FrankfurterFake(FrankfurterTestableHandler handler)
+    public FrankfurterFake(FrankfurterTestOverride testOverride)
     {
-        handler.TestOverride = HandleAsync;
+        testOverride.Handler = HandleAsync;
     }
 
     /// <summary>Rate returned for a pair that has no explicit <see cref="SetRate"/>.</summary>

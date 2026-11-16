@@ -287,7 +287,7 @@ public sealed class PlanningReportsApiTests(ApiTestFixture fixture) : Integratio
     public async Task DebtsSummary_ConvertsToPrimaryCurrencyByLatestRate()
     {
         await AuthenticateAsync();
-        var fake = new FrankfurterFake(Fixture.Factory.GetFrankfurterTestableHandler()) { DefaultRate = 0.5m };
+        var fake = new FrankfurterFake(Fixture.Factory.GetFrankfurterTestOverride()) { DefaultRate = 0.5m };
         var eur = await Client.CreateCurrencyAsync("EUR");
         var usd = await Client.CreateCurrencyAsync("USD");
         await Client.CreateWalletAsync(0m, currencyId: eur.Id, name: "Основной");

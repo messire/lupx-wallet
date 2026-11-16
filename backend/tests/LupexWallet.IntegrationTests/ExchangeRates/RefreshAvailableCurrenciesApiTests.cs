@@ -13,7 +13,7 @@ namespace LupexWallet.IntegrationTests.ExchangeRates;
 /// </summary>
 public sealed class RefreshAvailableCurrenciesApiTests(ApiTestFixture fixture) : IntegrationTestBase(fixture)
 {
-    private readonly FrankfurterFake _fake = new(fixture.Factory.GetFrankfurterTestableHandler());
+    private readonly FrankfurterFake _fake = new(fixture.Factory.GetFrankfurterTestOverride());
 
     private async Task<IReadOnlyList<AvailableCurrencyResponse>> GetAvailableAsync() =>
         (await Client.GetFromJsonAsync<List<AvailableCurrencyResponse>>("/api/v1/currencies/available"))!;

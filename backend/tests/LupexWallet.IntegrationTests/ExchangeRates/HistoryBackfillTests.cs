@@ -24,7 +24,7 @@ namespace LupexWallet.IntegrationTests.ExchangeRates;
 /// </summary>
 public sealed class HistoryBackfillTests(ApiTestFixture fixture) : IntegrationTestBase(fixture)
 {
-    private readonly FrankfurterFake _fake = new(fixture.Factory.GetFrankfurterTestableHandler());
+    private readonly FrankfurterFake _fake = new(fixture.Factory.GetFrankfurterTestOverride());
 
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
 

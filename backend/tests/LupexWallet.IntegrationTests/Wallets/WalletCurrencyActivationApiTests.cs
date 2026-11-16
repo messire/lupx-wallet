@@ -17,7 +17,7 @@ namespace LupexWallet.IntegrationTests.Wallets;
 /// </summary>
 public sealed class WalletCurrencyActivationApiTests(ApiTestFixture fixture) : IntegrationTestBase(fixture)
 {
-    private readonly FrankfurterFake _fake = new(fixture.Factory.GetFrankfurterTestableHandler());
+    private readonly FrankfurterFake _fake = new(fixture.Factory.GetFrankfurterTestOverride());
 
     private Task<ReferenceItemResponse> CreateTypeAsync() => Client.CreateWalletTypeAsync($"Тип-{Guid.NewGuid():N}");
 

@@ -6,6 +6,7 @@
 - Documentation and user communication are in Russian.
 - Do not modify business requirements silently.
 - Record significant architectural decisions as ADRs.
+- Versioning rule: `docs/conventions/versioning.md`.
 
 ## РЕЖИМ ОРКЕСТРАЦИИ
 

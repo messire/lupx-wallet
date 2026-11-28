@@ -2642,7 +2642,9 @@ Ux-parity-ревью нашло молчаливое расхождение: UC-
 
 Пользователь спросил про Android-версию; сравнили PWA, обёртку Capacitor и нативное приложение, пользователь выбрал PWA. Решение и устройство описаны в [ADR-0008](architecture/adr/0008-deployment.md#установка-на-телефон-pwa).
 
-**Сделано:** манифест и иконки (обычные и maskable), `theme-color`, `apple-touch-icon`; `lang="ru"` и заголовок вкладки `LupexWallet` вместо `LupexWalletWeb` в `index.html`; service worker Angular только для оболочки приложения, без кэша API; применение новой версии при запуске (`core/pwa/app-update.ts`, 5 юнит-тестов).
+**Сделано:** манифест и иконки (обычные и maskable), `theme-color`, `apple-touch-icon`; `lang="ru"` и заголовок вкладки `LupexWallet` вместо `LupexWalletWeb` в `index.html`; service worker Angular только для оболочки приложения, без кэша API; применение новой версии при запуске (`core/pwa/app-update.ts`, 6 юнит-тестов).
+
+**Ревью (Codex, исправлено):** перезагрузка в первые 10 секунд могла сбросить форму, открытую сразу после запуска. Теперь после первого нажатия на экран или клавишу автоматическая перезагрузка не выполняется.
 
 **Проверки:** все 636 юнит-тестов фронтенда, `check:boundaries`, `build:deploy`. Production-сборка поднята локально в Chromium (Playwright): service worker активен, `Page.getInstallabilityErrors` и ошибки манифеста пусты.
 

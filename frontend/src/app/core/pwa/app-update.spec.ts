@@ -49,6 +49,13 @@ describe('provideAppUpdate', () => {
     expect(reload).not.toHaveBeenCalled();
   });
 
+  it('does not reload after the user has tapped or typed, even right after start', async () => {
+    await init(true);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }));
+    versionUpdates.next(versionReady());
+    expect(reload).not.toHaveBeenCalled();
+  });
+
   it('ignores events other than VERSION_READY', async () => {
     await init(true);
     versionUpdates.next({ type: 'VERSION_DETECTED', version: { hash: 'new' } });

@@ -3,10 +3,10 @@ import { SwUpdate } from '@angular/service-worker';
 import { filter } from 'rxjs';
 
 /**
- * How long after start a freshly downloaded version is applied by reloading the page.
- * Within this window the user has not started typing yet, so a reload loses nothing.
- * A version found later is applied on the next app launch (Angular service worker default),
- * so an open form is never reset by an update.
+ * How long after start a freshly downloaded version is applied by reloading the page,
+ * provided the user has not touched the page yet (so a reload loses nothing).
+ * A version found later, or after the first tap or key press, is applied on the next
+ * app launch (Angular service worker default), so an open form is never reset by an update.
  */
 export const STARTUP_RELOAD_WINDOW_MS = 10_000;
 
@@ -30,11 +30,18 @@ export function provideAppUpdate(
     }
 
     const startedAt = now();
+    let userInteracted = false;
+    const markInteracted = (): void => {
+      userInteracted = true;
+    };
+    for (const type of ['pointerdown', 'keydown'] as const) {
+      document.addEventListener(type, markInteracted, { capture: true, once: true });
+    }
 
     updates.versionUpdates
       .pipe(filter((event) => event.type === 'VERSION_READY'))
       .subscribe(() => {
-        if (now() - startedAt <= STARTUP_RELOAD_WINDOW_MS) {
+        if (!userInteracted && now() - startedAt <= STARTUP_RELOAD_WINDOW_MS) {
           reload();
         }
       });

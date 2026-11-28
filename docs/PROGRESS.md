@@ -2637,3 +2637,13 @@ Ux-parity-ревью нашло молчаливое расхождение: UC-
 **Причина:** `FrankfurterTestableHandler` был зарегистрирован как Singleton и отдавался `IHttpClientFactory` в качестве primary handler'а именованного клиента `Frankfurter`. Фабрика периодически (HandlerLifetime, по умолчанию 2 минуты) пересоздаёт цепочку обработчиков и вызывает `Dispose` у истёкшей — вместе с её primary handler'ом. Так как handler был общим, после первой ротации он оставался disposed навсегда, и любое обращение к Frankfurter (ручное обновление, фоновое обновление курсов, догрузка истории) падало до перезапуска сервиса. `ObjectDisposedException` не относится к `FrankfurterClientException`, поэтому не маппилось в 502 и уходило как 500. В интеграционных тестах баг не проявлялся: `TestOverride` возвращает ответ раньше, чем `base.SendAsync` проверяет признак disposed.
 
 **Исправлено:** состояние подмены вынесено в отдельный Singleton `FrankfurterTestOverride` (свойство `Handler`), а `FrankfurterTestableHandler` стал Transient — у каждой цепочки фабрики свой экземпляр со своим `SocketsHttpHandler`. Интеграционные тесты получают `FrankfurterTestOverride` через `LupexWalletApiFactory.GetFrankfurterTestOverride()`. Регрессионный тест `tests/LupexWallet.UnitTests/ExchangeRates/FrankfurterHttpClientRegistrationTests.cs` воспроизводит ротацию (две цепочки из зарегистрированной конфигурации, первая освобождается) и проверяет, что вторая цепочка не падает с `ObjectDisposedException`; на старой регистрации тест падает именно с этим исключением.
+
+## Установка на телефон (PWA) (2026-11-28)
+
+Пользователь спросил про Android-версию; сравнили PWA, обёртку Capacitor и нативное приложение, пользователь выбрал PWA. Решение и устройство описаны в [ADR-0008](architecture/adr/0008-deployment.md#установка-на-телефон-pwa).
+
+**Сделано:** манифест и иконки (обычные и maskable), `theme-color`, `apple-touch-icon`; `lang="ru"` и заголовок вкладки `LupexWallet` вместо `LupexWalletWeb` в `index.html`; service worker Angular только для оболочки приложения, без кэша API; применение новой версии при запуске (`core/pwa/app-update.ts`, 5 юнит-тестов).
+
+**Проверки:** все 636 юнит-тестов фронтенда, `check:boundaries`, `build:deploy`. Production-сборка поднята локально в Chromium (Playwright): service worker активен, `Page.getInstallabilityErrors` и ошибки манифеста пусты.
+
+**Ручная проверка (после деплоя):** открыть https://lupx-wallet.vercel.app в Chrome на Android → меню ⋮ → «Установить приложение» → запуск с иконки, вход, работа экранов.

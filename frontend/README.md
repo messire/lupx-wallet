@@ -69,6 +69,10 @@ Checks every import/re-export/dynamic `import()` under `src/app` with the TypeSc
 npm run check:boundaries:test
 ```
 
+## Installable app (PWA)
+
+The production build includes a web app manifest (`public/manifest.webmanifest`, icons in `public/icons/`) and the Angular service worker (`ngsw-config.json`), so the site can be installed on Android from Chrome («Установить приложение»). The service worker caches only the app shell, never API responses, and is disabled in `ng serve`. To try it locally, serve `dist/lupex-wallet-web/browser` over `http://localhost` after `npm run build`. Details and update behaviour: [ADR-0008](../docs/architecture/adr/0008-deployment.md#установка-на-телефон-pwa).
+
 ## Browser smoke tests (Playwright)
 
 ```bash
